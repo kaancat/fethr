@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  padding: 0;
+  /* Changed from transparent to a visible color for debugging */
+  background: #f0f0f0;
+}
+
+/* Modified to ensure visibility */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* Ensure content is visible and clickable */
+  background: #f0f0f0;
+} 
