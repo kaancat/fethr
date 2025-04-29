@@ -37,13 +37,6 @@ export enum RecordingState {
   TRANSCRIBING = 'TRANSCRIBING',         // Processing recording and generating transcription
 }
 
-// Timing configuration (ms)
-const DOUBLE_TAP_THRESHOLD_MS = 300;    // Max time between taps to count as double tap
-const FORCE_RESET_DELAY_MS = 100;       // Delay before state reset takes effect
-
-// Debug mode - set to true for extensive logging
-const DEBUG = true;
-
 /**
  * HotkeyManager handles interactions with the system's global hotkeys
  * 

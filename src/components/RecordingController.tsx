@@ -1,12 +1,10 @@
 console.log("%c---> EXECUTING RecordingController.tsx <---", "background: yellow; color: black; font-weight: bold; font-size: 14px; padding: 5px;");
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useAudioManager } from '../utils/AudioManager';
 import { LocalTranscriptionManager } from '../utils/LocalTranscriptionManager';
-import { webmToWavBlob } from '../utils/audioUtils';
 import { RecordingState, HotkeyManager } from '../HotkeyManager';
-import { toast } from 'react-hot-toast';
 import { PasteCopiedText, copyToClipboard } from '../utils/clipboardUtils';
 import RecordingPill from './RecordingPill';
 
@@ -30,7 +28,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
   const [currentRecordingState, setCurrentRecordingState] = useState<RecordingState>(RecordingState.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transcription, setTranscription] = useState<string>('');
-  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
   const durationInterval = useRef<number | null>(null);
   const transcriptionTriggered = useRef<boolean>(false);
@@ -233,7 +230,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       console.log('%c[RecordingController] 🔄 handleTranscription process START', 'color: blue; font-weight: bold');
       console.log('[RecordingController] Received raw audioBlob size:', audioBlob.size, 'bytes, type:', audioBlob.type);
       setErrorMessage(null);
-      if (!isTranscribing) { setIsTranscribing(true); }
 
       // **** BYPASS WAV CONVERSION ****
       console.log('[RecordingController] Skipping webmToWavBlob conversion.');
@@ -300,7 +296,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       setTranscription('');
     } finally {
       console.log('%c[RecordingController] 🏁 handleTranscription process FINALLY block', 'color: green; font-weight: bold');
-      setIsTranscribing(false);
       transcriptionTriggered.current = false;
       console.log('[RecordingController] Transcription triggered flag reset');
 
