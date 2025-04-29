@@ -136,7 +136,7 @@ pub fn check_model_exists(model_directory: &PathBuf, model_name: &str) -> bool {
 pub async fn transcribe_local_audio(
     app_handle: AppHandle,
     state: tauri::State<'_, TranscriptionState>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     println!("\n\n RUST: >>> Entered NO-ARG transcribe_local_audio command function <<<");
 
     // Determine audio path internally

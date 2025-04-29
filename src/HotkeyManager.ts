@@ -53,7 +53,6 @@ export enum RecordingState {
 export class HotkeyManager {
   private static instance: HotkeyManager | null = null;
   private currentState: RecordingState = RecordingState.IDLE;
-  private isWaitingForPotentialRelease: boolean = false;
   private releaseOrDoubleTapTimerId: number | null = null;
   private static readonly HOLD_RELEASE_THRESHOLD_MS = 300;
   
@@ -229,59 +228,43 @@ export class HotkeyManager {
    * - TRANSCRIBING: Ignore hotkey presses
    */
   private handleHotkeyPress(): void {
-    const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    console.log(`%c[${timestamp}] [HotkeyManager] 🔑 HOTKEY PRESS HANDLER TRIGGERED 🔑`, 'background-color: #f03; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px; margin: 5px 0;');
-    console.log(`%c[${timestamp}] [HotkeyManager] CURRENT STATE IN HANDLER: ${this.currentState}`, 'background-color: #f03; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px;');
+    console.log(`%c[HotkeyManager] handleHotkeyPress called in state: ${this.currentState}`, 'color: #4a0; font-weight: bold');
 
-    try {
-      if (this.currentState === RecordingState.TRANSCRIBING) {
-        console.log(`%c[${timestamp}] [HotkeyManager] ⚠️ IGNORING HOTKEY PRESS - Currently in TRANSCRIBING state ⚠️`, 'background-color: orange; color: black; font-weight: bold; padding: 2px 5px; border-radius: 3px;');
-        return;
-      }
-
-      // Event-driven: Only use timers for double-tap/hold detection, not for polling or legacy logic
-      if (this.currentState === RecordingState.IDLE) {
-        // Start recording and begin double-tap/hold detection
+    switch (this.currentState) {
+      case RecordingState.IDLE:
+        // First press: Start recording and start double-tap timer
         this.setState(RecordingState.RECORDING);
-        this.isWaitingForPotentialRelease = true;
-        if (this.releaseOrDoubleTapTimerId) {
-          clearTimeout(this.releaseOrDoubleTapTimerId);
-          this.releaseOrDoubleTapTimerId = null;
-        }
-        // Timer for hold-release or double-tap
-        this.releaseOrDoubleTapTimerId = window.setTimeout(() => {
-          if (this.currentState === RecordingState.RECORDING && this.isWaitingForPotentialRelease) {
-            // Hold-release: treat as single press
-            this.isWaitingForPotentialRelease = false;
-            this.releaseOrDoubleTapTimerId = null;
+        this.clearDoubleTapTimer(); // Clear any existing timer
+        this.doubleTapTimeoutId = window.setTimeout(() => {
+          // If timer expires without second tap, transition to TRANSCRIBING
+          if (this.currentState === RecordingState.RECORDING) {
+            console.log('[HotkeyManager] Double-tap timer expired - transitioning to TRANSCRIBING');
             this.setState(RecordingState.TRANSCRIBING);
           }
         }, HotkeyManager.HOLD_RELEASE_THRESHOLD_MS);
-      } else if (this.currentState === RecordingState.RECORDING) {
-        if (this.isWaitingForPotentialRelease) {
-          // Double-tap detected: lock recording
-          if (this.releaseOrDoubleTapTimerId) {
-            clearTimeout(this.releaseOrDoubleTapTimerId);
-            this.releaseOrDoubleTapTimerId = null;
-          }
-          this.isWaitingForPotentialRelease = false;
+        break;
+
+      case RecordingState.RECORDING:
+        // Second press: If within timer, enter LOCKED_RECORDING. If after timer, go to TRANSCRIBING
+        if (this.doubleTapTimeoutId) {
+          // Within double-tap window - enter LOCKED_RECORDING
+          this.clearDoubleTapTimer();
           this.setState(RecordingState.LOCKED_RECORDING);
+        } else {
+          // After double-tap window - treat as single tap to stop
+          this.setState(RecordingState.TRANSCRIBING);
         }
-      } else if (this.currentState === RecordingState.LOCKED_RECORDING) {
-        // Stop locked recording and start transcription
+        break;
+
+      case RecordingState.LOCKED_RECORDING:
+        // Any press during locked recording stops and starts transcription
         this.setState(RecordingState.TRANSCRIBING);
-      }
-      // No legacy polling, no deprecated timers remain
-      // All state transitions are now event-driven and robust
-      console.log('%c[HotkeyManager] Hotkey press processing complete.', 'color: #3a0; font-weight: bold;');
-    } catch (error) {
-      console.error('%c[HotkeyManager] ❌ ERROR HANDLING HOTKEY PRESS:', 'background-color: #f00; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px;', error);
-      if (error instanceof Error) {
-        console.error('[HotkeyManager] Error name:', error.name);
-        console.error('[HotkeyManager] Error message:', error.message);
-        console.error('[HotkeyManager] Error stack:', error.stack);
-      }
-      this.forceReset();
+        break;
+
+      case RecordingState.TRANSCRIBING:
+        // Ignore presses during transcription
+        console.log('[HotkeyManager] Ignoring hotkey press during transcription');
+        break;
     }
   }
 
@@ -294,33 +277,20 @@ export class HotkeyManager {
    * @param newState The new state to transition to
    */
   private setState(newState: RecordingState): void {
-    if (this.currentState === newState) return;
-    try {
-      const oldState = this.currentState;
-      const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      console.log(`%c[${timestamp}] [HotkeyManager] ===> Attempting state transition: ${oldState} -> ${newState}`, 'background-color: magenta; color: white; font-size: 12px; font-weight: bold; padding: 2px 5px; border-radius: 3px;');
-      console.trace(`Trace for state change to ${newState}`);
-      this.currentState = newState;
-      // If moving away from RECORDING, clear the release/double-tap timer
-      if (oldState === RecordingState.RECORDING) {
-        if (this.releaseOrDoubleTapTimerId) {
-          clearTimeout(this.releaseOrDoubleTapTimerId);
-          this.releaseOrDoubleTapTimerId = null;
-        }
-        this.isWaitingForPotentialRelease = false;
-      }
-      if (oldState === RecordingState.RECORDING || oldState === RecordingState.LOCKED_RECORDING) {
-        this.clearDoubleTapTimer();
-      }
-      this.emitStateChange(oldState, newState);
-    } catch (error) {
-      console.error('%c[HotkeyManager] ❌ ERROR SETTING STATE:', 'background-color: #f00; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px;', error);
-      if (error instanceof Error) {
-        console.error('[HotkeyManager] Error name:', error.name);
-        console.error('[HotkeyManager] Error message:', error.message);
-        console.error('[HotkeyManager] Error stack:', error.stack);
-      }
+    const oldState = this.currentState;
+    if (oldState === newState) return; // No change needed
+
+    console.log(`%c[HotkeyManager] State transition: ${oldState} → ${newState}`, 'color: #4a0; font-weight: bold');
+
+    // Clear any existing timers
+    this.clearDoubleTapTimer();
+    if (this.resetStateTimeoutId) {
+      window.clearTimeout(this.resetStateTimeoutId);
+      this.resetStateTimeoutId = null;
     }
+
+    this.currentState = newState;
+    this.emitStateChange(oldState, newState);
   }
 
   /**
@@ -415,7 +385,6 @@ export class HotkeyManager {
       clearTimeout(this.releaseOrDoubleTapTimerId);
       this.releaseOrDoubleTapTimerId = null;
     }
-    this.isWaitingForPotentialRelease = false;
     if (this.resetStateTimeoutId) {
       window.clearTimeout(this.resetStateTimeoutId);
       this.resetStateTimeoutId = null;
@@ -440,7 +409,6 @@ export class HotkeyManager {
     if (this.releaseOrDoubleTapTimerId) {
       clearTimeout(this.releaseOrDoubleTapTimerId);
       this.releaseOrDoubleTapTimerId = null;
-      this.isWaitingForPotentialRelease = false;
     }
 
     // Get current state before reset

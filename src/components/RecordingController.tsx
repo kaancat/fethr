@@ -5,8 +5,9 @@ import { listen } from '@tauri-apps/api/event';
 import { useAudioManager } from '../utils/AudioManager';
 import { LocalTranscriptionManager } from '../utils/LocalTranscriptionManager';
 import { RecordingState, HotkeyManager } from '../HotkeyManager';
-import { PasteCopiedText, copyToClipboard } from '../utils/clipboardUtils';
+import { copyToClipboard } from '../utils/clipboardUtils';
 import RecordingPill from './RecordingPill';
+import { toast } from 'react-hot-toast';
 
 // Define ConfigOptions interface locally instead of importing from types
 interface ConfigOptions {
@@ -226,49 +227,23 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
   
   // Handle transcription (called from AudioManager callback)
   const handleTranscription = async (audioBlob: Blob) => {
+    console.log('[RecordingController] Starting handleTranscription...');
+    let result: string | null = null;
+
     try {
-      console.log('%c[RecordingController] 🔄 handleTranscription process START', 'color: blue; font-weight: bold');
-      console.log('[RecordingController] Received raw audioBlob size:', audioBlob.size, 'bytes, type:', audioBlob.type);
-      setErrorMessage(null);
-
-      // **** BYPASS WAV CONVERSION ****
-      console.log('[RecordingController] Skipping webmToWavBlob conversion.');
-      // const wavBlob = await webmToWavBlob(audioBlob); // COMMENTED OUT
-      // console.log('[RecordingController] Audio converted successfully, size:', wavBlob.size, 'bytes'); // COMMENTED OUT
-
-      // Use the original audioBlob instead of wavBlob
-      const blobToTranscribe = audioBlob; // Use original blob
-
-      // **** COMMENT OUT or Adjust SIZE CHECK ****
-      if (blobToTranscribe.size < 5000) { // Adjust threshold maybe? Check if *any* data
-        console.error('[RecordingController] Original audioBlob is too small or empty. Size:', blobToTranscribe.size);
-        throw new Error('Recorded audio is empty or too short');
-      }
-      // if (wavBlob.size < 100) { // COMMENTED OUT
-      //   console.error('[RecordingController] Generated WAV blob is too small or empty. Size:', wavBlob.size);
-      //   throw new Error('Recorded audio is empty or too short');
-      // }
-      // **** END BYPASS ****
-
-      if (blobToTranscribe.size > 25 * 1024 * 1024) {
-        console.error('[RecordingController] Audio file is too large:', (blobToTranscribe.size / (1024 * 1024)).toFixed(2), 'MB');
-        throw new Error('Audio file too large (>25MB)');
-      }
-
-      let result = '';
-      console.log('[RecordingController] Using local Whisper model for transcription');
       if (!transcriptionManager.current) {
-        console.error('[RecordingController] Transcription manager not initialized');
         throw new Error('Transcription manager not initialized');
       }
-      console.log('[RecordingController] Sending raw audioBlob to local transcription engine');
-      result = await transcriptionManager.current.transcribeAudio(blobToTranscribe);
 
-      console.log('%c[RecordingController] ✅ Transcription completed:', 'color: green; font-weight: bold', result);
+      // Start transcription
+      console.log('[RecordingController] Calling transcriptionManager.transcribeAudio...');
+      result = await transcriptionManager.current.transcribeAudio(audioBlob);
+      console.log('[RecordingController] Transcription result received, length:', result?.length ?? 0);
 
-      if (!result || result.trim() === '') {
-        console.warn('%c[RecordingController] ⚠️ Transcription produced empty result', 'color: orange; font-weight: bold');
-        setErrorMessage('Transcription produced empty result');
+      // Handle empty or generic results
+      if (!result || result.trim() === '' || result === "Whisper transcription completed successfully.") {
+        console.warn('%c[RecordingController] ⚠️ Transcription produced empty or generic result', 'color: orange; font-weight: bold');
+        setErrorMessage(result.trim() === '' ? 'Transcription produced empty result' : 'No speech detected');
         setTranscription('');
       } else {
         console.log('[RecordingController] Setting transcription result, length:', result.length);
@@ -277,43 +252,43 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
 
         // Auto-copy to clipboard if enabled
         if (configOptions.autoCopyToClipboard) {
-          console.log('[RecordingController] Auto-copying transcription to clipboard');
-          await copyToClipboard(result);
-          console.log('[RecordingController] Transcription copied to clipboard successfully');
+          console.log('[RecordingController] Attempting auto-copy...');
+          try {
+            await copyToClipboard(result);
+            console.log('[RecordingController] Transcription copied to clipboard successfully');
+          } catch (copyError) {
+            console.error('[RecordingController] Auto-copy FAILED:', copyError);
+            // Don't throw - just show a toast and continue
+            toast.error("Failed to copy to clipboard.");
+          }
         }
-        
-        // Auto-paste if enabled
+
+        // Temporarily disable auto-paste for debugging
+        /* 
         if (configOptions.autoPasteTranscription) {
-          console.log('[RecordingController] Auto-pasting transcription');
-          await PasteCopiedText();
-          console.log('[RecordingController] Transcription pasted successfully');
+          console.log('[RecordingController] Attempting auto-paste...');
+          try {
+            await PasteCopiedText();
+            console.log('[RecordingController] Transcription pasted successfully');
+          } catch (pasteError) {
+            console.error('[RecordingController] Auto-paste FAILED:', pasteError);
+            // Don't throw - just show a toast and continue
+            toast.error("Failed to auto-paste.");
+          }
         }
+        */
       }
     } catch (error) {
-      const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      console.error(`%c[${timestamp}] [RecordingController] ---> ENTERED CATCH block in handleTranscription <---`, 'color: red; font-weight: bold;', error);
+      console.error('[RecordingController] Error in handleTranscription:', error);
       setErrorMessage(`Transcription error: ${error instanceof Error ? error.message : String(error)}`);
       setTranscription('');
     } finally {
-      console.log('%c[RecordingController] 🏁 handleTranscription process FINALLY block', 'color: green; font-weight: bold');
-      transcriptionTriggered.current = false;
-      console.log('[RecordingController] Transcription triggered flag reset');
-
-      // Check HotkeyManager state BEFORE resetting
-      if (hotkeyManager.current) {
-        const currentHotkeyState = hotkeyManager.current.getCurrentState();
-        console.log(`[RecordingController] Checking HotkeyManager state before reset: ${RecordingState[currentHotkeyState]}`);
-        
-        if (currentHotkeyState === RecordingState.TRANSCRIBING) {
-          console.log('[RecordingController] Calling HotkeyManager.forceReset() to return to IDLE.');
-          hotkeyManager.current.forceReset();
-          console.log('[RecordingController] ---> HotkeyManager.forceReset() call completed.');
-        } else {
-          console.warn(`[RecordingController] Skipping forceReset in finally block because HotkeyManager state is already ${RecordingState[currentHotkeyState]}`);
-        }
-      } else {
-        console.error('[RecordingController] Cannot force reset - HotkeyManager ref is null in finally block!');
+      console.log('[RecordingController] Transcription handling complete, resetting state...');
+      // Only reset if we're still in TRANSCRIBING state
+      if (hotkeyManager.current && hotkeyManager.current.getCurrentState() === RecordingState.TRANSCRIBING) {
+        hotkeyManager.current.forceReset();
       }
+      transcriptionTriggered.current = false;
     }
   };
   

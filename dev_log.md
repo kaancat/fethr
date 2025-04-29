@@ -1115,3 +1115,13 @@ Goal: Replace custom AudioManager with react-audio-voice-recorder library
 - Verify audio quality and format consistency
 
 ---
+
+## [2024-03-28] - Bug Fix: Transcription Return Type
+Goal: Fix return type mismatch in transcription functions
+
+- Fixed return type of `transcribe_local_audio` from `Result<(), String>` to `Result<String, String>`
+- This aligns with the return type of `transcribe_local_audio_impl` which it calls
+- The function was previously discarding the transcription result string
+- Impact: Now properly returns the transcription text to the caller
+
+---
