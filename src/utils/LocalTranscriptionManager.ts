@@ -199,223 +199,91 @@ export class LocalTranscriptionManager {
   /**
    * Transcribe audio using local Whisper.cpp
    * 
-   * What it does: Saves WAV audio to a temp file and invokes Whisper.cpp for transcription
-   * Why it exists: To provide offline transcription capability
+   * What it does: Saves audio to a unique temp file and invokes Whisper.cpp for transcription
+   * Why it exists: To provide offline transcription capability with reliable error handling
    */
   public async transcribeAudio(audioBlob: Blob, autoPaste: boolean = true): Promise<string> {
-    console.log('\n===== STARTING TRANSCRIPTION PROCESS =====');
     const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    console.log(`%c[${timestamp}] [LocalTranscriptionManager] transcribeAudio called with ${audioBlob.size} byte blob`, 'background: #9c27b0; color: white; padding: 2px 5px; border-radius: 3px;');
+    console.log(`%c[${timestamp}] [LocalTranscriptionManager] transcribeAudio called (Simplified) with ${audioBlob.size} byte blob`, 'background: #9c27b0; color: white; padding: 2px 5px; border-radius: 3px;');
     
     // Prevent multiple simultaneous transcriptions
     if (this.isTranscribing) {
       console.warn('[LocalTranscriptionManager] Transcription already in progress, skipping...');
-      return "Error: Another transcription is already in progress";
+      throw new Error("Another transcription is already in progress");
     }
     
     this.isTranscribing = true;
     
-    // Return a new Promise that will resolve/reject based on transcription events
-    return new Promise<string>((resolve, reject) => {
-      // Set up temporary event listeners specifically for this transcription request
-      let unlistenResult: (() => void) | null = null;
-      let unlistenError: (() => void) | null = null;
+    try {
+      // Ensure initialized
+      if (!this.initialized) {
+        console.log('[LocalTranscriptionManager] Manager not initialized, initializing now');
+        await this.initialize();
+      }
       
-      const setupTemporaryListeners = async () => {
-        console.log(`%c[${timestamp}] [LocalTranscriptionManager] Setting up temporary event listeners for this transcription`, 'color: #9c27b0;');
-        
-        try {
-          // Listen for transcription result
-          unlistenResult = await listen('transcription-result', (event) => {
-            console.log(`%c[${timestamp}] [LocalTranscriptionManager] 🎉 TEMPORARY LISTENER: Received transcription-result event`, 'background: green; color: white; font-weight: bold;');
-            
-            let transcriptionText = '';
-            if (typeof event.payload === 'object' && event.payload.text) {
-              transcriptionText = event.payload.text;
-            } else if (typeof event.payload === 'string') {
-              transcriptionText = event.payload;
-            }
-            
-            console.log(`[LocalTranscriptionManager] Transcription result received (${transcriptionText.length} chars)`, 
-              transcriptionText.substring(0, 100) + (transcriptionText.length > 100 ? '...' : ''));
-            
-            cleanupListeners();
-            this.isTranscribing = false;
-            resolve(transcriptionText);
-          });
-          
-          console.log(`[LocalTranscriptionManager] ---> Attaching TEMPORARY listener for 'transcription-error'...`);
-          unlistenError = await listen('transcription-error', (event) => {
-            console.log(`%c[${timestamp}] [LocalTranscriptionManager] ❌ TEMPORARY LISTENER: Received transcription-error event`, 'background: red; color: white; font-weight: bold;');
-            const errorMessage = typeof event.payload === 'string' 
-              ? event.payload 
-              : (typeof event.payload === 'object' ? JSON.stringify(event.payload) : 'Unknown error');
-            console.error(`[LocalTranscriptionManager] Transcription error received: ${errorMessage}`);
-            cleanupListeners();
-            this.isTranscribing = false;
-            console.error(`[LocalTranscriptionManager] ---> REJECTING Promise due to transcription-error: ${errorMessage}`);
-            reject(new Error(`Transcription error: ${errorMessage}`));
-          });
-          console.log(`[LocalTranscriptionManager] ---> Successfully ATTACHED TEMPORARY listener for 'transcription-error'.`);
-          
-          console.log('[LocalTranscriptionManager] Temporary event listeners set up successfully');
-        } catch (error) {
-          console.error('[LocalTranscriptionManager] Failed to set up temporary event listeners:', error);
-          this.isTranscribing = false;
-          reject(new Error(`Failed to set up event listeners: ${error}`));
-        }
+      // Validate audio blob
+      if (audioBlob.size === 0) {
+        throw new Error('Audio blob is empty');
+      }
+      
+      if (audioBlob.size < 500) {
+        throw new Error('Audio file too small, likely blank or invalid recording');
+      }
+      
+      // Create unique filename for this recording
+      const uniqueTimestamp = Date.now();
+      const uniqueFilename = `audio_${uniqueTimestamp}.webm`;
+      const appDir = await appDataDir();
+      const uniqueInputPath = `${appDir}${uniqueFilename}`;
+      
+      console.log('[LocalTranscriptionManager] Audio metadata:', {
+        type: audioBlob.type,
+        size: `${(audioBlob.size / 1024).toFixed(2)} KB`,
+        path: uniqueInputPath
+      });
+      
+      // Convert blob to buffer and save
+      console.log(`[LocalTranscriptionManager] Converting ${(audioBlob.size / 1024).toFixed(2)} KB blob to buffer`);
+      const buffer = await audioBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(buffer);
+      
+      console.log(`[LocalTranscriptionManager] Saving audio to: ${uniqueInputPath}`);
+      await invoke('save_audio_buffer', { 
+        buffer: Array.from(uint8Array), 
+        path: uniqueInputPath 
+      });
+      
+      // Verify file was saved
+      const fileExists = await invoke('verify_file_exists', { path: uniqueInputPath }) as boolean;
+      if (!fileExists) {
+        throw new Error('Failed to save audio file - file not found after save');
+      }
+      console.log('[LocalTranscriptionManager] Audio file saved and verified');
+      
+      // Invoke transcription directly
+      const payload = {
+        audioPath: uniqueInputPath,
+        autoPaste: autoPaste
       };
       
-      // Clean up temporary listeners
-      const cleanupListeners = () => {
-        console.log('[LocalTranscriptionManager] Cleaning up temporary event listeners');
-        if (unlistenResult) {
-          unlistenResult();
-          unlistenResult = null;
-        }
-        if (unlistenError) {
-          unlistenError();
-          unlistenError = null;
-        }
-      };
+      console.log('[LocalTranscriptionManager] Invoking transcribe_audio_file with:', payload);
+      const resultText = await invoke<string>('transcribe_audio_file', payload);
       
-      // Execute the transcription process
-      const executeTranscription = async () => {
-        try {
-          if (!this.initialized) {
-            console.log('[LocalTranscriptionManager] Manager not initialized, initializing now');
-            await this.initialize();
-          }
-          
-          console.log('[LocalTranscriptionManager] Transcribing audio...');
-          console.log('[LocalTranscriptionManager] Audio blob metadata:', {
-            type: audioBlob.type,
-            size: `${(audioBlob.size / 1024).toFixed(2)} KB`,
-            lastModified: new Date().toISOString()
-          });
-          
-          // Validate audio blob
-          if (audioBlob.size === 0) {
-            const error = 'Audio blob is empty';
-            console.error(`[LocalTranscriptionManager] ${error}`);
-            this.isTranscribing = false;
-            cleanupListeners();
-            reject(new Error(error));
-            return;
-          }
-          
-          // Ensure the blob is a WAV file
-          if (audioBlob.type !== 'audio/wav') {
-            console.warn('[LocalTranscriptionManager] Audio is not in WAV format:', audioBlob.type);
-            console.warn('[LocalTranscriptionManager] The audio should be converted to WAV before calling this method');
-          }
-          
-          // Convert blob to buffer
-          console.log('[LocalTranscriptionManager] Converting audio blob to buffer');
-          const buffer = await audioBlob.arrayBuffer();
-          const uint8Array = new Uint8Array(buffer);
-          
-          console.log(`[LocalTranscriptionManager] Saving WAV to: ${this.tempAudioPath}`);
-          console.log(`[LocalTranscriptionManager] File size: ${(uint8Array.length / 1024).toFixed(2)} KB`);
-          
-          // Very small files are likely empty/invalid
-          if (uint8Array.length < 500) {
-            console.warn('[LocalTranscriptionManager] Audio file is very small, likely blank or invalid');
-            cleanupListeners();
-            this.isTranscribing = false;
-            reject(new Error('Audio file too small, likely blank or invalid recording'));
-            return;
-          }
-          
-          // Save audio to temp file
-          console.log(`%c[${timestamp}] [LocalTranscriptionManager] 📥 BEFORE invoking save_audio_buffer`, 'color: #2196F3; font-weight: bold;');
-          try {
-            await invoke('save_audio_buffer', { buffer: Array.from(uint8Array), path: this.tempAudioPath });
-            console.log(`%c[${timestamp}] [LocalTranscriptionManager] ✅ AFTER invoking save_audio_buffer - SUCCESS`, 'color: #4CAF50; font-weight: bold;');
-          } catch (saveError) {
-            console.error(`%c[${timestamp}] [LocalTranscriptionManager] ❌ ERROR invoking save_audio_buffer:`, 'background: #F44336; color: white; padding: 2px 5px;', saveError);
-            cleanupListeners();
-            this.isTranscribing = false;
-            reject(new Error(`Failed to save audio buffer: ${saveError}`));
-            return;
-          }
-          
-          // Verify file was saved successfully
-          let fileExists = false;
-          try {
-            fileExists = await invoke('verify_file_exists', { path: this.tempAudioPath }) as boolean;
-            console.log(`[LocalTranscriptionManager] File exists check: ${fileExists ? '✓' : '✗'}`);
-          } catch (verifyError) {
-            console.error('[LocalTranscriptionManager] Error verifying file exists:', verifyError);
-          }
-          
-          if (!fileExists) {
-            const error = 'Failed to save audio file - file not found after save';
-            console.error(`[LocalTranscriptionManager] ${error}`);
-            cleanupListeners();
-            this.isTranscribing = false;
-            reject(new Error(error));
-            return;
-          }
-          
-          // Start transcription with local Whisper
-          console.log(`%c[${timestamp}] [LocalTranscriptionManager] 🔄 BEFORE invoking transcribe_audio_file`, 'color: #2196F3; font-weight: bold;');
-          try {
-            // Prepare payload with correct arguments
-            const payload = {
-              audioPath: this.tempAudioPath,
-              autoPaste: autoPaste // Use the autoPaste parameter from transcribeAudio
-            };
-            console.log(`[LocalTranscriptionManager] Invoking 'transcribe_audio_file' with payload:`, payload);
-            
-            // Call the correct command with payload
-            await invoke('transcribe_audio_file', payload);
-            
-            console.log(`%c[${timestamp}] [LocalTranscriptionManager] ✅ AFTER invoking transcribe_audio_file - SUCCESS`, 'color: #4CAF50; font-weight: bold;');
-            console.log(`%c[${timestamp}] [LocalTranscriptionManager] 🕒 Now WAITING for transcription-result or transcription-error event...`, 'background: #FF9800; color: black; font-weight: bold; padding: 2px 5px;');
-            
-            // NOTE: We don't resolve the promise here, but wait for the event listeners
-          } catch (transcribeError) {
-            console.error(`%c[${timestamp}] [LocalTranscriptionManager] ❌ ERROR invoking transcribe_audio_file:`, 'background: #F44336; color: white; padding: 2px 5px;', transcribeError);
-            cleanupListeners();
-            this.isTranscribing = false;
-            reject(new Error(`Failed to start transcription: ${transcribeError}`));
-            return;
-          }
-          
-          // Cleanup temp file will be handled after transcription completes (in the event handlers)
-          
-        } catch (generalError) {
-          console.error(`%c[${timestamp}] [LocalTranscriptionManager] ❌ GENERAL ERROR in executeTranscription:`, 'background: #F44336; color: white; padding: 2px 5px;', generalError);
-          cleanupListeners();
-          this.isTranscribing = false;
-          reject(new Error(`General transcription error: ${generalError}`));
-        }
-      };
+      console.log(`[LocalTranscriptionManager] Transcription completed successfully. Result length: ${resultText.length} chars`);
+      if (resultText.length > 0) {
+        console.log('Sample:', resultText.substring(0, 100) + (resultText.length > 100 ? '...' : ''));
+      }
       
-      // Start the process: set up listeners then execute transcription
-      (async () => {
-        try {
-          await setupTemporaryListeners();
-          await executeTranscription();
-        } catch (startupError) {
-          console.error('[LocalTranscriptionManager] Error during transcription startup:', startupError);
-          cleanupListeners();
-          this.isTranscribing = false;
-          reject(new Error(`Transcription startup error: ${startupError}`));
-        }
-      })();
+      return resultText;
       
-      // Add a timeout to prevent hanging indefinitely
-      setTimeout(() => {
-        if (this.isTranscribing) {
-          console.error(`%c[${timestamp}] [LocalTranscriptionManager] ⏰ TRANSCRIPTION TIMEOUT after 30 seconds`, 'background: #FF5722; color: white; font-weight: bold; padding: 2px 5px;');
-          cleanupListeners();
-          this.isTranscribing = false;
-          reject(new Error('Transcription timed out after 30 seconds'));
-        }
-      }, 30000); // 30 second timeout
-    });
+    } catch (error) {
+      console.error('[LocalTranscriptionManager] Transcription failed:', error);
+      throw new Error(`Transcription failed: ${error instanceof Error ? error.message : String(error)}`);
+      
+    } finally {
+      console.log('[LocalTranscriptionManager] Resetting transcription state');
+      this.isTranscribing = false;
+    }
   }
 
   /**

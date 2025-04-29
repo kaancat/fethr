@@ -225,14 +225,14 @@ pub async fn transcribe_audio_file(
     state: tauri::State<'_, TranscriptionState>,
     audio_path: String,
     auto_paste: bool
-) -> Result<(), String> {
-    println!("\n\n[RUST] >>> Entered transcribe_audio_file command function <<<");
-    println!("[RUST] Input audio path: {}", audio_path);
-    println!("[RUST] Auto paste enabled: {}", auto_paste);
+) -> Result<String, String> {
+    println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
+    println!("[RUST DEBUG] Input audio path: {}", audio_path);
+    println!("[RUST DEBUG] Auto paste enabled: {}", auto_paste);
 
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        println!("[RUST] Another transcription is already in progress, skipping this request");
+        println!("[RUST DEBUG] Another transcription is already in progress, skipping this request");
         app_handle.emit_all("transcription-error", "Another transcription is already in progress").unwrap();
         return Err("Another transcription is already in progress".to_string());
     }
@@ -240,20 +240,24 @@ pub async fn transcribe_audio_file(
     // Make sure to set the flag back to false when done
     let _guard = scopeguard::guard((), |_| {
         TRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
-        println!("[RUST] Transcription lock released");
+        println!("[RUST DEBUG] Transcription lock released");
     });
 
     // Call the implementation with the provided audio path
-    transcribe_local_audio_impl(app_handle, state, audio_path, auto_paste).await
+    let result = transcribe_local_audio_impl(app_handle, state, audio_path, auto_paste).await;
+    println!("[RUST DEBUG] transcribe_local_audio_impl completed. Success? {}", result.is_ok());
+    result
 }
 
-// The main implementation function - generates its own unique paths internally
+// The main implementation function - now returns the transcription text
 pub async fn transcribe_local_audio_impl(
     app_handle: AppHandle,
     state: tauri::State<'_, TranscriptionState>,
     audio_path: String,
     auto_paste: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<");
+    
     // Generate unique filenames for intermediate files
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f").to_string();
     let temp_dir = std::env::temp_dir();
@@ -262,18 +266,19 @@ pub async fn transcribe_local_audio_impl(
     let wav_path = temp_dir.join(format!("fethr_converted_{}.wav", timestamp));
     let txt_output = temp_dir.join(format!("fethr_output_{}.txt", timestamp));
     
-    println!("[RUST] Using paths:");
+    println!("[RUST DEBUG] Generated paths:");
     println!("  Input audio: {}", audio_path);
     println!("  Temp WAV: {}", wav_path.display());
     println!("  Output TXT: {}", txt_output.display());
 
+    println!("[RUST DEBUG] Starting WAV conversion...");
     // Convert input to WAV with predictable format
     match convert_to_wav_predictable(&audio_path, wav_path.to_str().ok_or("Invalid WAV path")?) {
         Ok(_) => {
-            println!("Successfully converted audio to WAV format");
+            println!("[RUST DEBUG] Successfully converted audio to WAV format");
         },
         Err(e) => {
-            println!("Failed to convert audio: {}", e);
+            println!("[RUST DEBUG] Failed to convert audio: {}", e);
             cleanup_files(
                 std::path::Path::new(&audio_path),
                 &wav_path,
@@ -283,6 +288,7 @@ pub async fn transcribe_local_audio_impl(
         }
     }
 
+    println!("[RUST DEBUG] Checking Whisper binary...");
     // Whisper binary check
     if !check_whisper_binary(&state) {
         let error_msg = "Whisper binary not found or invalid".to_string();
@@ -300,7 +306,7 @@ pub async fn transcribe_local_audio_impl(
     let model_filename = format!("ggml-{}.bin", state.current_model);
     let model_full_path = state.whisper_model_directory.join(&model_filename);
 
-    println!("[RUST] Checking for model file at: {}", model_full_path.display());
+    println!("[RUST DEBUG] Checking for model file at: {}", model_full_path.display());
 
     // Verify the model file exists
     if !model_full_path.exists() {
@@ -321,8 +327,7 @@ pub async fn transcribe_local_audio_impl(
     app_handle.emit_all("transcription-status-changed", TranscriptionStatus::Processing)
         .expect("Failed to emit transcription status");
 
-    // Run whisper command
-    println!("[RUST DEBUG] ========== WHISPER COMMAND DETAILS (Using STDOUT) ==========");
+    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND ==========");
     println!("    Executable: {}", state.whisper_binary_path.display());
     println!("    Model: {}", model_full_path.display());
     println!("    Input WAV: {}", wav_path.display());
@@ -341,21 +346,24 @@ pub async fn transcribe_local_audio_impl(
         .output() {
             Ok(out) => {
                 let duration = start_time.elapsed().as_secs_f32();
-                println!("[RUST] Whisper completed in {:.2}s with status: {}", duration, out.status);
+                println!("[RUST DEBUG] Whisper completed in {:.2}s with status: {}", duration, out.status);
+                println!("[RUST DEBUG] Stdout length: {} bytes", out.stdout.len());
+                println!("[RUST DEBUG] Stderr length: {} bytes", out.stderr.len());
                 
                 // Always log stderr output for diagnostics
                 let stderr_text = String::from_utf8_lossy(&out.stderr);
                 println!("[RUST DEBUG] Whisper STDERR:\n{}", stderr_text);
                 
                 if out.status.success() {
+                    println!("[RUST DEBUG] Whisper command succeeded, processing stdout...");
                     // Get transcription from stdout
                     let stdout_text = String::from_utf8_lossy(&out.stdout).to_string();
-                    println!("[RUST DEBUG] Whisper STDOUT:\n{}", stdout_text);
+                    println!("[RUST DEBUG] Raw stdout text length: {} bytes", stdout_text.len());
                     
                     let transcription_text = stdout_text.trim();
                     
                     if transcription_text.is_empty() {
-                        println!("[RUST WARNING] Whisper produced no text output via stdout.");
+                        println!("[RUST DEBUG] WARNING: Whisper produced no text output");
                         println!("[RUST DEBUG] Command details:");
                         println!("  Exit code: {}", out.status);
                         println!("  Stderr length: {} bytes", out.stderr.len());
@@ -364,35 +372,35 @@ pub async fn transcribe_local_audio_impl(
                         cleanup_files(
                             std::path::Path::new(&audio_path),
                             &wav_path,
-                            &txt_output // Keep for cleanup, though it won't exist
+                            &txt_output
                         );
                         Err("Transcription produced no text output. Check stderr for details.".to_string())
                     } else {
-                        println!("[RUST] Transcription obtained via stdout ({} chars): '{}'",
-                            transcription_text.len(),
-                            transcription_text.chars().take(50).collect::<String>());
+                        println!("[RUST DEBUG] Successfully extracted transcription text ({} chars)", transcription_text.len());
+                        println!("[RUST DEBUG] First 100 chars: '{}'",
+                            transcription_text.chars().take(100).collect::<String>());
                         
                         // Auto-paste if enabled
                         if auto_paste {
                             if let Err(e) = paste_text_to_cursor(&transcription_text).await {
-                                println!("Warning: Auto-paste failed: {}", e);
+                                println!("[RUST DEBUG] Warning: Auto-paste failed: {}", e);
                             }
                         }
                         
-                        // Clean up files
+                        println!("[RUST DEBUG] Cleaning up temporary files...");
                         cleanup_files(
                             std::path::Path::new(&audio_path),
                             &wav_path,
-                            &txt_output // Keep for cleanup, though it won't exist
+                            &txt_output
                         );
+                        println!("[RUST DEBUG] Temporary files cleaned up");
                         
-                        // Emit result and return success
-                        app_handle.emit_all("transcription-result", transcription_text.to_string())
-                            .expect("Failed to emit transcription result");
-                        Ok(())
+                        // Return the transcription text directly
+                        Ok(transcription_text.to_string())
                     }
                 } else {
                     let error_msg = format!("Whisper failed with status {}: {}", out.status, stderr_text);
+                    println!("[RUST DEBUG] Whisper command failed: {}", error_msg);
                     cleanup_files(
                         std::path::Path::new(&audio_path),
                         &wav_path,
@@ -402,16 +410,18 @@ pub async fn transcribe_local_audio_impl(
                 }
             },
             Err(e) => {
+                let error_msg = format!("Failed to execute whisper: {}", e);
+                println!("[RUST DEBUG] Failed to execute Whisper command: {}", error_msg);
                 cleanup_files(
                     std::path::Path::new(&audio_path),
                     &wav_path,
                     &txt_output
                 );
-                Err(format!("Failed to execute whisper: {}", e))
+                Err(error_msg)
             }
         };
 
-    // Return the final result
+    println!("[RUST DEBUG] Returning final result. Success? {}", output.is_ok());
     output
 }
 
