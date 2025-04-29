@@ -15,9 +15,7 @@ console.log("%c---> EXECUTING HotkeyManager.ts <---", "background: lime; color: 
  * - Event-based communication with Tauri backend
  */
 
-import { invoke } from '@tauri-apps/api';
 import { emit, listen } from '@tauri-apps/api/event';
-import { appWindow } from '@tauri-apps/api/window';
 
 /**
  * Enum representing different states of the recording process
@@ -62,8 +60,6 @@ const DEBUG = true;
 export class HotkeyManager {
   private static instance: HotkeyManager | null = null;
   private currentState: RecordingState = RecordingState.IDLE;
-  private isHotkeyRegistered: boolean = false;
-  private isTranscribing: boolean = false;
   private isWaitingForPotentialRelease: boolean = false;
   private releaseOrDoubleTapTimerId: number | null = null;
   private static readonly HOLD_RELEASE_THRESHOLD_MS = 300;
@@ -149,7 +145,6 @@ export class HotkeyManager {
       console.log('[HotkeyManager] ---> Attempting to listen for "hotkey-registered"...');
       const unlistenRegistered = await listen('hotkey-registered', (event) => {
         console.log('%c[HotkeyManager] Received hotkey-registered event:', 'background-color: #0a3; color: white; padding: 2px 5px; border-radius: 3px;', event.payload);
-        this.isHotkeyRegistered = true;
       });
       console.log('[HotkeyManager] ---> Successfully ATTACHED listener for "hotkey-registered".');
 
@@ -157,16 +152,14 @@ export class HotkeyManager {
       console.log('[HotkeyManager] ---> Attempting to listen for "hotkey-registration-failed"...');
       const unlistenFailed = await listen('hotkey-registration-failed', (event) => {
         console.warn('%c[HotkeyManager] ❌ HOTKEY REGISTRATION FAILED:', 'background-color: #f30; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px;', event.payload);
-        this.isHotkeyRegistered = false;
       });
       console.log('[HotkeyManager] ---> Successfully ATTACHED listener for "hotkey-registration-failed".');
 
       // Listen for transcription results to reset state
       console.log('[HotkeyManager] ---> Attempting to listen for "transcription-result"...');
-      const unlistenResult = await listen('transcription-result', (event) => {
+      const unlistenResult = await listen('transcription-result', () => {
         console.log(`%c[HotkeyManager] <<< PERMANENT 'transcription-result' LISTENER FIRED >>>`, 'background: #0F0; color: black; font-size: 16px; font-weight: bold; border: 2px solid black;');
         console.log('%c[HotkeyManager] Received transcription-result. State WILL NOT be reset here directly.', 'color: orange; font-weight: bold;');
-        // this.setState(RecordingState.IDLE); // Directly set state
       });
       console.log('[HotkeyManager] ---> Successfully ATTACHED listener for "transcription-result".');
 
@@ -327,7 +320,6 @@ export class HotkeyManager {
         this.clearDoubleTapTimer();
       }
       this.emitStateChange(oldState, newState);
-      this.isTranscribing = (newState === RecordingState.TRANSCRIBING);
     } catch (error) {
       console.error('%c[HotkeyManager] ❌ ERROR SETTING STATE:', 'background-color: #f00; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px;', error);
       if (error instanceof Error) {
@@ -436,8 +428,6 @@ export class HotkeyManager {
       this.resetStateTimeoutId = null;
     }
     this.currentState = RecordingState.IDLE;
-    this.isHotkeyRegistered = false;
-    this.isTranscribing = false;
     console.log('[HotkeyManager] Cleanup complete');
   }
   
@@ -466,7 +456,6 @@ export class HotkeyManager {
     // Only change state and emit event if not already IDLE
     if (oldState !== RecordingState.IDLE) {
       this.currentState = RecordingState.IDLE;
-      this.isTranscribing = false;
       
       // Emit state change since we actually changed state
       this.emitStateChange(oldState, RecordingState.IDLE);

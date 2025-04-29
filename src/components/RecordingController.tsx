@@ -348,7 +348,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       <RecordingPill 
         currentState={currentRecordingState}
         recordingDuration={formatDuration(recordingDuration)}
-        isTranscribing={isTranscribing}
         transcription={transcription}
         error={errorMessage}
       />

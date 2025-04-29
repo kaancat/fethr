@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import RecordingPill from './components/RecordingPill';
 import RecordingController from './components/RecordingController';
 import TranscriptionFallback from './components/TranscriptionFallback';
 import hotkeyManager from './HotkeyManager';

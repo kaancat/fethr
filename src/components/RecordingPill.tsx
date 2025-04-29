@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { RecordingState } from '../HotkeyManager';
 
@@ -11,7 +11,6 @@ import { RecordingState } from '../HotkeyManager';
 interface RecordingPillProps {
   currentState: RecordingState;
   recordingDuration: string;
-  isTranscribing: boolean;
   transcription: string;
   error: string | null;
 }
@@ -19,7 +18,6 @@ interface RecordingPillProps {
 function RecordingPill({ 
   currentState,
   recordingDuration,
-  isTranscribing,
   transcription,
   error
 }: RecordingPillProps) {

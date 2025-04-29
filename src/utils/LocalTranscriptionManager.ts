@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import { appDataDir } from '@tauri-apps/api/path';
-import { removeFile } from '@tauri-apps/api/fs';
 import { listen } from '@tauri-apps/api/event';
 
 /**

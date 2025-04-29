@@ -32,9 +32,7 @@ export function useAudioManager(options: AudioManagerHookOptions = {}) {
     noiseSuppression: true,
     echoCancellation: true,
     autoGainControl: true,
-    channelCount: 1,
-    sampleRate: 44100,
-    sampleSize: 16
+    channelCount: 1
   });
 
   useEffect(() => {
