@@ -23,10 +23,8 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
   const [currentRecordingState, setCurrentRecordingState] = useState<RecordingState>(RecordingState.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transcription, setTranscription] = useState<string>('');
-  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
   const durationInterval = useRef<number | null>(null);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
   // Effect for initializing non-audio managers and setting up listeners
   useEffect(() => {
@@ -44,12 +42,11 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
         console.log('[RecordingController] --> HotkeyManager.initialize() (SIMPLIFIED) completed successfully');
 
         console.log('%c[RecordingController] Non-audio components initialization sequence COMPLETE.', 'color: green; font-weight: bold');
-        setIsInitialized(true);
 
         console.log('[RecordingController] --->>> ATTEMPTING TO ADD DIRECT hotkey-pressed LISTENER <<<---');
         try {
             directHotkeyUnlistener.current = await listen('hotkey-pressed', (_event) => {
-                console.log('%c>>> DIRECT LISTENER: Hotkey Pressed! <<<-', 'background: yellow; color: black; font-size: 16px; font-weight: bold;');
+                console.log('%c>>> DIRECT LISTENER: Hotkey Pressed! <<<- ', 'background: yellow; color: black; font-size: 16px; font-weight: bold;');
 
                 setCurrentRecordingState(prevState => {
                    console.log(`[RecordingController] Direct Listener: Current state is ${prevState}`);
@@ -80,7 +77,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       } catch (error) {
         console.error('%c[RecordingController] FATAL ERROR initializing components:', 'color: red; font-weight: bold', error);
         setErrorMessage(`Failed to initialize components: ${error instanceof Error ? error.message : String(error)}`);
-        setIsInitialized(false);
       }
     };
 
@@ -145,7 +141,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     } finally {
         console.log('%c[RecordingController] 🏁 Transcription attempt complete, resetting state to IDLE in finally block', 'color: green; font-weight: bold');
         setCurrentRecordingState(RecordingState.IDLE);
-        setIsTranscribing(false);
     }
   };
 
@@ -184,7 +179,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
         case RecordingState.TRANSCRIBING:
           console.log('%c[RecordingController] 🔄 Handling TRANSCRIBING state', 'color: blue; font-weight: bold');
           stopTimer();
-          setIsTranscribing(true);
           setErrorMessage(null);
 
           console.log('[RecordingController] Invoking stop_backend_recording...');
@@ -199,7 +193,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       setErrorMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
       stopTimer();
       setCurrentRecordingState(RecordingState.IDLE);
-      setIsTranscribing(false);
     }
   }, [currentRecordingState, configOptions.autoPasteTranscription, configOptions.autoCopyToClipboard]);
 
@@ -213,7 +206,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     setRecordingDuration(0);
     setErrorMessage(null);
     setTranscription('');
-    setIsTranscribing(false);
 
     try {
       console.log('[RecordingController] Invoking start_backend_recording...');
@@ -228,7 +220,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       console.error('%c[RecordingController] ❌ Error invoking start_backend_recording:', 'color: red; font-weight: bold', error);
       setErrorMessage(`Start Error: ${error instanceof Error ? error.message : String(error)}`);
       setCurrentRecordingState(RecordingState.IDLE);
-      setIsTranscribing(false);
     }
   };
 
@@ -236,19 +227,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const saveBlobToFile = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    a.remove();
-    console.log(`[RecordingController] Attempted to save blob to ${filename}`);
   };
 
   return (
