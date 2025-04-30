@@ -8,10 +8,8 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use hound::WavWriter;
 // use cpal::Stream; // REMOVED: Not needed anymore
 
 // Import our modules
@@ -21,7 +19,6 @@ mod whisper;
 mod audio_manager_rs; // New module for backend recording
 
 // Only import what we actually use directly in this file
-use transcription::init_transcription;
 
 // Define the state struct
 #[derive(Default)]

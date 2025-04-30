@@ -1,16 +1,12 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
 use tauri::{command, AppHandle, Manager, State};
-use tempfile::Builder as TempFileBuilder;
 use uuid::Uuid;
 
-use crate::{SharedRecordingState, AudioRecordingState};
+use crate::SharedRecordingState;
 use crate::transcription::{self, TranscriptionState};
 
 #[command]

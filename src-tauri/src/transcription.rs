@@ -9,7 +9,6 @@ use tempfile::NamedTempFile;
 use rubato::Resampler;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
-use chrono;
 use std::io::Read;
 use uuid::Uuid;
 
@@ -58,7 +57,7 @@ impl Default for TranscriptionState {
             whisper_directory: PathBuf::new(),
             whisper_binary_path: PathBuf::new(),
             whisper_model_directory: PathBuf::new(),
-            current_model: "tiny.en".to_string(), // Use tiny.en which is already installed
+            current_model: "base".to_string(), // Use base model now
         }
     }
 }
@@ -292,14 +291,13 @@ pub async fn transcribe_local_audio_impl(
     let whisper_dir = state.whisper_binary_path.parent()
         .ok_or_else(|| "Could not get whisper binary directory".to_string())?;
 
-    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND (stdout, explicit CWD, more sensitive params) ==========");
+    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND (v1.7.5 - Minimal Args) ==========");
     println!("    Executable: {}", state.whisper_binary_path.display());
     println!("    Model: {}", model_path_str);
-    println!("    Input WAV: {}", whisper_input_path.display()); // Use determined input path
+    println!("    Input WAV: {}", whisper_input_path.display());
     println!("    CWD: {}", whisper_dir.display());
     println!("    Language: en");
-    println!("    Using: --output-stdout --verbose --no-speech-thold 0.1"); 
-    println!("==========================================================================================");
+    println!("=========================================================================================");
 
     // --- Run Whisper --- 
     let mut command_builder = std::process::Command::new(&state.whisper_binary_path);
@@ -309,11 +307,7 @@ pub async fn transcribe_local_audio_impl(
                    .arg("--file")
                    .arg(&whisper_input_path_str) // USE DETERMINED INPUT PATH STRING
                    .arg("--language")
-                   .arg("en")
-                   .arg("--output-stdout")
-                   .arg("--verbose")
-                   .arg("--no-speech-thold")
-                   .arg("0.1"); // Very low threshold (default is usually ~0.6)
+                   .arg("en");
 
     let output_result = command_builder.output();
 
@@ -323,35 +317,43 @@ pub async fn transcribe_local_audio_impl(
             let duration = std::time::Instant::now().duration_since(std::time::Instant::now()).as_secs_f32();
             println!("[RUST DEBUG] Whisper completed in {:.2}s with status: {}", duration, out.status);
 
-            // Always log stderr output for diagnostics
+            // --- IMPORTANT: Check STDERR for v1.7.5 verbose output ---
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
             if !stderr_text.is_empty() {
-                println!("[RUST DEBUG] Whisper STDERR:\n{}", stderr_text);
+                 // Log stderr, but don't treat it as a Whisper *error* unless status code is bad
+                println!("[RUST DEBUG] Whisper STDERR (Info/Timings):
+{}", stderr_text);
             }
+            // --- END STDERR Check ---
 
+            // Check exit status FIRST
             if out.status.success() {
+                // Text now goes to STDOUT by default
                 let stdout_text = String::from_utf8_lossy(&out.stdout).to_string();
                 println!("[RUST DEBUG] Whisper STDOUT Length: {}", stdout_text.len());
-                // Log first few chars of stdout if long
-                if stdout_text.len() > 100 {
+                if stdout_text.len() > 100 { 
                     println!("[RUST DEBUG] Whisper STDOUT Preview: '{}'...", stdout_text.chars().take(100).collect::<String>());
-                } else {
-                    println!("[RUST DEBUG] Whisper STDOUT: '{}'", stdout_text);
+                } else { 
+                    println!("[RUST DEBUG] Whisper STDOUT: '{}'", stdout_text); 
                 }
 
                 let transcription_text = stdout_text.trim();
 
-                // Check for empty or generic success message
-                if transcription_text.is_empty() || transcription_text == "Whisper transcription completed successfully." {
-                    println!("[RUST WARNING] Whisper produced no real text output via stdout.");
-                    Err("Whisper produced no text output".to_string()) 
+                // --- ADJUST Check for Empty/Generic Output ---
+                if transcription_text.is_empty() {
+                    println!("[RUST WARNING] Whisper produced no text output via stdout (v1.7.5).");
+                    // Consider checking stderr for specific failure messages if needed
+                    Err("Whisper produced no text output".to_string())
                 } else {
                     println!("[RUST] Transcription OK via stdout: '{}'...", transcription_text.chars().take(50).collect::<String>());
                     Ok(transcription_text.to_string())
                 }
+                // --- END ADJUST ---
             } else {
                 // Handle Whisper execution error (non-zero exit code)
-                let error_msg = format!("Whisper execution failed with status {}: {}", out.status, stderr_text);
+                // Include both stdout and stderr in the error message for context
+                let stdout_text_on_error = String::from_utf8_lossy(&out.stdout).to_string(); // Capture stdout on error too
+                let error_msg = format!("Whisper execution failed with status {}:\nSTDERR:\n{}\nSTDOUT:\n{}", out.status, stderr_text, stdout_text_on_error);
                 println!("[RUST ERROR] {}", error_msg);
                 Err(error_msg)
             }
@@ -373,33 +375,31 @@ pub async fn transcribe_local_audio_impl(
     transcription_result
 }
 
-// Helper function to clean up temporary WAV file only
+// Cleanup helper
 fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
-    println!("[RUST CLEANUP] Cleaning up files... Original: {:?}, Converted: {:?}", 
-        original_temp_wav.display(), 
-        converted_temp_wav.map(|p| p.display().to_string()).unwrap_or_else(|| "None".to_string()));
-    
+    println!("[RUST CLEANUP] Cleaning up files... Original: {:?}, Converted: {:?}", original_temp_wav.display(), converted_temp_wav.map(|p| p.display()));
+
     if let Some(converted_path) = converted_temp_wav {
         if converted_path.exists() {
-            // UNCOMMENT cleanup logic for converted file
-            match std::fs::remove_file(converted_path) {
-                Ok(_) => println!("[RUST CLEANUP] Removed converted: {}", converted_path.display()),
-                Err(e) => println!("[RUST CLEANUP WARNING] Failed to remove converted file {}: {}", converted_path.display(), e),
+            // Re-enable cleanup for converted file
+            if let Err(e) = fs::remove_file(converted_path) {
+                println!("[RUST CLEANUP WARNING] Failed to remove converted temp file {:?}: {}", converted_path.display(), e);
+            } else {
+                println!("[RUST CLEANUP] Removed converted: {}", converted_path.display());
             }
         } else {
-            println!("[RUST CLEANUP] Converted file not found, skipping removal: {}", converted_path.display());
+            println!("[RUST CLEANUP] Converted file does not exist, skipping removal: {}", converted_path.display());
         }
     }
-    
-    // Always try to remove the original temp wav from backend recording
+
     if original_temp_wav.exists() {
-        // UNCOMMENT cleanup logic for original file
-        match std::fs::remove_file(original_temp_wav) {
-            Ok(_) => println!("[RUST CLEANUP] Removed original backend temp: {}", original_temp_wav.display()),
-            Err(e) => println!("[RUST CLEANUP WARNING] Failed to remove original backend temp file {}: {}", original_temp_wav.display(), e),
+        if let Err(e) = fs::remove_file(original_temp_wav) {
+            println!("[RUST CLEANUP WARNING] Failed to remove original backend temp file {:?}: {}", original_temp_wav.display(), e);
+        } else {
+            println!("[RUST CLEANUP] Removed original backend temp: {}", original_temp_wav.display());
         }
     } else {
-        println!("[RUST CLEANUP] Original backend temp file not found, skipping removal: {}", original_temp_wav.display());
+        println!("[RUST CLEANUP] Original backend temp file does not exist, skipping removal: {}", original_temp_wav.display());
     }
 }
 
