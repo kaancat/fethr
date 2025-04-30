@@ -126,7 +126,8 @@ pub async fn start_backend_recording(
 
     // --- Clone Arcs for Thread ---
     let writer_clone = writer_mutex.clone();
-    let app_handle_clone = app_handle.clone();
+    let app_handle_for_error_cb = app_handle.clone(); // Clone #1 for the error callback
+    let app_handle_for_play_err = app_handle.clone(); // Clone #2 for play() error
 
     // --- Spawn Recording Thread ---
     let recording_handle = thread::spawn(move || {
@@ -146,35 +147,37 @@ pub async fn start_backend_recording(
 
         let error_callback = move |err| {
             eprintln!("[RUST THREAD CB] CPAL stream error: {}", err);
-            let _ = app_handle_clone.emit_all("recording_error", format!("CPAL Error: {}", err));
+            // Use the first clone here
+            let _ = app_handle_for_error_cb.emit_all("recording_error", format!("CPAL Error: {}", err)); 
         };
 
-        // Build the input stream (Ensure this call is correct for cpal 0.14)
+        // Build the input stream
         println!("[RUST AUDIO] Building input stream with config: {:?}", stream_config);
         let stream = match device.build_input_stream(
             &stream_config,
             data_callback, 
-            error_callback // Verified: No extra None needed for cpal 0.14
+            error_callback
         ) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[RUST THREAD] Failed to build input stream: {}. Emitting error.", e);
-                let _ = app_handle_clone.emit_all("recording_error", format!("Stream build failed: {}", e));
-                // Exit the thread if stream cannot be built
+                 // Use the second clone here
+                let _ = app_handle_for_play_err.emit_all("recording_error", format!("Stream build failed: {}", e));
                 return;
             }
         };
 
         if let Err(e) = stream.play() {
              eprintln!("[RUST THREAD] Failed to play stream: {}. Emitting error.", e);
-             let _ = app_handle_clone.emit_all("recording_error", format!("Stream play failed: {}", e));
-             return; // Exit if stream cannot play
+             // Use the second clone here as well
+             let _ = app_handle_for_play_err.emit_all("recording_error", format!("Stream play failed: {}", e));
+             return;
         }
         println!("[RUST THREAD] Stream playing.");
 
         // --- Wait for Stop Signal ---
         println!("[RUST THREAD] Waiting for stop signal...");
-        let _ = rx_stop.recv(); // Block until sender drops or sends signal
+        let _ = rx_stop.recv(); 
         println!("[RUST THREAD] Stop signal received.");
         
         println!("[RUST THREAD] Recording thread finished.");
