@@ -17,10 +17,14 @@ mod transcription;
 mod whisper;
 // mod audio_manager; // REMOVED: Old unused module
 mod audio_manager_rs; // New module for backend recording
-mod config_manager;
-mod setup;
-mod tray_manager;
-mod hotkey_manager; // Assuming hotkey registration might still be needed
+// mod config_manager; // DELETE
+// mod setup; // DELETE
+// mod tray_manager; // DELETE
+// mod hotkey_manager; // DELETE
+
+// Import necessary types
+use audio_manager_rs::AudioRecordingState; // Already implicitly imported via mod?
+use crate::transcription::TranscriptionState; // ADD Import
 
 // Only import what we actually use directly in this file
 
@@ -64,13 +68,6 @@ fn emit_event(app_handle: tauri::AppHandle, event: String, payload: serde_json::
         .map_err(|e| format!("Failed to emit event {}: {}", event, e))
 }
 
-// Define a struct to hold the application state
-pub struct AppState {
-    pub audio_manager: Arc<Mutex<AudioManager>>,
-    // pub hotkey_manager: Arc<Mutex<hotkey_manager::HotkeyManager>>, // If used
-    pub transcription_state: Arc<Mutex<TranscriptionState>>,
-}
-
 // New command for clipboard writing
 #[tauri::command]
 async fn write_to_clipboard_rust(text_to_copy: String) -> Result<(), String> {
@@ -107,18 +104,15 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             // Initialize transcription state
-            let state = transcription::init_transcription(&app.handle())?;
-            
-            // Register transcription state
-            app.manage(state);
+            let transcription_state = transcription::init_transcription(&app.handle())?;
+            app.manage(transcription_state); // Manage TranscriptionState
             
             // Initialize and register recording state
-            // Explicitly set the default state values
             let recording_state_inner = AudioRecordingState {
                 stop_signal_sender: None,
                 recording_thread_handle: None,
                 temp_wav_path: None,
-                is_actively_recording: false, // Be explicit
+                is_actively_recording: false,
                 writer: None,
             };
             let recording_state: SharedRecordingState = Arc::new(Mutex::new(recording_state_inner));
@@ -188,12 +182,6 @@ fn main() {
                 }));
             }
             
-            // Manage the combined AppState
-            app.manage(AppState {
-                audio_manager: Arc::new(Mutex::new(AudioManager::new(app_handle.clone()))),
-                transcription_state: Arc::new(Mutex::new(state)),
-            });
-            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -211,10 +199,10 @@ fn main() {
             // New backend recording commands
             audio_manager_rs::start_backend_recording,
             audio_manager_rs::stop_backend_recording,
-            // Config Commands
-            config_manager::load_config,
-            config_manager::save_config,
-            config_manager::get_default_config,
+            // Config Commands (REMOVED)
+            // config_manager::load_config, 
+            // config_manager::save_config, 
+            // config_manager::get_default_config,
             // NEW Clipboard Command
             write_to_clipboard_rust
         ])

@@ -92,7 +92,7 @@ pub async fn start_backend_recording(
         };
 
         // --- Build and Play Stream ---
-        let stream = device.build_input_stream(&stream_config, data_callback, error_callback, None)
+        let stream = device.build_input_stream(&stream_config, data_callback, error_callback)
             .expect("Failed to build input stream");
         stream.play().expect("Failed to play stream");
         println!("[RUST THREAD] Stream playing.");
