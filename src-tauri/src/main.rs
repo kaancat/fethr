@@ -12,8 +12,7 @@ use std::sync::mpsc;
 use std::thread;
 use arboard;
 use std::time::Duration;
-use enigo;
-use enigo::{Enigo, Key, KeyboardControllable};
+use enigo::{Enigo, Key, Settings};
 
 // Import our modules
 mod transcription;
@@ -65,22 +64,28 @@ async fn paste_text_to_cursor(text: String) -> Result<(), String> {
     // Use tokio::time::sleep as the command is async
     tokio::time::sleep(Duration::from_millis(200)).await; 
 
-    let mut enigo = Enigo::new();
+    let mut enigo = match Enigo::new(&Settings::default()) {
+        Ok(e) => e,
+        Err(err) => {
+            println!("[RUST PASTE ERROR] Failed to create Enigo instance: {:?}", err);
+            return Err("Failed to initialize Enigo".to_string());
+        }
+    };
 
     // This function ONLY simulates the paste shortcut.
     // The clipboard should have been populated by write_to_clipboard_command earlier.
-    println!("[RUST PASTE] Simulating Ctrl+V...");
+    println!("[RUST PASTE] Simulating paste shortcut...");
     
     #[cfg(target_os = "macos")]
     {
         enigo.key_down(Key::Meta);
-        enigo.key_click(Key::Layout('v'));
+        enigo.key_click(Key::Unicode('v'));
         enigo.key_up(Key::Meta);
     }
     #[cfg(not(target_os = "macos"))]
     {
         enigo.key_down(Key::Control);
-        enigo.key_click(Key::Layout('v'));
+        enigo.key_click(Key::Unicode('v'));
         enigo.key_up(Key::Control);
     }
     
