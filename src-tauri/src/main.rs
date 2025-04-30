@@ -13,6 +13,7 @@ use std::thread;
 use arboard;
 use std::time::Duration;
 use enigo;
+use enigo::{Enigo, Key, KeyboardControllable};
 
 // Import our modules
 mod transcription;
@@ -25,9 +26,8 @@ mod audio_manager_rs; // New module for backend recording
 // mod hotkey_manager; // DELETE
 
 // Import necessary types
-// use audio_manager_rs::AudioRecordingState; // DELETE THIS LINE
 use crate::transcription::TranscriptionState; // ADD Import
-use crate::audio_manager_rs::AudioRecordingState; // Need this type for state
+// use crate::audio_manager_rs::AudioRecordingState; // DELETE THIS LINE
 
 // Only import what we actually use directly in this file
 
@@ -59,24 +59,32 @@ struct KeyState {
 // Command to paste text to cursor position
 // Make public so it can be called from transcription.rs
 #[tauri::command]
-pub async fn paste_text_to_cursor(text: String) -> Result<(), String> {
+async fn paste_text_to_cursor(text: String) -> Result<(), String> {
+    println!("[RUST PASTE] Received request to paste text.");
     // Small delay to ensure the user has returned to the target application
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Use tokio::time::sleep as the command is async
+    tokio::time::sleep(Duration::from_millis(200)).await; 
+
+    let mut enigo = Enigo::new();
+
+    // This function ONLY simulates the paste shortcut.
+    // The clipboard should have been populated by write_to_clipboard_command earlier.
+    println!("[RUST PASTE] Simulating Ctrl+V...");
     
-    let mut enigo = enigo::Enigo::new();
-    
-    // We'll try to use clipboard for pasting (assuming text is already there)
-    println!("[RUST PASTE] Attempting to paste via keyboard shortcut...");
-    if cfg!(target_os = "macos") {
-        enigo.key_down(enigo::Key::Meta);
-        enigo.key_click(enigo::Key::Layout('v'));
-        enigo.key_up(enigo::Key::Meta);
-    } else {
-        enigo.key_down(enigo::Key::Control);
-        enigo.key_click(enigo::Key::Layout('v'));
-        enigo.key_up(enigo::Key::Control);
+    #[cfg(target_os = "macos")]
+    {
+        enigo.key_down(Key::Meta);
+        enigo.key_click(Key::Layout('v'));
+        enigo.key_up(Key::Meta);
     }
-    println!("[RUST PASTE] Paste shortcut executed.");
+    #[cfg(not(target_os = "macos"))]
+    {
+        enigo.key_down(Key::Control);
+        enigo.key_click(Key::Layout('v'));
+        enigo.key_up(Key::Control);
+    }
+    
+    println!("[RUST PASTE] Paste simulation complete.");
     Ok(())
 }
 
@@ -221,7 +229,6 @@ fn main() {
             whisper::is_whisper_installed,
             whisper::whisper_transcribe_audio,
             whisper::whisper_save_audio_buffer,
-            paste_text_to_cursor,
             emit_event,
             delete_file,
             // New backend recording commands
@@ -232,7 +239,9 @@ fn main() {
             // config_manager::save_config, 
             // config_manager::get_default_config,
             // NEW Clipboard Command
-            write_to_clipboard_command
+            write_to_clipboard_command,
+            // NEW Paste Command
+            paste_text_to_cursor
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");

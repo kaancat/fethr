@@ -406,66 +406,6 @@ fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
     }
 }
 
-// Helper function to paste text using Enigo
-pub async fn paste_text_to_cursor(text: &str) -> Result<(), String> {
-    // Small delay to ensure the user has returned to the target application
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    
-    let mut enigo = Enigo::new();
-    
-    // We'll try to use clipboard for pasting
-    match clipboard_copy_paste(text) {
-        Ok(_) => {
-            // Perform paste shortcut
-            if cfg!(target_os = "macos") {
-                enigo.key_down(enigo::Key::Meta);
-                enigo.key_click(enigo::Key::Layout('v'));
-                enigo.key_up(enigo::Key::Meta);
-            } else {
-    enigo.key_down(enigo::Key::Control);
-    enigo.key_click(enigo::Key::Layout('v'));
-    enigo.key_up(enigo::Key::Control);
-            }
-            Ok(())
-        }
-        Err(e) => Err(format!("Failed to paste text: {}", e))
-    }
-}
-
-// Helper function to copy text to clipboard
-fn clipboard_copy_paste(text: &str) -> Result<(), String> {
-    // Copy to clipboard using arboard
-    #[cfg(not(target_os = "linux"))]
-    {
-        let mut clipboard = arboard::Clipboard::new()
-            .map_err(|e| format!("Failed to initialize clipboard: {}", e))?;
-        
-        clipboard.set_text(text.to_string())
-            .map_err(|e| format!("Failed to set clipboard text: {}", e))?;
-    }
-    
-    // For Linux, we'll use xclip if available
-    #[cfg(target_os = "linux")]
-    {
-        let mut child = Command::new("xclip")
-            .arg("-selection")
-            .arg("clipboard")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn xclip: {}", e))?;
-        
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(text.as_bytes())
-                .map_err(|e| format!("Failed to write to xclip: {}", e))?;
-        }
-        
-        child.wait()
-            .map_err(|e| format!("xclip failed: {}", e))?;
-    }
-    
-    Ok(())
-}
-
 // Get current transcription status
 #[command]
 pub fn get_transcription_status(state: tauri::State<'_, TranscriptionState>) -> TranscriptionStatus {

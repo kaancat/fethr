@@ -1,6 +1,6 @@
 console.log("%c---> EXECUTING RecordingController.tsx <---", "background: yellow; color: black; font-weight: bold; font-size: 14px; padding: 5px;");
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { LocalTranscriptionManager } from '../utils/LocalTranscriptionManager';
@@ -105,35 +105,64 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     };
   }, []);
 
-  // Function to handle result/error from backend invoke
-  const handleTranscriptionResult = async (resultPromise: Promise<string>) => {
-    let resultTextReceived: string | null = null;
-    try {
-        console.log('[RecordingController] Awaiting transcription result from backend...');
-        resultTextReceived = await resultPromise;
-        console.log('[RecordingController] Backend returned result:', resultTextReceived);
+  // Handle updates from Rust backend (transcription results)
+  const handleTranscriptionResult = useCallback(async (resultTextReceived: string | null, error: string | null) => {
+    console.log('[RecordingController] Handling transcription result...', { resultTextReceived, error });
+    setCurrentRecordingState(RecordingState.IDLE); // Always return to idle after attempt
 
-        if (typeof resultTextReceived === 'string' && resultTextReceived.trim().length > 0) {
-             console.log('%c[RecordingController] Transcription Success:', 'color: green; font-weight: bold;', resultTextReceived);
-             setTranscription(resultTextReceived);
-             setErrorMessage(null);
-             toast.success("Transcription successful!");
-             setCurrentRecordingState(RecordingState.IDLE);
-        } else {
-             console.warn('%c[RecordingController] ⚠️ Backend returned empty or generic result', 'color: orange; font-weight: bold');
-             setErrorMessage(resultTextReceived === null ? 'Transcription empty' : 'No speech detected');
-             setTranscription('');
-             setCurrentRecordingState(RecordingState.IDLE);
+    if (error) {
+      console.error('[RecordingController] Transcription FAIL:', error);
+      setErrorMessage(`Transcription failed: ${error}`);
+      toast.error(`Transcription Error: ${error}`); // Show toast
+      setTranscription('');
+    } else if (!resultTextReceived) {
+      console.warn('[RecordingController] Transcription returned null/empty result.');
+      setErrorMessage('Transcription produced no text.');
+      toast('Transcription produced no text.', { icon: '⚠️' });
+      setTranscription('');
+    } else {
+      console.log('[RecordingController] Setting transcription result, length:', resultTextReceived.length);
+      setTranscription(resultTextReceived); // Update UI state
+      setErrorMessage(null);
+
+      // Clipboard/Paste logic
+      let didCopy = false;
+      if (configOptions.autoCopyToClipboard) {
+        console.log('[RecordingController] Attempting auto-copy...');
+        try {
+          await copyToClipboard(resultTextReceived); // Uses Rust command internally now
+          console.log('[RecordingController] Copy OK');
+          toast.success("Copied to clipboard!");
+          didCopy = true; // Mark copy as successful
+        } catch (copyError) {
+          console.error('[RecordingController] Auto-copy FAIL:', copyError);
+          toast.error("Auto-copy failed.");
+          // Keep didCopy as false
         }
-    } catch (error) {
-        console.error(`%c[RecordingController] ---> ERROR received from backend invoke <---`, 'color: red; font-weight: bold;', error);
-        const errorMsg = typeof error === 'string' ? error : (error instanceof Error ? error.message : 'Unknown transcription error');
-        setErrorMessage(`Transcription error: ${errorMsg}`);
-        toast.error(`Transcription Failed: ${errorMsg.substring(0, 50)}${errorMsg.length > 50 ? '...' : ''}`);
-        setTranscription('');
-        setCurrentRecordingState(RecordingState.IDLE);
+      } else {
+        // If auto-copy is disabled, we can still consider paste successful for the next step
+        // OR require copy to succeed? Let's allow paste even if copy is off for now.
+        didCopy = true; // Treat as "ok to paste" if copy is disabled
+      }
+
+      // --- ADD AUTO-PASTE LOGIC ---
+      // Only attempt paste if the previous step allows it (copy succeeded or was disabled)
+      // and if auto-paste is enabled in config
+      if (didCopy && configOptions.autoPasteTranscription) { 
+        console.log('[RecordingController] Attempting auto-paste via Rust command...');
+        try {
+          // Invoke the Rust command responsible *only* for simulating the paste keystroke
+          await invoke('paste_text_to_cursor', { text: resultTextReceived }); // Pass text for consistency, Rust side ignores it now
+          console.log('[RecordingController] Rust paste command invoked successfully.');
+          // Maybe a subtle success indicator?
+        } catch (pasteError) {
+          console.error('[RecordingController] Invoke paste_text_to_cursor FAIL:', pasteError);
+          toast.error("Auto-paste command failed.");
+        }
+      }
+      // --- END AUTO-PASTE LOGIC ---
     }
-  };
+  }, [configOptions, copyToClipboard]); // Dependencies: config options and the copy function
 
   useEffect(() => {
     const stateToProcess = currentRecordingState;
@@ -176,7 +205,7 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
           const stopPromise = invoke<string>('stop_backend_recording', {
               autoPaste: configOptions.autoPasteTranscription
           });
-          handleTranscriptionResult(stopPromise);
+          handleTranscriptionResult(null, null);
           break;
       }
     } catch (error) {
@@ -185,7 +214,7 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
       stopTimer();
       setCurrentRecordingState(RecordingState.IDLE);
     }
-  }, [currentRecordingState, configOptions.autoPasteTranscription, configOptions.autoCopyToClipboard]);
+  }, [currentRecordingState, configOptions.autoPasteTranscription, configOptions.autoCopyToClipboard, handleTranscriptionResult]);
 
   const startRecordingProcess = async () => {
     console.log('%c[RecordingController] ➡️ STARTING Recording Process...', 'color: green; font-weight: bold');
