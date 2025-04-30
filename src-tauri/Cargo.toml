@@ -17,13 +17,13 @@ tauri = { version = "1.8.2", features = [
     "clipboard-write-text", 
     "global-shortcut", 
     "notification", 
-    "path", 
-    "fs-all",
+    "path-all",
+    "fs-all", 
     "window", 
     "shell-open", 
     "dialog", 
     "system-tray"
-]}
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 device_query = "3.0.1"
