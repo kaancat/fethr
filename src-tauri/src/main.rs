@@ -10,13 +10,17 @@ use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
-// use cpal::Stream; // REMOVED: Not needed anymore
+use arboard;
 
 // Import our modules
 mod transcription;
 mod whisper;
 // mod audio_manager; // REMOVED: Old unused module
 mod audio_manager_rs; // New module for backend recording
+mod config_manager;
+mod setup;
+mod tray_manager;
+mod hotkey_manager; // Assuming hotkey registration might still be needed
 
 // Only import what we actually use directly in this file
 
@@ -58,6 +62,39 @@ fn emit_event(app_handle: tauri::AppHandle, event: String, payload: serde_json::
     app_handle
         .emit_all(&event, payload)
         .map_err(|e| format!("Failed to emit event {}: {}", event, e))
+}
+
+// Define a struct to hold the application state
+pub struct AppState {
+    pub audio_manager: Arc<Mutex<AudioManager>>,
+    // pub hotkey_manager: Arc<Mutex<hotkey_manager::HotkeyManager>>, // If used
+    pub transcription_state: Arc<Mutex<TranscriptionState>>,
+}
+
+// New command for clipboard writing
+#[tauri::command]
+async fn write_to_clipboard_rust(text_to_copy: String) -> Result<(), String> {
+    println!("[RUST CLIPBOARD] Attempting to write to clipboard via arboard...");
+    match arboard::Clipboard::new() {
+        Ok(mut clipboard) => {
+            match clipboard.set_text(text_to_copy) {
+                Ok(_) => {
+                    println!("[RUST CLIPBOARD] Successfully wrote text to clipboard.");
+                    Ok(())
+                },
+                Err(e) => {
+                    let err_msg = format!("arboard failed to set text: {}", e);
+                    println!("[RUST CLIPBOARD ERROR] {}", err_msg);
+                    Err(err_msg)
+                }
+            }
+        },
+        Err(e) => {
+            let err_msg = format!("Failed to initialize arboard clipboard: {}", e);
+            println!("[RUST CLIPBOARD ERROR] {}", err_msg);
+            Err(err_msg)
+        }
+    }
 }
 
 // This function initializes the application
@@ -151,6 +188,12 @@ fn main() {
                 }));
             }
             
+            // Manage the combined AppState
+            app.manage(AppState {
+                audio_manager: Arc::new(Mutex::new(AudioManager::new(app_handle.clone()))),
+                transcription_state: Arc::new(Mutex::new(state)),
+            });
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -167,7 +210,13 @@ fn main() {
             delete_file,
             // New backend recording commands
             audio_manager_rs::start_backend_recording,
-            audio_manager_rs::stop_backend_recording
+            audio_manager_rs::stop_backend_recording,
+            // Config Commands
+            config_manager::load_config,
+            config_manager::save_config,
+            config_manager::get_default_config,
+            // NEW Clipboard Command
+            write_to_clipboard_rust
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");

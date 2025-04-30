@@ -4,7 +4,7 @@
  * Utility functions for clipboard operations in Fethr app
  */
 
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/tauri';
 
 /**
  * Copy text to clipboard
@@ -15,20 +15,16 @@ import { invoke } from '@tauri-apps/api';
  * @param text Text to copy to clipboard
  * @returns Promise resolving when copying is complete
  */
-export async function copyToClipboard(text: string): Promise<void> {
+export const copyToClipboard = async (text: string): Promise<void> => {
+  console.log('[clipboardUtils] Copying to clipboard (via Rust):', text.substring(0, 30) + '...');
   try {
-    console.log('[clipboardUtils] Copying to clipboard:', text.substring(0, 50) + (text.length > 50 ? '...' : ''));
-    
-    // Use Tauri's write_text_clipboard command from Rust
-    await invoke('write_text_clipboard', { text });
-    
-    console.log('[clipboardUtils] Successfully copied to clipboard');
-    return Promise.resolve();
+    await invoke('write_to_clipboard_rust', { textToCopy: text });
+    console.log('[clipboardUtils] Rust clipboard command invoked successfully.');
   } catch (error) {
-    console.error('[clipboardUtils] Failed to copy to clipboard:', error);
-    return Promise.reject(error);
+    console.error('[clipboardUtils] Failed to invoke Rust clipboard command:', error);
+    throw new Error(`Rust clipboard failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
+};
 
 /**
  * Paste copied text to current cursor position
