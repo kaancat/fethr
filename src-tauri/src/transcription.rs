@@ -12,6 +12,9 @@ use scopeguard;
 use std::io::Read;
 use uuid::Uuid;
 
+// Import functions from main
+use crate::{write_to_clipboard_internal, paste_text_to_cursor};
+
 // Add a static flag to prevent multiple transcription processes
 static TRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
@@ -57,7 +60,7 @@ impl Default for TranscriptionState {
             whisper_directory: PathBuf::new(),
             whisper_binary_path: PathBuf::new(),
             whisper_model_directory: PathBuf::new(),
-            current_model: "base".to_string(), // Use base model now
+            current_model: "tiny.en".to_string(), // Default should be tiny.en
         }
     }
 }
@@ -244,45 +247,41 @@ pub async fn transcribe_local_audio_impl(
     app_handle: AppHandle,
     state: tauri::State<'_, TranscriptionState>,
     audio_path: String, // This is the path from backend recording (e.g., 48kHz)
-    _auto_paste: bool, // Mark unused if needed (or remove if config not needed)
+    auto_paste: bool, // Use this flag
 ) -> Result<String, String> {
-    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<");
-    println!("[RUST DEBUG] Received initial potentially high-sample-rate WAV path: {}", audio_path);
+    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<< AutoPaste: {}", auto_paste);
+    println!("[RUST DEBUG] Received initial WAV path: {}", audio_path);
 
     let input_wav_path = Path::new(&audio_path);
-    let mut converted_wav_path_opt: Option<PathBuf> = None; // Store converted path if created
+    let mut converted_wav_path_opt: Option<PathBuf> = None;
 
-    // --- Re-enable FFmpeg Resampling --- 
+    // --- FFmpeg Resampling ---
     let unique_id = Uuid::new_v4().to_string();
     let temp_dir = std::env::temp_dir();
     let converted_wav_path = temp_dir.join(format!("fethr_converted_{}.wav", unique_id));
-    println!("[RUST DEBUG] Attempting FFmpeg resampling to 16kHz WAV at: {}", converted_wav_path.display());
+    println!("[RUST DEBUG] Attempting FFmpeg resampling to: {}", converted_wav_path.display());
 
     match convert_to_wav_predictable(&audio_path, converted_wav_path.to_str().unwrap()) {
         Ok(_) => {
             println!("[RUST DEBUG] FFmpeg resampling successful.");
-            converted_wav_path_opt = Some(converted_wav_path.clone()); // Store path on success
+            converted_wav_path_opt = Some(converted_wav_path.clone());
         },
         Err(e) => {
-            println!("[RUST DEBUG ERROR] FFmpeg resampling failed: {}. Proceeding with original file, Whisper might fail.", e);
-            // Don't return early, let Whisper try the original file, but log the error
-            // Cleanup will handle only the input path later if conversion fails
+            println!("[RUST DEBUG ERROR] FFmpeg resampling failed: {}. Proceeding with original.", e);
         }
     }
     // --- End FFmpeg Step ---
 
-    // Determine which path to use for Whisper
     let whisper_input_path_str = converted_wav_path_opt
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| {
-            println!("[RUST WARNING] Using original (non-resampled) WAV file for Whisper.");
-            audio_path.clone() // Use original path if conversion failed
+            println!("[RUST WARNING] Using original (non-resampled) WAV for Whisper.");
+            audio_path.clone()
         });
     let whisper_input_path = Path::new(&whisper_input_path_str);
 
-    // --- Prepare Whisper --- 
-    // ... (Check binary, get model path using state.current_model, etc.) ...
+    // --- Prepare Whisper ---
     let model_path_str = state.whisper_model_directory
         .join(format!("ggml-{}.bin", state.current_model))
         .to_str()
@@ -291,7 +290,7 @@ pub async fn transcribe_local_audio_impl(
     let whisper_dir = state.whisper_binary_path.parent()
         .ok_or_else(|| "Could not get whisper binary directory".to_string())?;
 
-    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND (v1.7.5 - Minimal Args) ==========");
+    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND ... ==========");
     println!("    Executable: {}", state.whisper_binary_path.display());
     println!("    Model: {}", model_path_str);
     println!("    Input WAV: {}", whisper_input_path.display());
@@ -300,77 +299,79 @@ pub async fn transcribe_local_audio_impl(
     println!("    Flags: -nt (No Timestamps)");
     println!("=========================================================================================");
 
-    // --- Run Whisper --- 
+    // --- Run Whisper ---
     let mut command_builder = std::process::Command::new(&state.whisper_binary_path);
     command_builder.current_dir(whisper_dir)
                    .arg("--model")
                    .arg(&model_path_str)
                    .arg("--file")
-                   .arg(&whisper_input_path_str) // USE DETERMINED INPUT PATH STRING
+                   .arg(&whisper_input_path_str)
                    .arg("--language")
                    .arg("en")
                    .arg("-nt");
 
     let output_result = command_builder.output();
 
-    // --- Process Result --- 
-    let transcription_result = match output_result {
+    // --- Process Result ---
+    let transcription_result: Result<String, String> = match output_result {
         Ok(out) => {
             let duration = std::time::Instant::now().duration_since(std::time::Instant::now()).as_secs_f32();
             println!("[RUST DEBUG] Whisper completed in {:.2}s with status: {}", duration, out.status);
-
-            // --- IMPORTANT: Check STDERR for v1.7.5 verbose output ---
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
             if !stderr_text.is_empty() {
-                 // Log stderr, but don't treat it as a Whisper *error* unless status code is bad
-                println!("[RUST DEBUG] Whisper STDERR (Info/Timings):
-{}", stderr_text);
+                 println!("[RUST DEBUG] Whisper STDERR (Info/Timings):\n{}", stderr_text);
             }
-            // --- END STDERR Check ---
-
-            // Check exit status FIRST
+            
             if out.status.success() {
-                // Text now goes to STDOUT by default
                 let stdout_text = String::from_utf8_lossy(&out.stdout).to_string();
-                println!("[RUST DEBUG] Whisper STDOUT Length: {}", stdout_text.len());
-                if stdout_text.len() > 100 { 
-                    println!("[RUST DEBUG] Whisper STDOUT Preview: '{}'...", stdout_text.chars().take(100).collect::<String>());
-                } else { 
-                    println!("[RUST DEBUG] Whisper STDOUT: '{}'", stdout_text); 
-                }
-
                 let transcription_text = stdout_text.trim();
 
-                // --- ADJUST Check for Empty/Generic Output ---
                 if transcription_text.is_empty() {
-                    println!("[RUST WARNING] Whisper produced no text output via stdout (v1.7.5).");
-                    // Consider checking stderr for specific failure messages if needed
+                    println!("[RUST WARNING] Whisper produced no text output.");
                     Err("Whisper produced no text output".to_string())
                 } else {
-                    println!("[RUST] Transcription OK via stdout: '{}'...", transcription_text.chars().take(50).collect::<String>());
-                    Ok(transcription_text.to_string())
+                    println!("[RUST] Transcription OK: '{}...'", transcription_text.chars().take(50).collect::<String>());
+                    
+                    // --- Copy and Optionally Paste --- 
+                    println!("[RUST] Attempting to copy to clipboard...");
+                    match write_to_clipboard_internal(transcription_text.to_string()).await {
+                        Ok(_) => {
+                            println!("[RUST] Copied to clipboard successfully.");
+                            if auto_paste {
+                                println!("[RUST] Auto-paste enabled, attempting paste...");
+                                match paste_text_to_cursor(transcription_text.to_string()).await { // Use .to_string() or clone needed?
+                                    Ok(_) => println!("[RUST] Paste command executed."),
+                                    Err(e) => println!("[RUST ERROR] Paste command failed: {}", e),
+                                }
+                            } else {
+                                println!("[RUST] Auto-paste disabled.");
+                            }
+                        }
+                        Err(e) => {
+                            println!("[RUST ERROR] Failed to copy to clipboard: {}", e);
+                            // Don't paste if copy failed
+                        }
+                    }
+                    // --- End Copy/Paste --- 
+                    
+                    Ok(transcription_text.to_string()) // Return the text regardless of copy/paste outcome
                 }
-                // --- END ADJUST ---
             } else {
-                // Handle Whisper execution error (non-zero exit code)
-                // Include both stdout and stderr in the error message for context
-                let stdout_text_on_error = String::from_utf8_lossy(&out.stdout).to_string(); // Capture stdout on error too
+                let stdout_text_on_error = String::from_utf8_lossy(&out.stdout).to_string();
                 let error_msg = format!("Whisper execution failed with status {}:\nSTDERR:\n{}\nSTDOUT:\n{}", out.status, stderr_text, stdout_text_on_error);
                 println!("[RUST ERROR] {}", error_msg);
                 Err(error_msg)
             }
         },
         Err(e) => {
-            // Handle failure to execute the command itself
             let error_msg = format!("Failed to execute whisper command: {}", e);
             println!("[RUST ERROR] {}", error_msg);
             Err(error_msg)
         }
     };
 
-    // --- Cleanup --- 
+    // --- Cleanup ---
     println!("[RUST DEBUG] Cleaning up temporary files...");
-    // Pass original path and Option<&Path> for converted path
     cleanup_files(input_wav_path, converted_wav_path_opt.as_deref());
     println!("[RUST DEBUG] Temporary files cleanup attempted.");
 

@@ -113,33 +113,24 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
         resultTextReceived = await resultPromise;
         console.log('[RecordingController] Backend returned result:', resultTextReceived);
 
-        if (!resultTextReceived || resultTextReceived.trim() === '' || resultTextReceived === "Whisper transcription completed successfully.") {
-             console.warn('%c[RecordingController] ⚠️ Backend returned empty or generic result', 'color: orange; font-weight: bold');
-             setErrorMessage(resultTextReceived.trim() === '' ? 'Transcription empty' : 'No speech detected');
-             setTranscription('');
-        } else {
-             console.log('[RecordingController] Setting transcription result, length:', resultTextReceived.length);
+        if (typeof resultTextReceived === 'string' && resultTextReceived.trim().length > 0) {
+             console.log('%c[RecordingController] Transcription Success:', 'color: green; font-weight: bold;', resultTextReceived);
              setTranscription(resultTextReceived);
              setErrorMessage(null);
-
-             if (configOptions.autoCopyToClipboard) {
-                 console.log('[RecordingController] Attempting auto-copy...');
-                 try {
-                     await copyToClipboard(resultTextReceived);
-                     console.log('[RecordingController] Copy OK');
-                 }
-                 catch (copyError) {
-                     console.error('[RecordingController] Copy FAIL:', copyError);
-                     toast.error("Failed to copy to clipboard.");
-                 }
-             }
+             toast.success("Transcription successful!");
+             setCurrentRecordingState(RecordingState.IDLE);
+        } else {
+             console.warn('%c[RecordingController] ⚠️ Backend returned empty or generic result', 'color: orange; font-weight: bold');
+             setErrorMessage(resultTextReceived === null ? 'Transcription empty' : 'No speech detected');
+             setTranscription('');
+             setCurrentRecordingState(RecordingState.IDLE);
         }
     } catch (error) {
         console.error(`%c[RecordingController] ---> ERROR received from backend invoke <---`, 'color: red; font-weight: bold;', error);
-        setErrorMessage(`Transcription error: ${error instanceof Error ? error.message : String(error)}`);
+        const errorMsg = typeof error === 'string' ? error : (error instanceof Error ? error.message : 'Unknown transcription error');
+        setErrorMessage(`Transcription error: ${errorMsg}`);
+        toast.error(`Transcription Failed: ${errorMsg.substring(0, 50)}${errorMsg.length > 50 ? '...' : ''}`);
         setTranscription('');
-    } finally {
-        console.log('%c[RecordingController] 🏁 Transcription attempt complete, resetting state to IDLE in finally block', 'color: green; font-weight: bold');
         setCurrentRecordingState(RecordingState.IDLE);
     }
   };

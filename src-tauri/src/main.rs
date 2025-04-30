@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
 use arboard;
+use std::time::Duration;
+use enigo;
 
 // Import our modules
 mod transcription;
@@ -25,6 +27,7 @@ mod audio_manager_rs; // New module for backend recording
 // Import necessary types
 // use audio_manager_rs::AudioRecordingState; // DELETE THIS LINE
 use crate::transcription::TranscriptionState; // ADD Import
+use crate::audio_manager_rs::AudioRecordingState; // Need this type for state
 
 // Only import what we actually use directly in this file
 
@@ -54,10 +57,27 @@ struct KeyState {
 }
 
 // Command to paste text to cursor position
+// Make public so it can be called from transcription.rs
 #[tauri::command]
-async fn paste_text_to_cursor(text: String) -> Result<(), String> {
-    // Reuse the transcription module's helper function
-    transcription::paste_text_to_cursor(&text).await
+pub async fn paste_text_to_cursor(text: String) -> Result<(), String> {
+    // Small delay to ensure the user has returned to the target application
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    
+    let mut enigo = enigo::Enigo::new();
+    
+    // We'll try to use clipboard for pasting (assuming text is already there)
+    println!("[RUST PASTE] Attempting to paste via keyboard shortcut...");
+    if cfg!(target_os = "macos") {
+        enigo.key_down(enigo::Key::Meta);
+        enigo.key_click(enigo::Key::Layout('v'));
+        enigo.key_up(enigo::Key::Meta);
+    } else {
+        enigo.key_down(enigo::Key::Control);
+        enigo.key_click(enigo::Key::Layout('v'));
+        enigo.key_up(enigo::Key::Control);
+    }
+    println!("[RUST PASTE] Paste shortcut executed.");
+    Ok(())
 }
 
 // Command to emit an event to all windows
@@ -68,15 +88,15 @@ fn emit_event(app_handle: tauri::AppHandle, event: String, payload: serde_json::
         .map_err(|e| format!("Failed to emit event {}: {}", event, e))
 }
 
-// New command for clipboard writing
-#[tauri::command]
-async fn write_to_clipboard_rust(text_to_copy: String) -> Result<(), String> {
-    println!("[RUST CLIPBOARD] Attempting to write to clipboard via arboard...");
+// --- Refactored Clipboard Logic ---
+// Internal helper function for clipboard writing (now public)
+pub async fn write_to_clipboard_internal(text_to_copy: String) -> Result<(), String> {
+    println!("[RUST CLIPBOARD INTERNAL] Attempting to write to clipboard via arboard...");
     match arboard::Clipboard::new() {
         Ok(mut clipboard) => {
             match clipboard.set_text(text_to_copy) {
                 Ok(_) => {
-                    println!("[RUST CLIPBOARD] Successfully wrote text to clipboard.");
+                    println!("[RUST CLIPBOARD INTERNAL] Successfully wrote text to clipboard.");
                     Ok(())
                 },
                 Err(e) => {
@@ -93,6 +113,14 @@ async fn write_to_clipboard_rust(text_to_copy: String) -> Result<(), String> {
         }
     }
 }
+
+// New Tauri command that wraps the internal function
+#[tauri::command]
+async fn write_to_clipboard_command(text_to_copy: String) -> Result<(), String> {
+    println!("[RUST CLIPBOARD COMMAND] Received request.");
+    write_to_clipboard_internal(text_to_copy).await // Call the internal helper
+}
+// --- End Refactored Clipboard Logic ---
 
 // This function initializes the application
 // What it does: Sets up the main window, system tray, and event handlers
@@ -204,7 +232,7 @@ fn main() {
             // config_manager::save_config, 
             // config_manager::get_default_config,
             // NEW Clipboard Command
-            write_to_clipboard_rust
+            write_to_clipboard_command
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");
