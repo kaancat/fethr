@@ -34,91 +34,69 @@ pub async fn start_backend_recording(
     // --- Setup Channel for Stop Signal ---
     let (tx_stop, rx_stop): (mpsc::Sender<()>, mpsc::Receiver<()>) = mpsc::channel();
 
-    // --- Get CPAL Device and Log Supported Configs ---
+    // --- Get CPAL Device ---
     let host = cpal::default_host();
     let device = host.default_input_device().ok_or_else(|| "No input device available".to_string())?;
     println!("[RUST AUDIO DEBUG] Default input device: {:?}", device.name().unwrap_or_else(|_| "Unnamed".to_string()));
 
-    // --- Log Available Configs --- (Already added in previous step, verify it remains)
-    println!("[RUST AUDIO DEBUG] Querying supported input configs...");
-    match device.supported_input_configs() {
-        Ok(configs) => {
-            println!("[RUST AUDIO DEBUG] --- Available Input Configs (Raw Ranges) ---");
-            let mut count = 0;
-            for config_range in configs { 
-                 println!(
-                    "[RUST AUDIO DEBUG]   - Range: Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
-                    config_range.channels(),
-                    config_range.min_sample_rate().0,
-                    config_range.max_sample_rate().0,
-                    config_range.sample_format()
-                );
-                count += 1;
-            }
-            println!("[RUST AUDIO DEBUG] --- End Config Ranges (Found {}) ---", count);
-            if count == 0 {
-                 println!("[RUST AUDIO WARNING] No supported input config ranges returned by the iterator!");
-            }
-        }
-        Err(e) => {
-            println!("[RUST AUDIO ERROR] Failed to get supported input configs initially: {}", e);
-            // If the initial query fails, the next one likely will too, but we try anyway.
-        }
-    }
-    // --- End Logging ---
+    // --- Find Best Supported Config (cpal 0.14.2 logic - Robust) ---
+    println!("[RUST AUDIO DEBUG] Finding best supported input config...");
+    
+    // Prefer I16 Mono -> F32 Mono -> Any I16 -> Any F32
+    let preferred_format_order = [cpal::SampleFormat::I16, cpal::SampleFormat::F32];
+    let mut best_config: Option<cpal::SupportedStreamConfig> = None;
 
-    // --- Find Supported Config (cpal 0.14.2 logic) ---
-    let supported_config = device.supported_input_configs()
-        .map_err(|e| format!("Failed to query input configs: {}", e))?
-        .find_map(|range| { // Iterate through SupportedStreamConfigRange
-            println!("[RUST AUDIO DEBUG] Checking Range: Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
-                range.channels(), range.min_sample_rate().0, range.max_sample_rate().0, range.sample_format());
-
-            // Check format and channels FIRST
-            if range.sample_format() == cpal::SampleFormat::I16 && range.channels() == 1 {
-                // Try to get 16kHz if supported by this range
-                if range.min_sample_rate().0 <= 16000 && range.max_sample_rate().0 >= 16000 {
-                    println!("[RUST AUDIO DEBUG]   -> Found I16 Mono Range supporting 16kHz. Selecting 16kHz.");
-                    Some(range.with_sample_rate(cpal::SampleRate(16000))) // Return specific config
+    'format_loop: for &format in preferred_format_order.iter() {
+        println!("[RUST AUDIO DEBUG] Checking for format: {:?}", format);
+        if let Ok(mut configs_iter) = device.supported_input_configs() { // Re-query iterator
+             // First, try to find Mono
+             if let Some(range) = configs_iter.find(|range| range.sample_format() == format && range.channels() == 1) {
+                println!("[RUST AUDIO DEBUG]   -> Found Mono {:?} range.", format);
+                // Prefer 48kHz, then 16kHz, then max rate within this range
+                let desired_rate = if range.min_sample_rate().0 <= 48000 && range.max_sample_rate().0 >= 48000 {
+                    cpal::SampleRate(48000)
+                } else if range.min_sample_rate().0 <= 16000 && range.max_sample_rate().0 >= 16000 {
+                    cpal::SampleRate(16000)
                 } else {
-                    // Otherwise, take the max rate this range offers
-                    println!("[RUST AUDIO DEBUG]   -> Found I16 Mono Range (doesn't support 16kHz). Selecting max rate: {}", range.max_sample_rate().0);
-                    Some(range.with_max_sample_rate()) // Return specific config
-                }
-            } else {
-                None // Skip this range if format/channels don't match
-            }
-        })
-        // If NO I16 Mono range was found after checking all ranges:
-        .or_else(|| {
-             println!("[RUST AUDIO DEBUG] No I16 Mono config found. Looking for *ANY* I16 config...");
-             device.supported_input_configs().ok()? // Re-query needed
-                .find_map(|range| { // Iterate again
-                     println!("[RUST AUDIO DEBUG] Checking Range (any channel): Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
-                         range.channels(), range.min_sample_rate().0, range.max_sample_rate().0, range.sample_format());
-                    if range.sample_format() == cpal::SampleFormat::I16 {
-                        println!("[RUST AUDIO DEBUG]   -> Found I16 Range (any channel). Selecting max rate: {}", range.max_sample_rate().0);
-                        Some(range.with_max_sample_rate()) // Take the max rate
-                    } else {
-                        None
-                    }
-                })
-        })
-        // If STILL no I16 config found at all:
-        .ok_or_else(|| "No supported I16 input config found".to_string())?; // Final error
+                    range.max_sample_rate()
+                };
+                println!("[RUST AUDIO DEBUG]   -> Selecting rate: {}", desired_rate.0);
+                best_config = Some(range.with_sample_rate(desired_rate));
+                break 'format_loop; // Found best mono option
+             }
+        }
+        // If no mono found for this format, try any channel count
+        if best_config.is_none() {
+             println!("[RUST AUDIO DEBUG] No Mono {:?} found, checking any channel count...", format);
+             if let Ok(mut configs_iter) = device.supported_input_configs() { // Re-query iterator
+                 if let Some(range) = configs_iter.find(|range| range.sample_format() == format) {
+                     println!("[RUST AUDIO DEBUG]   -> Found {:?} range ({} channels). Selecting max rate: {}", format, range.channels(), range.max_sample_rate().0);
+                     best_config = Some(range.with_max_sample_rate());
+                     break 'format_loop; // Found first available option for this format
+                 }
+             }
+        }
+         println!("[RUST AUDIO DEBUG] No {:?} configs found.", format);
+    } // End format loop
+
+    let supported_config = best_config
+            .ok_or_else(|| "No supported I16 or F32 input config found".to_string())?;
     // --- End Config Finding Logic ---
 
-    let actual_sample_rate = supported_config.sample_rate().0;
-    let stream_config: cpal::StreamConfig = supported_config.config();
-    println!("[RUST AUDIO] Selected config: Rate: {}, Channels: {}, Format: {:?}",
-        actual_sample_rate, stream_config.channels, supported_config.sample_format());
 
-    // --- Configure WAV Writer using ACTUAL sample rate ---
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: actual_sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int
+    let actual_sample_rate = supported_config.sample_rate().0;
+    let stream_config: cpal::StreamConfig = supported_config.config(); // Use .config() for cpal 0.14
+    let actual_format = supported_config.sample_format(); // Store the format we actually got
+
+    println!("[RUST AUDIO] Selected config: Rate: {}, Channels: {}, Format: {:?}",
+        actual_sample_rate, stream_config.channels, actual_format); // Log selected config
+
+    // --- Configure WAV Writer --- (Always use I16 for output WAV)
+    let spec = hound::WavSpec { 
+        channels: 1, // Output WAV is always mono
+        sample_rate: actual_sample_rate, // Use the rate we actually capture at
+        bits_per_sample: 16, 
+        sample_format: hound::SampleFormat::Int 
     };
     let writer = hound::WavWriter::create(&temp_wav_path, spec)
         .map_err(|e| format!("Failed to create WavWriter: {}", e))?;
@@ -126,50 +104,81 @@ pub async fn start_backend_recording(
 
     // --- Clone Arcs for Thread ---
     let writer_clone = writer_mutex.clone();
-    let app_handle_for_error_cb = app_handle.clone(); // Clone #1 for the error callback
-    let app_handle_for_play_err = app_handle.clone(); // Clone #2 for play() error
+    let app_handle_for_error_cb = app_handle.clone(); 
+    let app_handle_for_build_err = app_handle.clone(); // Clone for build error handling
+    let app_handle_for_play_err = app_handle.clone(); // Clone for play error handling
 
     // --- Spawn Recording Thread ---
     let recording_handle = thread::spawn(move || {
         println!("[RUST THREAD] Recording thread started.");
-        
-        let data_callback = move |data: &[i16], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut writer_guard) = writer_clone.lock() {
-                for &sample in data.iter() {
-                    if writer_guard.write_sample(sample).is_err() {
-                        eprintln!("[RUST THREAD CB] Error writing sample.");
-                    }
-                }
-            } else { 
-                eprintln!("[RUST THREAD CB] Failed to lock writer mutex."); 
-            }
-        };
 
+        // Define error callback once (captures app_handle_for_error_cb)
         let error_callback = move |err| {
             eprintln!("[RUST THREAD CB] CPAL stream error: {}", err);
-            // Use the first clone here
-            let _ = app_handle_for_error_cb.emit_all("recording_error", format!("CPAL Error: {}", err)); 
+            let _ = app_handle_for_error_cb.emit_all("recording_error", format!("CPAL Stream Error: {}", err)); 
         };
-
-        // Build the input stream
-        println!("[RUST AUDIO] Building input stream with config: {:?}", stream_config);
-        let stream = match device.build_input_stream(
-            &stream_config,
-            data_callback, 
-            error_callback
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[RUST THREAD] Failed to build input stream: {}. Emitting error.", e);
-                 // Use the second clone here
-                let _ = app_handle_for_play_err.emit_all("recording_error", format!("Stream build failed: {}", e));
-                return;
+        
+        // --- Build stream based on actual_format ---
+        println!("[RUST THREAD DEBUG] Building stream for format: {:?}", actual_format);
+        let stream = match actual_format {
+            cpal::SampleFormat::I16 => {
+                let data_callback = move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    // Direct write for I16
+                    if let Ok(mut writer_guard) = writer_clone.lock() {
+                        for &sample in data.iter() {
+                            if writer_guard.write_sample(sample).is_err() {
+                                 eprintln!("[RUST THREAD CB - I16] Error writing sample."); break;
+                            }
+                        }
+                    } else { eprintln!("[RUST THREAD CB - I16] Failed to lock writer mutex."); }
+                };
+                // Build the stream for I16
+                device.build_input_stream::<i16, _, _>(&stream_config, data_callback, error_callback)
             }
+            cpal::SampleFormat::F32 => {
+                let data_callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    // Convert F32 to I16 before writing
+                    if let Ok(mut writer_guard) = writer_clone.lock() {
+                        for &sample_f32 in data.iter() {
+                            // Clamp to prevent overflow/wrap-around on conversion
+                            let clamped_f32 = sample_f32.max(-1.0).min(1.0);
+                            let sample_i16 = (clamped_f32 * std::i16::MAX as f32) as i16;
+                            if writer_guard.write_sample(sample_i16).is_err() {
+                                eprintln!("[RUST THREAD CB - F32] Error writing sample."); break;
+                            }
+                        }
+                    } else { eprintln!("[RUST THREAD CB - F32] Failed to lock writer mutex."); }
+                };
+                // Build the stream for F32
+                 device.build_input_stream::<f32, _, _>(&stream_config, data_callback, error_callback)
+            }
+            other_format => {
+                eprintln!("[RUST THREAD] Unsupported sample format selected: {:?}", other_format);
+                // Handle other formats if necessary, or return error
+                 Err(cpal::BuildStreamError::StreamConfigNotSupported)
+            }
+        }
+        // Consolidate error handling for build_input_stream
+        .map_err(|e| {
+             let err_msg = format!("Failed to build input stream for format {:?}: {}", actual_format, e);
+             eprintln!("[RUST THREAD] {}", err_msg);
+             // Use the separate clone for build error reporting
+             let _ = app_handle_for_build_err.emit_all("recording_error", err_msg.clone()); 
+             err_msg // Return the error message for the thread spawn result
+        });
+        
+        // Check if stream building failed
+        let stream = match stream {
+            Ok(s) => s,
+            Err(e) => return, // Exit thread if stream build failed
         };
 
+        println!("[RUST THREAD DEBUG] Input stream built successfully.");
+
+        // Play the stream
         if let Err(e) = stream.play() {
              eprintln!("[RUST THREAD] Failed to play stream: {}. Emitting error.", e);
-             // Use the second clone here as well
+             // Use the play error clone
              let _ = app_handle_for_play_err.emit_all("recording_error", format!("Stream play failed: {}", e));
              return;
         }
@@ -187,11 +196,9 @@ pub async fn start_backend_recording(
     state_guard.stop_signal_sender = Some(tx_stop);
     state_guard.temp_wav_path = Some(temp_wav_path.clone());
     state_guard.recording_thread_handle = Some(recording_handle);
-    state_guard.writer = Some(writer_mutex.clone()); // Store the writer mutex
-
-    // Crucially, set the recording flag only AFTER everything is set up
+    state_guard.writer = Some(writer_mutex.clone());
     state_guard.is_actively_recording = true; 
-    drop(state_guard); // Release lock
+    drop(state_guard);
 
     println!("[RUST AUDIO] Backend recording started successfully.");
     let _ = app_handle.emit_all("recording_status_changed", "started");
