@@ -23,7 +23,7 @@ mod audio_manager_rs; // New module for backend recording
 // mod hotkey_manager; // DELETE
 
 // Import necessary types
-use audio_manager_rs::AudioRecordingState; // Already implicitly imported via mod?
+// use audio_manager_rs::AudioRecordingState; // DELETE THIS LINE
 use crate::transcription::TranscriptionState; // ADD Import
 
 // Only import what we actually use directly in this file
