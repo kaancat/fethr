@@ -4,16 +4,42 @@
 )]
 
 use tauri::{Manager, GlobalShortcutManager};
-use std::path::Path;
-use std::fs;
+use std::path::{Path, PathBuf};
+use std::fs::{self, File};
+use std::io::BufWriter;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use hound::WavWriter;
+// use cpal::Stream; // REMOVED: Not needed anymore
 
 // Import our modules
 mod transcription;
 mod whisper;
-mod audio_manager;
+// mod audio_manager; // REMOVED: Old unused module
+mod audio_manager_rs; // New module for backend recording
 
 // Only import what we actually use directly in this file
 use transcription::init_transcription;
+
+// Define the state struct
+#[derive(Default)]
+pub struct AudioRecordingState {
+    // To signal the recording thread to stop
+    pub stop_signal_sender: Option<mpsc::Sender<()>>,
+    // To wait for the recording thread to finish
+    pub recording_thread_handle: Option<thread::JoinHandle<()>>,
+    // Path where the WAV is being written (set by start, read by stop)
+    pub temp_wav_path: Option<PathBuf>,
+    // Simple flag managed synchronously by start/stop commands
+    pub is_actively_recording: bool,
+    // The WAV writer, wrapped in Arc<Mutex> for thread-safe access
+    pub writer: Option<Arc<Mutex<hound::WavWriter<BufWriter<File>>>>>,
+}
+
+// Type alias for the managed state
+pub type SharedRecordingState = Arc<Mutex<AudioRecordingState>>;
 
 // Key state for tracking press/release
 #[derive(Default)]
@@ -49,8 +75,20 @@ fn main() {
             // Initialize transcription state
             let state = transcription::init_transcription(&app.handle())?;
             
-            // Register state
+            // Register transcription state
             app.manage(state);
+            
+            // Initialize and register recording state
+            // Explicitly set the default state values
+            let recording_state_inner = AudioRecordingState {
+                stop_signal_sender: None,
+                recording_thread_handle: None,
+                temp_wav_path: None,
+                is_actively_recording: false, // Be explicit
+                writer: None,
+            };
+            let recording_state: SharedRecordingState = Arc::new(Mutex::new(recording_state_inner));
+            app.manage(recording_state);
             
             // Explicitly show the main window
             if let Some(window) = app.get_window("main") {
@@ -129,7 +167,10 @@ fn main() {
             whisper::whisper_save_audio_buffer,
             paste_text_to_cursor,
             emit_event,
-            delete_file
+            delete_file,
+            // New backend recording commands
+            audio_manager_rs::start_backend_recording,
+            audio_manager_rs::stop_backend_recording
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");

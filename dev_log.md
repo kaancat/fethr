@@ -1125,3 +1125,54 @@ Goal: Fix return type mismatch in transcription functions
 - Impact: Now properly returns the transcription text to the caller
 
 ---
+
+## [2024-03-27] - Frontend Audio Code Cleanup
+Goal: Remove deprecated frontend audio recording implementation
+
+### Changes Made:
+- Deleted `src/utils/AudioManager.ts` as audio recording is now handled by Rust backend
+- Removed unused npm packages:
+  - `react-audio-voice-recorder`
+  - `mic-recorder-to-mp3`
+- Performed clean npm install to ensure dependency tree is up to date
+
+### Impact:
+- Reduced frontend bundle size by removing unused audio recording libraries
+- Simplified codebase by removing redundant JavaScript-based audio implementation
+- All audio recording functionality now properly handled through Tauri commands to Rust backend
+
+### Next Steps:
+- Update any remaining frontend components that might have referenced the old AudioManager
+- Verify all audio recording features work correctly through the Rust backend
+
+---
+
+## [2024-03-19] - Recording State Management Improvements
+Goal: Ensure reliable recording state reset in all error scenarios
+
+Changes made to `src-tauri/src/audio_manager_rs.rs`:
+- Added state reset in early error returns (missing sender, missing handle, thread panic)
+- Improved error handling and logging for state management
+- Maintained primary state reset after thread join but before transcription
+- Added safety nets to prevent "Already recording" errors after failed attempts
+
+Impact:
+- More reliable recording state management
+- Better error recovery
+- Improved debugging through better error messages
+- Prevents state inconsistency even if transcription fails
+
+TODO:
+- Monitor for any edge cases in state management
+- Consider adding state validation on recording start
+
+---
+
+## [2024-07-15] - Restore frontend recording initiation and fix state bug.
+
+- Added the missing `startRecordingProcess` function back into `src/components/RecordingController.tsx`. This function handles invoking the `start_backend_recording` command and starting the recording duration timer.
+- This fixes the issue where removing the FFmpeg volume boost revealed that the frontend wasn't properly initiating recording or resetting state on rapid start/stop attempts.
+
+TODO: Test recording start/stop again, focusing on both the frontend UI state transitions and whether Whisper now produces transcription text.
+
+---
