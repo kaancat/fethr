@@ -39,49 +39,79 @@ pub async fn start_backend_recording(
     let device = host.default_input_device().ok_or_else(|| "No input device available".to_string())?;
     println!("[RUST AUDIO DEBUG] Default input device: {:?}", device.name().unwrap_or_else(|_| "Unnamed".to_string()));
 
-    // --- ADD/VERIFY LOGGING ---
+    // --- Log Available Configs --- (Already added in previous step, verify it remains)
     println!("[RUST AUDIO DEBUG] Querying supported input configs...");
-    let mut available_configs: Vec<SupportedStreamConfig> = Vec::new(); // Collect configs here
     match device.supported_input_configs() {
         Ok(configs) => {
-            println!("[RUST AUDIO DEBUG] --- Available Input Configs ---");
+            println!("[RUST AUDIO DEBUG] --- Available Input Configs (Raw Ranges) ---");
             let mut count = 0;
-            for config in configs { // Iterate directly
-                 available_configs.push(config.clone()); // Store a copy
+            for config_range in configs { 
                  println!(
-                    "[RUST AUDIO DEBUG]   - Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
-                    config.channels(),
-                    config.min_sample_rate().0,
-                    config.max_sample_rate().0,
-                    config.sample_format()
+                    "[RUST AUDIO DEBUG]   - Range: Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
+                    config_range.channels(),
+                    config_range.min_sample_rate().0,
+                    config_range.max_sample_rate().0,
+                    config_range.sample_format()
                 );
                 count += 1;
             }
-            println!("[RUST AUDIO DEBUG] --- End Configs (Found {}) ---", count);
+            println!("[RUST AUDIO DEBUG] --- End Config Ranges (Found {}) ---", count);
             if count == 0 {
-                 println!("[RUST AUDIO WARNING] No supported input configs returned by the iterator!");
+                 println!("[RUST AUDIO WARNING] No supported input config ranges returned by the iterator!");
             }
         }
         Err(e) => {
-            println!("[RUST AUDIO ERROR] Failed to get supported input configs: {}", e);
-            // Proceed, maybe the fallback logic will still work, but log the error
+            println!("[RUST AUDIO ERROR] Failed to get supported input configs initially: {}", e);
+            // If the initial query fails, the next one likely will too, but we try anyway.
         }
     }
-    // --- END LOGGING ---
+    // --- End Logging ---
 
-    // Try to find the specific config using the collected configs
-    let supported_config = available_configs.iter()
-        .find(|c| c.sample_format() == cpal::SampleFormat::I16 && c.channels() == 1 &&
-              c.min_sample_rate().0 <= 16000 && c.max_sample_rate().0 >= 16000)
-        .map(|c| c.with_sample_rate(cpal::SampleRate(16000)))
-        .or_else(|| available_configs.iter()
-            .find(|c| c.sample_format() == cpal::SampleFormat::I16)
-            .map(|c| c.with_max_sample_rate()))
-        .ok_or_else(|| "No supported I16 input config found".to_string())?; // <<< Error likely originates here
+    // --- Find Supported Config (cpal 0.14.2 logic) ---
+    let supported_config = device.supported_input_configs()
+        .map_err(|e| format!("Failed to query input configs: {}", e))?
+        .find_map(|range| { // Iterate through SupportedStreamConfigRange
+            println!("[RUST AUDIO DEBUG] Checking Range: Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
+                range.channels(), range.min_sample_rate().0, range.max_sample_rate().0, range.sample_format());
+
+            // Check format and channels FIRST
+            if range.sample_format() == cpal::SampleFormat::I16 && range.channels() == 1 {
+                // Try to get 16kHz if supported by this range
+                if range.min_sample_rate().0 <= 16000 && range.max_sample_rate().0 >= 16000 {
+                    println!("[RUST AUDIO DEBUG]   -> Found I16 Mono Range supporting 16kHz. Selecting 16kHz.");
+                    Some(range.with_sample_rate(cpal::SampleRate(16000))) // Return specific config
+                } else {
+                    // Otherwise, take the max rate this range offers
+                    println!("[RUST AUDIO DEBUG]   -> Found I16 Mono Range (doesn't support 16kHz). Selecting max rate: {}", range.max_sample_rate().0);
+                    Some(range.with_max_sample_rate()) // Return specific config
+                }
+            } else {
+                None // Skip this range if format/channels don't match
+            }
+        })
+        // If NO I16 Mono range was found after checking all ranges:
+        .or_else(|| {
+             println!("[RUST AUDIO DEBUG] No I16 Mono config found. Looking for *ANY* I16 config...");
+             device.supported_input_configs().ok()? // Re-query needed
+                .find_map(|range| { // Iterate again
+                     println!("[RUST AUDIO DEBUG] Checking Range (any channel): Channels: {}, Min Rate: {}, Max Rate: {}, Format: {:?}",
+                         range.channels(), range.min_sample_rate().0, range.max_sample_rate().0, range.sample_format());
+                    if range.sample_format() == cpal::SampleFormat::I16 {
+                        println!("[RUST AUDIO DEBUG]   -> Found I16 Range (any channel). Selecting max rate: {}", range.max_sample_rate().0);
+                        Some(range.with_max_sample_rate()) // Take the max rate
+                    } else {
+                        None
+                    }
+                })
+        })
+        // If STILL no I16 config found at all:
+        .ok_or_else(|| "No supported I16 input config found".to_string())?; // Final error
+    // --- End Config Finding Logic ---
 
     let actual_sample_rate = supported_config.sample_rate().0;
-    let stream_config: cpal::StreamConfig = supported_config.clone().into();
-    println!("[RUST AUDIO] Selected sample rate to be used: {}", actual_sample_rate);
+    let stream_config: cpal::StreamConfig = supported_config.config();
+    println!("[RUST AUDIO] Selected config: Rate: {}, Channels: {}, Format: {:?}",
+        actual_sample_rate, stream_config.channels, supported_config.sample_format());
 
     // --- Configure WAV Writer using ACTUAL sample rate ---
     let spec = hound::WavSpec {
