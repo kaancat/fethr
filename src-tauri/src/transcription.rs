@@ -297,6 +297,7 @@ pub async fn transcribe_local_audio_impl(
     println!("    Input WAV: {}", whisper_input_path.display());
     println!("    CWD: {}", whisper_dir.display());
     println!("    Language: en");
+    println!("    Flags: -nt (No Timestamps)");
     println!("=========================================================================================");
 
     // --- Run Whisper --- 
@@ -307,7 +308,8 @@ pub async fn transcribe_local_audio_impl(
                    .arg("--file")
                    .arg(&whisper_input_path_str) // USE DETERMINED INPUT PATH STRING
                    .arg("--language")
-                   .arg("en");
+                   .arg("en")
+                   .arg("-nt");
 
     let output_result = command_builder.output();
 
