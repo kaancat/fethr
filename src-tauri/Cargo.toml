@@ -20,7 +20,7 @@ device_query = "3.0.1"
 tokio = { version = "1", features = ["full"] }
 # Simple dependencies for local transcription
 tempfile = "3.3"    # For temporary file handling
-enigo = "0.2.0"       # For simulating keyboard input to paste text
+enigo = "0.2.0"
 # Dependencies for file handling and operations
 reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls", "blocking"] }
 zip = "0.6.6"           # For extracting zip files
