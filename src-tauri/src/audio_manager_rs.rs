@@ -10,6 +10,9 @@ use crate::AudioRecordingState; // Assuming AudioRecordingState is defined in ma
 use crate::SharedRecordingState;
 use crate::transcription::{self, TranscriptionState};
 use cpal::SupportedStreamConfig;
+use std::fs::File;
+use std::io::BufWriter;
+use scopeguard::defer;
 
 #[command]
 pub async fn start_backend_recording(
@@ -212,142 +215,92 @@ pub async fn stop_backend_recording(
     transcription_state: State<'_, TranscriptionState>,
     auto_paste: bool,
 ) -> Result<String, String> {
-    println!("[RUST AUDIO] stop_backend_recording command received");
+    println!("[RUST AUDIO STOP] Received stop command. AutoPaste: {}", auto_paste);
 
-    // --- Extract state ---
-    let (stop_sender_opt, path_opt, join_handle_opt, writer_arc_mutex_opt) = {
-        let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state: {}", e))?;
+    let (sender, final_path_string) = {
+        let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for stopping: {}", e))?;
+
         if !state_guard.is_actively_recording {
-            return Err("Not actively recording".to_string());
+            println!("[RUST AUDIO STOP] Not actively recording, ignoring stop command.");
+            return Err("Not currently recording".to_string());
         }
-        println!("[RUST AUDIO] Preparing to stop recording...");
-        
-        (   state_guard.stop_signal_sender.take(),
-            state_guard.temp_wav_path.take(),
-            state_guard.recording_thread_handle.take(),
-            state_guard.writer.take()
-        )
-    };
 
-    // --- Signal and Wait for Thread ---
-    if let Some(tx_stop) = stop_sender_opt {
-        println!("[RUST AUDIO] Signaling recording thread to stop...");
-        drop(tx_stop);
-    } else {
-        if let Ok(mut state_guard) = recording_state.lock() {
-            state_guard.is_actively_recording = false;
-        }
-        return Err("Stop signal sender was missing in state.".to_string());
-    }
-
-    if let Some(handle) = join_handle_opt {
-        println!("[RUST AUDIO] Waiting for recording thread to join...");
-        if handle.join().is_err() {
-            println!("[RUST AUDIO WARNING] Recording thread panicked!");
-            if let Ok(mut state_guard) = recording_state.lock() {
-                state_guard.is_actively_recording = false;
-            }
-            return Err("Recording thread panicked".to_string());
+        // Signal the recording thread to stop
+        if let Some(sender) = state_guard.stop_signal_sender.take() {
+            println!("[RUST AUDIO STOP] Sending stop signal to recording thread...");
+            sender.send(()).map_err(|e| format!("Failed to send stop signal: {}", e))?;
         } else {
-            println!("[RUST AUDIO] Recording thread joined successfully.");
+            return Err("Stop signal sender missing".to_string());
         }
-    } else {
-        if let Ok(mut state_guard) = recording_state.lock() {
-            state_guard.is_actively_recording = false;
-        }
-        return Err("Recording thread handle missing.".to_string());
-    }
 
-    // --- Finalize Writer ---
-    let final_path = match path_opt { 
-        Some(p) => p,
-        None => {
-            let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for missing path error: {}", e))?;
-            state_guard.is_actively_recording = false;
-            println!("[RUST AUDIO ERROR] WAV path missing, resetting state and returning error.");
-            return Err("WAV path was missing in state.".to_string());
+        // Wait for the recording thread to finish
+        if let Some(handle) = state_guard.recording_thread_handle.take() {
+            println!("[RUST AUDIO STOP] Waiting for recording thread to join...");
+            handle.join().map_err(|e| format!("Recording thread panicked: {:?}", e))?;
+            println!("[RUST AUDIO STOP] Recording thread joined successfully.");
+        } else {
+            return Err("Recording thread handle missing".to_string());
         }
-    };
-    let final_path_string: String;
-    println!("[RUST AUDIO] Attempting to finalize WAV file at: {}", final_path.display());
-    if let Some(writer_arc_mutex) = writer_arc_mutex_opt {
-        match Arc::try_unwrap(writer_arc_mutex) {
-            Ok(writer_mutex) => {
-                match writer_mutex.into_inner() {
-                    Ok(writer) => {
-                        if let Err(e) = writer.finalize() {
-                            let err_msg = format!("Failed to finalize WavWriter: {}", e);
-                            println!("[RUST AUDIO ERROR] {}", err_msg);
-                            let _ = std::fs::remove_file(&final_path);
-                            let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for finalize error: {}", e))?;
-                            state_guard.is_actively_recording = false;
-                            println!("[RUST AUDIO] Finalize failed, resetting state and returning error.");
-                            return Err(err_msg); 
-                        }
-                        println!("[RUST AUDIO] WAV file finalized successfully.");
-                        final_path_string = final_path.to_string_lossy().into_owned();
+
+        // Finalize the WAV writer (this flushes buffers and writes the header)
+        if let Some(writer_arc) = state_guard.writer.take() {
+            println!("[RUST AUDIO STOP] Attempting to lock and finalize WAV writer...");
+            match Arc::try_unwrap(writer_arc) {
+                Ok(mutex) => {
+                    match mutex.into_inner() {
+                        Ok(writer) => {
+                            writer.finalize().map_err(|e| format!("Failed to finalize WAV writer: {}", e))?;
+                            println!("[RUST AUDIO STOP] WAV writer finalized successfully.");
+                        },
+                        Err(poison_err) => return Err(format!("WAV writer mutex was poisoned: {}", poison_err)),
                     }
-                    Err(poisoned) => {
-                        let err_msg = format!("WavWriter Mutex was poisoned: {:?}", poisoned);
-                        println!("[RUST AUDIO ERROR] {}", err_msg);
-                        let _ = std::fs::remove_file(&final_path);
-                        let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for poison error: {}", e))?;
-                        state_guard.is_actively_recording = false;
-                        println!("[RUST AUDIO] Mutex poisoned, resetting state and returning error.");
-                        return Err(err_msg);
-                    }
+                },
+                Err(_) => return Err("Failed to unwrap Arc for WAV writer (still referenced elsewhere?)".to_string()),
+            }
+        }
+
+        let final_path = state_guard.temp_wav_path.take().ok_or("Temporary WAV path missing in state")?;
+        let final_path_string = final_path.to_string_lossy().into_owned();
+        println!("[RUST AUDIO STOP] Recording stopped. Final WAV path: {}", final_path_string);
+
+        // Return necessary values outside the lock
+        (sender, final_path_string)
+    }; // state_guard lock is released here
+
+    // --- Ensure state is reset even if transcription/paste panics --- 
+    defer! {
+        // This code runs when the current scope exits, either normally or via panic
+        match recording_state.lock() {
+            Ok(mut state_guard) => {
+                if state_guard.is_actively_recording { // Check just in case it was somehow reset already
+                   state_guard.is_actively_recording = false;
+                   println!("[RUST AUDIO SCOPEGUARD] FINAL state reset: is_actively_recording set to false.");
+                } else {
+                    println!("[RUST AUDIO SCOPEGUARD] State was already false, no reset needed.");
                 }
             }
-            Err(_) => { 
-                let err_msg = "Failed to get exclusive ownership of WavWriter Arc".to_string();
-                println!("[RUST AUDIO ERROR] {}", err_msg);
-                let _ = std::fs::remove_file(&final_path);
-                let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for Arc unwrap error: {}", e))?;
-                state_guard.is_actively_recording = false;
-                println!("[RUST AUDIO] Arc unwrap failed, resetting state and returning error.");
-                return Err(err_msg);
+            Err(e) => {
+                println!("[RUST AUDIO SCOPEGUARD CRITICAL ERROR] Failed to lock state for FINAL reset: {}. State might be inconsistent.", e);
             }
         }
-    } else { 
-        let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for missing writer error: {}", e))?;
-        state_guard.is_actively_recording = false;
-        println!("[RUST AUDIO ERROR] Writer missing, resetting state and returning error.");
-        return Err("Writer was missing from state.".to_string()); 
     }
+    // --- End Scopeguard --- 
 
-    // --- Call Transcription ---
-    if !final_path.exists() {
-        let err_msg = format!("Final WAV file does not exist after finalize: {}", final_path.display());
-        println!("[RUST AUDIO ERROR] {}", err_msg);
-        let mut state_guard = recording_state.lock().map_err(|e| format!("Failed to lock state for missing file error: {}", e))?;
-        state_guard.is_actively_recording = false;
-        println!("[RUST AUDIO] File missing post-finalize, resetting state and returning error.");
-        return Err(err_msg);
-    }
+    // --- Call Transcription --- 
     println!("[RUST AUDIO] Proceeding to transcription for path: {}", final_path_string);
+    // NOTE: The call to paste_text_to_cursor happens via the FRONTEND now,
+    // so the transcription_result is just the text String or an Err.
     let transcription_result = transcription::transcribe_local_audio_impl(
-        app_handle.clone(),
-        transcription_state,
+        app_handle.clone(), 
+        transcription_state, 
         final_path_string.clone(), 
-        auto_paste
+        auto_paste // Pass the flag through
     ).await;
 
     println!("[RUST AUDIO] Transcription call completed. Result: {:?}", transcription_result);
 
-    // --- SET is_actively_recording = false HERE --- 
-    { 
-        match recording_state.lock() {
-            Ok(mut state_guard) => {
-                state_guard.is_actively_recording = false;
-                println!("[RUST AUDIO] FINAL state reset: is_actively_recording set to false.");
-            }
-            Err(e) => {
-                println!("[RUST AUDIO CRITICAL ERROR] Failed to lock state for FINAL reset: {}. State might be inconsistent.", e);
-            }
-        }
-    } 
-
     let _ = app_handle.emit_all("recording_status_changed", "stopped");
+    // Return the result from the transcription call
     transcription_result
 }
 

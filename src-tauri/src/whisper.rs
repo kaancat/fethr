@@ -181,24 +181,26 @@ pub async fn whisper_transcribe_audio(app_handle: AppHandle, audio_path: String)
     println!("[RUST] Transcription text: {}", 
              if transcription_text.len() > 100 { &transcription_text[0..100] } else { &transcription_text });
     
-    // Try to paste the text to the cursor position
+    // --- DELETE OR COMMENT OUT THIS BLOCK ---
+    /*
     println!("[RUST] Attempting to paste text to cursor position");
-    if let Err(paste_err) = crate::transcription::paste_text_to_cursor(&transcription_text).await {
-        println!("[RUST] Failed to paste text to cursor: {}", paste_err);
-        
-        // As a fallback, emit the copy-to-clipboard event which will show the fallback UI
-        app_handle.emit_all("copy-to-clipboard", serde_json::json!({
-            "text": transcription_text.clone()
-        })).unwrap();
-        println!("[RUST] Emitted copy-to-clipboard event as fallback");
-    } else {
-        println!("[RUST] Successfully pasted text to cursor");
-    }
-    
-    // Emit transcription result event
-    app_handle.emit_all("transcription-result", serde_json::json!({
-        "text": transcription_text.clone()
-    })).unwrap();
+    // TODO: Re-enable pasting logic correctly if whisper.rs path is used
+    // if let Err(paste_err) = crate::transcription::paste_text_to_cursor(&transcription_text).await { // <<< This line causes errors
+    //     println!("[RUST] Failed to paste text to cursor: {}", paste_err);
+
+    //     // As a fallback, emit the copy-to-clipboard event which will show the fallback UI
+    //     app_handle.emit_all("copy-to-clipboard", serde_json::json!({ 
+    //         "text": transcription_text.clone()
+    //     })).unwrap();
+    //     println!("[RUST] Emitted copy-to-clipboard event as fallback");
+    // } else {
+    //     println!("[RUST] Successfully pasted text to cursor");
+    // }
+    */
+    // --- END DELETE/COMMENT ---
+
+    // Emit transcription result event (might be deprecated if frontend listens elsewhere)
+    println!("[RUST WHISPER] Emitting transcription-result event (potentially deprecated)");
     
     // Return transcription result
     Ok(serde_json::json!({
