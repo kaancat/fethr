@@ -1,7 +1,6 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import hotkeyManager from './HotkeyManager';
 
 /**
  * Main entry point for the React application
@@ -11,13 +10,6 @@ import hotkeyManager from './HotkeyManager';
  */
 
 console.log('[main.tsx] Starting application initialization...');
-console.log('[main.tsx] Initializing HotkeyManager outside of React lifecycle...');
-
-// Initialize the hotkey manager outside of React
-// This ensures it's available even if the React UI has issues
-hotkeyManager.initialize().catch(error => {
-  console.error('[main.tsx] ❌ Failed to initialize HotkeyManager:', error);
-});
 
 console.log('[main.tsx] Setting up React root with ReactDOM.createRoot...');
 const rootElement = document.getElementById('root');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { RecordingState } from '../HotkeyManager';
+import { RecordingState } from '../types';
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info

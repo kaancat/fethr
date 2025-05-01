@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio}; // <<< ADD Stdio import
-use tauri::{command, AppHandle, Manager};
+ // <<< ADD Stdio import
+use tauri::{AppHandle, Manager};
 // Removed unused imports: Duration, Enigo, KeyboardControllable, NamedTempFile, Resampler, Read
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
@@ -33,8 +33,8 @@ pub struct TranscriptionResult {
 // Transcription state to store as app state
 #[derive(Debug, Clone)]
 pub struct TranscriptionState {
-    pub status: TranscriptionStatus,
-    pub result: Option<TranscriptionResult>, // Store last successful result maybe?
+    pub _status: TranscriptionStatus,
+    pub _result: Option<TranscriptionResult>, // Store last successful result maybe?
     pub whisper_directory: PathBuf,
     pub whisper_binary_path: PathBuf,
     pub whisper_model_directory: PathBuf,
@@ -44,8 +44,8 @@ pub struct TranscriptionState {
 impl Default for TranscriptionState {
     fn default() -> Self {
         Self {
-            status: TranscriptionStatus::Idle,
-            result: None,
+            _status: TranscriptionStatus::Idle,
+            _result: None,
             whisper_directory: PathBuf::new(),
             whisper_binary_path: PathBuf::new(),
             whisper_model_directory: PathBuf::new(),
@@ -59,26 +59,26 @@ pub fn init_transcription(app_handle: &AppHandle) -> Result<TranscriptionState, 
     let whisper_directory = PathBuf::from("C:\\Users\\kaan\\.fethr"); // Use specific path
     let whisper_model_directory = whisper_directory.join("models");
     let whisper_binary_path = whisper_directory.join("whisper.exe");
-
+    
     println!("Using whisper binary at: {}", whisper_binary_path.display());
     println!("Using whisper models directory at: {}", whisper_model_directory.display());
-
+    
     fs::create_dir_all(&whisper_model_directory)
         .map_err(|e| format!("Failed to create whisper models directory: {}", e))?;
-
+    
     let mut state = TranscriptionState::default(); // Use default model ("tiny.en")
     state.whisper_directory = whisper_directory;
     state.whisper_binary_path = whisper_binary_path;
     state.whisper_model_directory = whisper_model_directory;
     println!("[RUST INIT] Initializing with model: {}", state.current_model);
-
+    
     if !check_whisper_binary(&state) {
         let error_msg = format!("Whisper binary not found at {}", state.whisper_binary_path.display());
         // Consider emitting error state here if needed by frontend
         return Err(error_msg);
     }
     println!("Whisper binary found at: {}", state.whisper_binary_path.display());
-
+    
     if !check_model_exists(&state.whisper_model_directory, &state.current_model) {
         let error_msg = format!("Model '{}' not found in {}", state.current_model, state.whisper_model_directory.display());
         // Consider emitting error state
@@ -86,7 +86,7 @@ pub fn init_transcription(app_handle: &AppHandle) -> Result<TranscriptionState, 
     }
      println!("Model found at: {}", state.whisper_model_directory.join(format!("ggml-{}.bin", state.current_model)).display());
      let _ = app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Ready); // Use snake_case event name
-
+    
     Ok(state)
 }
 
@@ -157,6 +157,10 @@ pub async fn transcribe_audio_file(
     audio_path: String,
     auto_paste: bool // Keep flag if needed elsewhere, but not used in transcribe_local_audio_impl now
 ) -> Result<String, String> {
+    // --- ADD LOGGING ---
+    println!("[RUST DEBUG transcribe_audio_file] Received State: {:?}", *state);
+    // --- END LOGGING ---
+
     println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
     println!("[RUST DEBUG] Input audio path: {}", audio_path);
     println!("[RUST DEBUG] Auto paste flag (passed): {}", auto_paste);
@@ -191,6 +195,10 @@ pub async fn transcribe_local_audio_impl(
     audio_path: String,
     _auto_paste: bool, // Mark unused now
 ) -> Result<String, String> {
+    // --- ADD LOGGING ---
+    println!("[RUST DEBUG transcribe_local_audio_impl] Received State: {:?}", *state);
+    // --- END LOGGING ---
+
     println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<"); // Removed AutoPaste log
     println!("[RUST DEBUG] Received initial WAV path: {}", audio_path);
 
@@ -209,7 +217,7 @@ pub async fn transcribe_local_audio_impl(
             converted_wav_path_opt = Some(converted_wav_path.clone());
         },
         Err(e) => {
-             println!("[RUST DEBUG ERROR] FFmpeg resampling failed: {}. Proceeding with original.", e);
+            println!("[RUST DEBUG ERROR] FFmpeg resampling failed: {}. Proceeding with original.", e);
              // Fall through to use original audio_path - whisper_input_path_str will handle this
         }
     }
@@ -240,8 +248,9 @@ pub async fn transcribe_local_audio_impl(
     let model_path_str = state.whisper_model_directory
         .join(format!("ggml-{}.bin", state.current_model)) // Uses state.current_model
         .to_str().ok_or("Invalid UTF-8 in model path")?.to_string();
-    let whisper_dir = state.whisper_binary_path.parent()
-        .ok_or("Could not get whisper binary directory")?;
+    
+    // Use whisper_directory directly from state instead of trying to get parent of binary path
+    let whisper_dir = &state.whisper_directory;
 
     println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND ... ==========");
     println!("    Executable: {}", state.whisper_binary_path.display());
@@ -285,7 +294,7 @@ pub async fn transcribe_local_audio_impl(
                 let stdout_text = String::from_utf8_lossy(&output.stdout).to_string();
                  println!("[RUST DEBUG] Whisper STDOUT Length: {}", stdout_text.len());
                  if stdout_text.len() > 100 {println!("[RUST DEBUG] Whisper STDOUT Preview: '{}'...", stdout_text.chars().take(100).collect::<String>());} else {println!("[RUST DEBUG] Whisper STDOUT: '{}'", stdout_text);}
-
+            
                 let transcription_text = stdout_text.trim();
 
                 if transcription_text.is_empty() {
@@ -338,8 +347,8 @@ fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
             if let Err(e) = fs::remove_file(converted_path) {
                 println!("[RUST CLEANUP WARNING] Failed to delete converted temp file {:?}: {}", converted_path.display(), e);
             } else { println!("[RUST CLEANUP] Removed converted: {}", converted_path.display()); }
-        } else { 
-             println!("[RUST CLEANUP] Converted file does not exist, skipping removal: {}", converted_path.display());
+        } else {
+            println!("[RUST CLEANUP] Converted file does not exist, skipping removal: {}", converted_path.display());
         }
     }
 
@@ -347,59 +356,7 @@ fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
         if let Err(e) = fs::remove_file(original_temp_wav) {
             println!("[RUST CLEANUP WARNING] Failed to delete original backend temp file {:?}: {}", original_temp_wav.display(), e);
         } else { println!("[RUST CLEANUP] Removed original backend temp: {}", original_temp_wav.display()); }
-    } else { 
+    } else {
         println!("[RUST CLEANUP] Original backend temp file does not exist, skipping removal: {}", original_temp_wav.display());
     }
 }
-
-// --- Commands below are potentially unused / part of old logic ---
-// --- Consider removing them later if transcribe_audio_file is the only entry point ---
-
-#[command]
-pub fn get_transcription_status(state: tauri::State<'_, TranscriptionState>) -> TranscriptionStatus {
-    state.status.clone()
-}
-
-#[command]
-pub fn get_transcription_result(state: tauri::State<'_, TranscriptionState>) -> Option<TranscriptionResult> {
-    state.result.clone()
-}
-
-#[command]
-pub fn save_audio_buffer(buffer: Vec<u8>, path: String) -> Result<(), String> {
-    println!("Saving audio buffer to: {}", path);
-    fs::write(&path, buffer).map_err(|e| format!("Failed to save audio buffer: {}", e))
-}
-
-#[command]
-pub fn verify_file_exists(path: String) -> bool {
-    Path::new(&path).exists()
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TranscriptionOptions {
-    pub audio_path: String,
-    #[serde(default = "default_ignore_blank_audio")]
-    pub ignore_blank_audio: bool,
-}
-
-fn default_ignore_blank_audio() -> bool { true }
-
-#[command]
-pub async fn transcribe_audio(app_handle: AppHandle, options: TranscriptionOptions) -> Result<String, String> {
-    // This function seems unused and still calls convert_to_wav which doesn't exist
-    let audio_path = options.audio_path.clone();
-    println!("🎙️ Transcribing audio (DEPRECATED PATH): {}", audio_path);
-    app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Processing).ok();
-    // ... rest of logic ...
-    // --- This needs convert_to_wav_predictable OR should be deleted ---
-    // match convert_to_wav_predictable(&audio_path, /* need output path */) { ... }
-    Err("transcribe_audio function is deprecated/broken".to_string())
-}
-
-fn load_audio_data(_wav_path: &Path) -> Result<Vec<f32>, String> {
-    // This seems unused
-    Err("load_audio_data function is unused".to_string())
-}
-
-// REMOVED fn convert_to_wav(...)

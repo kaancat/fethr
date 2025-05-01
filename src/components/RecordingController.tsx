@@ -3,9 +3,11 @@ console.log("%c---> EXECUTING RecordingController.tsx <---", "background: yellow
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
-import { RecordingState, HotkeyManager } from '../HotkeyManager';
 import RecordingPill from './RecordingPill';
 import { toast } from 'react-hot-toast';
+import { RecordingState } from '../types';
+
+// Define RecordingState enum is now removed and imported from types.ts
 
 interface ConfigOptions {
   useWhisperAPI: boolean;
@@ -13,92 +15,21 @@ interface ConfigOptions {
   autoPasteTranscription: boolean;
 }
 
+interface UnlistenFn {
+  (): void;
+}
+
 const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ configOptions }) => {
-  const hotkeyManager = useRef<HotkeyManager | null>(null);
-  const directHotkeyUnlistener = useRef<(() => void) | null>(null);
+  const unlisteners = useRef<UnlistenFn[]>([]);
 
   const [currentRecordingState, setCurrentRecordingState] = useState<RecordingState>(RecordingState.IDLE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transcription, setTranscription] = useState<string>('');
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
   const durationInterval = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
-  // Effect for initializing HotkeyManager and setting up listeners
-  useEffect(() => {
-    const initializeComponents = async () => {
-      console.log('%c[RecordingController] Component Mounting - Initializing Hotkey Manager...', 'color: blue; font-weight: bold');
-      try {
-        console.log('[RecordingController] --> Getting HotkeyManager instance...');
-        hotkeyManager.current = HotkeyManager.getInstance();
-        console.log('[RecordingController] --> Calling HotkeyManager.initialize()...');
-        await hotkeyManager.current.initialize();
-        console.log('[RecordingController] --> HotkeyManager initialized successfully');
-
-        console.log('[RecordingController] --->>> ATTEMPTING TO ADD DIRECT hotkey-pressed LISTENER <<<---');
-        try {
-            directHotkeyUnlistener.current = await listen('hotkey-pressed', (_event) => {
-                console.log('%c>>> DIRECT LISTENER: Hotkey Pressed! <<<- ', 'background: yellow; color: black; font-size: 16px; font-weight: bold;');
-                setCurrentRecordingState(prevState => {
-                   console.log(`[RecordingController] Direct Listener: Current state is ${RecordingState[prevState]}`);
-                   let nextState = prevState;
-                   switch (prevState) {
-                     case RecordingState.IDLE:
-                       nextState = RecordingState.RECORDING;
-                       break;
-                     case RecordingState.RECORDING:
-                       nextState = RecordingState.TRANSCRIBING;
-                       break;
-                     case RecordingState.TRANSCRIBING:
-                       console.warn('[RecordingController] Direct Listener: Ignoring press while TRANSCRIBING.');
-                       break;
-                     default:
-                        console.warn(`[RecordingController] Direct Listener: Unhandled state ${RecordingState[prevState]}`);
-                   }
-                   if (nextState !== prevState) {
-                       console.log(`[RecordingController] Direct Listener: Transitioning from ${RecordingState[prevState]} to ${RecordingState[nextState]}`);
-                       return nextState;
-                   }
-                   return prevState;
-                });
-            });
-            console.log('[RecordingController] --->>> SUCCESSFULLY ATTACHED DIRECT hotkey-pressed LISTENER <<<---');
-        } catch (listenError) {
-            console.error('%c>>> FAILED TO ATTACH DIRECT hotkey-pressed LISTENER <<< ', 'background: red; color: white;', listenError);
-            setErrorMessage(`Failed to listen for hotkey: ${listenError instanceof Error ? listenError.message : String(listenError)}`);
-        }
-
-      } catch (error) {
-        console.error('%c[RecordingController] FATAL ERROR initializing components:', 'color: red; font-weight: bold', error);
-        setErrorMessage(`Failed to initialize components: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    };
-
-    initializeComponents();
-
-    // Cleanup on unmount
-    return () => {
-      const unmountTimestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-       console.log(`%c[${unmountTimestamp}] [RecordingController] >>> UNMOUNT CLEANUP RUNNING <<<`, 'background: red; color: white; font-weight: bold;');
-
-      if (directHotkeyUnlistener.current) {
-        console.log('[RecordingController] Cleaning up DIRECT hotkey listener');
-        directHotkeyUnlistener.current();
-        directHotkeyUnlistener.current = null;
-      }
-
-      if (durationInterval.current) {
-        console.log('[RecordingController] Clearing duration interval');
-        clearInterval(durationInterval.current);
-      }
-      if (hotkeyManager.current) {
-        console.log('[RecordingController] Cleaning up HotkeyManager');
-        hotkeyManager.current.cleanup();
-      }
-      console.log('[RecordingController] Component unmount cleanup complete');
-    };
-  }, []);
-
-  // Simplified handler for results/errors coming *directly* from the backend stop/transcribe invoke
+  // Simplified handler for results/errors coming directly from the backend stop/transcribe invoke
   const handleTranscriptionResult = useCallback((resultPromise: Promise<string>) => {
     console.log('[RecordingController] Entering handleTranscriptionResult...');
     setErrorMessage(null);
@@ -125,69 +56,194 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     }).finally(() => {
         console.log('%c[RecordingController] 🏁 Transcription attempt complete, resetting state to IDLE in finally block', 'color: #ddd;');
         setCurrentRecordingState(RecordingState.IDLE);
-        if (hotkeyManager.current) {
-            console.log('[RecordingController] Letting HotkeyManager handle its own reset based on events.');
-        }
+        
+        // Signal backend RDEV thread to reset
+        console.log('[RecordingController] Signaling backend to reset rdev state...');
+        invoke('signal_reset_complete')
+            .then(() => console.log("[RecordingController] Signal reset complete sent to backend."))
+            .catch(err => console.error("[RecordingController] Failed to send reset signal:", err));
     });
   }, []);
 
+  // Effect for setting up listeners - removed HotkeyManager initialization
   useEffect(() => {
-    const stateToProcess = currentRecordingState;
-    console.log(`%c[RecordingController] 🔄 State handler EFFECT triggered for state: ${RecordingState[stateToProcess]}`, 'color: purple; font-weight: bold;');
+    const initializeComponents = async () => {
+      console.log('%c[RecordingController] Component Mounting - Setting up event listeners...', 'color: blue; font-weight: bold');
+      try {
+        // --- Listen for Backend Events ---
+        console.log('[RecordingController] Setting up backend event listeners...');
+        
+        const updateStateUnlistener = await listen("fethr-update-ui-state", (event) => {
+            const payload = event.payload as { state: string };
+            console.log(`[RecordingController] === Received UI State Update Event === Payload:`, payload);
+            
+            // Convert string state to enum
+            let newState: RecordingState | null = null;
+            switch (payload.state) {
+                case "IDLE":
+                    console.log(`[RecordingController] Matched state: "IDLE". Setting frontend state.`);
+                    newState = RecordingState.IDLE;
+                    break;
+                case "RECORDING":
+                    console.log(`[RecordingController] Matched state: "RECORDING". Setting frontend state.`);
+                    newState = RecordingState.RECORDING;
+                    break;
+                case "LOCKED_RECORDING":
+                    console.log(`[RecordingController] Matched state: "LOCKED_RECORDING". Setting frontend state.`);
+                    newState = RecordingState.LOCKED_RECORDING;
+                    break;
+                case "TRANSCRIBING":
+                    console.log(`[RecordingController] Matched state: "TRANSCRIBING". Setting frontend state.`);
+                    newState = RecordingState.TRANSCRIBING;
+                    break;
+                default:
+                    console.warn("[RecordingController] Received unknown state from backend:", payload.state);
+            }
 
-    const stopTimer = () => {
-      if (durationInterval.current) {
-        console.log(`[RecordingController] Clearing duration interval on state transition from: ${RecordingState[stateToProcess]}`);
-        clearInterval(durationInterval.current);
-        durationInterval.current = null;
+            if (newState !== null) {
+                console.log(`[RecordingController] Calling setCurrentRecordingState with: ${RecordingState[newState]} (${newState})`);
+                setCurrentRecordingState(newState);
+            } else {
+                 console.warn("[RecordingController] newState was null after switch, not updating state.");
+            }
+        });
+        unlisteners.current.push(updateStateUnlistener);
+
+        const startRecordingUnlistener = await listen("fethr-start-recording", () => {
+            console.log("[RecordingController] Received Start Recording command.");
+            startRecordingProcess();
+        });
+        unlisteners.current.push(startRecordingUnlistener);
+
+        const stopTranscribeUnlistener = await listen("fethr-stop-and-transcribe", (event) => {
+            console.log("[RecordingController] Received Stop and Transcribe command.");
+            const autoPaste = event.payload as boolean;
+            console.log(`[RecordingController] AutoPaste flag from backend: ${autoPaste}`);
+            
+            // Override config option if provided by backend
+            const effectiveAutoPaste = autoPaste !== undefined ? autoPaste : configOptions.autoPasteTranscription;
+            
+            // Call stop backend (which returns promise) and handle result
+            const stopPromise = invoke<string>('stop_backend_recording', { 
+                autoPaste: effectiveAutoPaste 
+            });
+            handleTranscriptionResult(stopPromise);
+        });
+        unlisteners.current.push(stopTranscribeUnlistener);
+
+        console.log('[RecordingController] Backend event listeners attached.');
+        // --- End Listeners ---
+
+      } catch (error) {
+        console.error('%c[RecordingController] FATAL ERROR initializing components:', 'color: red; font-weight: bold', error);
+        setErrorMessage(`Failed to initialize components: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
 
-    console.log(`[RecordingController] Effect Processing State: ${stateToProcess} ('${RecordingState[stateToProcess]}')`);
+    initializeComponents();
 
-    (async () => {
-        try {
-          switch (stateToProcess) {
-            case RecordingState.IDLE:
-              console.log('%c[RecordingController] 💤 Handling IDLE state', 'color: gray; font-weight: bold');
-              stopTimer();
-              setRecordingDuration(0);
-              break;
+    // Cleanup on unmount
+    return () => {
+      const unmountTimestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      console.log(`%c[${unmountTimestamp}] [RecordingController] >>> UNMOUNT CLEANUP RUNNING <<<`, 'background: red; color: white; font-weight: bold;');
 
-            case RecordingState.RECORDING:
-               console.log('%c[RecordingController] ▶️ Handling RECORDING state', 'color: green; font-weight: bold;');
-               await startRecordingProcess();
-              break;
-
-            case RecordingState.LOCKED_RECORDING:
-              console.log(`%c[RecordingController] Handling ${RecordingState[stateToProcess]} state - Recording continues...`, 'color: darkorange; font-weight: bold;');
-              break;
-
-            case RecordingState.TRANSCRIBING:
-              console.log('%c[RecordingController] 🔄 Handling TRANSCRIBING state', 'color: blue; font-weight: bold');
-              stopTimer();
-              setErrorMessage(null);
-
-              console.log('[RecordingController] Invoking stop_backend_recording...');
-              const stopPromise = invoke<string>('stop_backend_recording', {
-                  autoPaste: configOptions.autoPasteTranscription
-              });
-
-              handleTranscriptionResult(stopPromise);
-              break;
-
-            default:
-                console.warn(`[RecordingController] Unhandled state in effect: ${RecordingState[stateToProcess]}`);
+      // Unsubscribe from all event listeners
+      if (unlisteners.current.length > 0) {
+        console.log(`[RecordingController] Cleaning up ${unlisteners.current.length} event listeners`);
+        unlisteners.current.forEach(unlisten => {
+          try {
+            unlisten();
+          } catch (err) {
+            console.error('[RecordingController] Error unlistening:', err);
           }
-        } catch (error) {
-          console.error('%c[RecordingController] ❌ Sync/Async Error in state change handler:', 'color: red; font-weight: bold', error);
-          setErrorMessage(`Error during state transition: ${error instanceof Error ? error.message : String(error)}`);
-          stopTimer();
-          setCurrentRecordingState(RecordingState.IDLE);
-        }
-    })();
+        });
+        unlisteners.current = [];
+      }
 
-  }, [currentRecordingState, configOptions.autoPasteTranscription, handleTranscriptionResult]);
+      if (durationInterval.current) {
+        console.log('[RecordingController] Clearing duration interval');
+        clearInterval(durationInterval.current);
+        durationInterval.current = null;
+      }
+      
+      console.log('[RecordingController] Component unmount cleanup complete');
+    };
+  }, []);
+
+  // Effect to handle UI updates based on recording state
+  useEffect(() => {
+    const stateToProcess = currentRecordingState;
+    console.log(`%c[RecordingController] 🔄 UI EFFECT triggered for state: ${RecordingState[stateToProcess]}`, 'color: darkcyan; font-weight: bold;');
+
+    const stopTimer = () => {
+      if (durationInterval.current) {
+        console.log(`[RecordingController] Stopping timer - clearing interval ID: ${durationInterval.current}`);
+        clearInterval(durationInterval.current);
+        durationInterval.current = null;
+        
+        if (startTimeRef.current) {
+          const finalDuration = (Date.now() - startTimeRef.current) / 1000;
+          console.log(`[RecordingController] Timer stopped. Final duration: ${finalDuration.toFixed(2)}s`);
+        }
+      } else {
+        console.log('[RecordingController] stopTimer called but no active interval found.');
+      }
+      startTimeRef.current = null;
+    };
+
+    const startTimer = () => {
+      // Clear any existing timer
+      if (durationInterval.current) {
+        console.log(`[RecordingController] Clearing existing timer interval ID: ${durationInterval.current} before starting new one.`);
+        clearInterval(durationInterval.current);
+        durationInterval.current = null;
+      }
+      
+      // Reset duration and start time
+      setRecordingDuration(0);
+      startTimeRef.current = Date.now();
+      const startTimestamp = new Date().toISOString();
+      
+      console.log(`[RecordingController] Starting UI duration timer display at ${startTimestamp}. Start time: ${startTimeRef.current}`);
+      const intervalId = window.setInterval(() => {
+        if (startTimeRef.current) {
+          const now = Date.now();
+          const elapsedMs = now - startTimeRef.current;
+          const newDuration = elapsedMs / 1000;
+          
+          // Reduce logging frequency (only log every second)
+          if (Math.floor(newDuration) !== Math.floor(recordingDuration)) {
+            console.log(`[RecordingController Timer] Start: ${startTimeRef.current}, Now: ${now}, Elapsed: ${elapsedMs}ms, Duration: ${newDuration.toFixed(1)}s`);
+          }
+          
+          setRecordingDuration(newDuration);
+        } else {
+          console.warn('[RecordingController Timer] Timer fired but startTimeRef is null! Clearing interval.');
+          if (durationInterval.current) {
+               clearInterval(durationInterval.current);
+               durationInterval.current = null;
+          }
+        }
+      }, 100);
+      
+      console.log(`[RecordingController] Timer started with interval ID: ${intervalId}`);
+      durationInterval.current = intervalId;
+    };
+
+    switch (stateToProcess) {
+      case RecordingState.IDLE:
+        stopTimer();
+        setRecordingDuration(0);
+        break;
+      case RecordingState.RECORDING:
+      case RecordingState.LOCKED_RECORDING:
+        startTimer();
+        break;
+      case RecordingState.TRANSCRIBING:
+        stopTimer();
+        break;
+    }
+  }, [currentRecordingState]);
 
   const startRecordingProcess = async () => {
     console.log('%c[RecordingController] ➡️ startRecordingProcess invoked...', 'color: green;');
@@ -203,18 +259,18 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
     try {
       console.log('[RecordingController] Invoking start_backend_recording...');
       await invoke('start_backend_recording');
-      console.log('[RecordingController] Backend start_backend_recording command successful. Starting timer.');
-
-      durationInterval.current = window.setInterval(() => {
-        setRecordingDuration((prevDuration) => prevDuration + 1);
-      }, 1000);
-
+      console.log('[RecordingController] Backend start_backend_recording command successful.');
     } catch (error) {
       const errorMsg = `Start Recording Error: ${error instanceof Error ? error.message : String(error)}`;
       console.error(`%c[RecordingController] ❌ ${errorMsg}`, 'color: red; font-weight: bold');
       setErrorMessage(errorMsg);
       toast.error(errorMsg);
       setCurrentRecordingState(RecordingState.IDLE);
+      
+      // Reset the rdev state in the backend
+      invoke('reset_rdev_state').catch(err => {
+        console.error('[RecordingController] Failed to reset rdev state:', err);
+      });
     }
   };
 
@@ -234,30 +290,6 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
             transcription={transcription}
             error={errorMessage}
         />
-
-        {/* Error Message Area - Now handled inside RecordingPill */}
-        {/* {errorMessage && (
-          <div className="error-message bg-red-700 text-white p-3 rounded-md shadow-sm w-full text-center">
-            <p className="font-bold">Error:</p>
-            <p className="text-sm">{errorMessage}</p>
-          </div>
-        )} */}
-
-        {/* Transcription Display Area - Now handled inside RecordingPill */}
-        {/* {transcription && (
-            <div className="transcription-output mt-4 p-3 bg-gray-700 rounded-md shadow-sm w-full">
-                <h3 className="text-lg font-medium mb-2 text-gray-300">Last Transcription:</h3>
-                <p className="text-sm text-gray-200 whitespace-pre-wrap">{transcription}</p>
-            </div>
-        )} */}
-
-        {/* Debug Info (Optional) */}
-        {/* {transcription && (
-          <div className="transcription-output mt-4 p-3 bg-gray-700 rounded-md shadow-sm w-full">
-            <h3 className="text-lg font-medium mb-2 text-gray-300">Last Transcription:</h3>
-            <p className="text-sm text-gray-200 whitespace-pre-wrap">{transcription}</p>
-          </div>
-        )} */}
     </div>
   );
 };
