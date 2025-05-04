@@ -352,35 +352,34 @@ pub async fn stop_backend_recording(
             ).await;
             
             match transcription_result {
-                 Ok(text) => {
+                Ok(text) => {
                     println!("[RUST AUDIO] Transcription successful, text length: {}", text.len());
 
-                    // --- Perform Clipboard/Paste ONLY if effective_auto_paste is true ---
+                    // --- Always attempt to copy to clipboard, regardless of auto-paste setting ---
+                    match write_to_clipboard_internal(text.clone()) {
+                        Ok(_) => println!("[RUST AUDIO] Text written to clipboard successfully."),
+                        Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to write to clipboard: {}", e),
+                    }
+
+                    // --- Perform Paste ONLY if effective_auto_paste is true ---
                     if effective_auto_paste {
-                        println!("[RUST AUDIO] Auto-paste is enabled. Writing & Pasting.");
-                        // Call internal sync function for clipboard
-                        match write_to_clipboard_internal(text.clone()) {
-                            Ok(_) => {
-                                println!("[RUST AUDIO] Text written to clipboard successfully.");
-                                // Call async command for paste simulation
-                                match paste_text_to_cursor(text.clone()).await { // Pass text again
-                                    Ok(_) => println!("[RUST AUDIO] Text pasted successfully."),
-                                    Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to paste: {}", e), // Use eprintln
-                                }
-                            },
-                            Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to write to clipboard: {}", e), // Use eprintln
+                        println!("[RUST AUDIO] Auto-paste is enabled. Simulating paste.");
+                        // Call async command for paste simulation (no need to pass text, using clipboard)
+                        match paste_text_to_cursor().await {
+                            Ok(_) => println!("[RUST AUDIO] Paste simulation successful."),
+                            Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to simulate paste: {}", e),
                         }
                     } else {
-                         println!("[RUST AUDIO] Auto-paste is disabled. Skipping paste.");
+                        println!("[RUST AUDIO] Auto-paste is disabled. Text copied to clipboard only.");
                     }
                     
                     Ok(text) // Return the transcription text regardless of paste success
-                 },
-                 Err(e) => {
+                },
+                Err(e) => {
                     eprintln!("[RUST AUDIO ERROR] Transcription failed: {}", e);
                     Err(format!("Transcription error: {}", e))
-                 }
-             }
+                }
+            }
         },
         Err(e) => {
              eprintln!("[RUST AUDIO STOP ERROR] Failed to get audio path: {}. Cannot transcribe.", e);

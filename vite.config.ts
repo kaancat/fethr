@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs';
+import path from 'path';
 
 /**
  * Vite configuration for the Fethr application
@@ -38,6 +39,17 @@ export default defineConfig({
   server: {
     port: 5176,
     strictPort: false, // Allow Vite to try different ports if this one is in use
+    watch: {
+      // Tell vite to ignore watching `src-tauri`
+      ignored: ["**/src-tauri/**"],
+    },
+  },
+  
+  // Add alias resolution for @/ imports
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
   },
   
   // To enable using process.env for environment variables

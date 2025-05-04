@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent};
 
 // Standard library imports
 use std::path::PathBuf;
-use std::fs::File; // Keep File import for types
+use std::fs::{self, File}; // Add fs module for directory operations
 use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
@@ -24,6 +24,7 @@ use crossbeam_channel::{unbounded, Sender, Receiver}; // Import channel types
 use enigo::{Enigo, Key, Settings, Direction, Keyboard}; // <<< Use Keyboard trait
 use rdev::{Event, EventType, Key as RdevKey};
 use lazy_static::lazy_static;
+use log::{info, error}; // Use log crate for messages
 
 // Import our modules
 mod transcription;
@@ -148,8 +149,8 @@ pub type SharedRecordingState = Arc<Mutex<AudioRecordingState>>;
 // --- Commands ---
 
 #[tauri::command]
-async fn paste_text_to_cursor(_text: String) -> Result<(), String> {
-    println!("[RUST PASTE] Received request to paste text.");
+async fn paste_text_to_cursor() -> Result<(), String> {
+    println!("[RUST PASTE] Received request to simulate paste shortcut.");
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut enigo = match Enigo::new(&Settings::default()) {
@@ -448,6 +449,18 @@ fn main() {
                 },
                 Err(e) => println!("[RUST SETUP ERROR] Failed to check pill window visibility: {}", e),
             }
+
+            // --- Log Pill Window Position ---
+            match pill_window.outer_position() {
+                Ok(pos) => {
+                    println!("[RUST SETUP] Pill window initial outer position reported by Tauri: x={}, y={}", pos.x, pos.y);
+                }
+                Err(e) => {
+                    println!("[RUST SETUP ERROR] Failed to get pill window initial position: {}", e);
+                }
+            }
+            // --- End Log ---
+            
             // --- End Window Handle Logic ---
 
             // --- Start State Processing Thread ---
@@ -482,29 +495,39 @@ fn main() {
 
             Ok(())
         })
+        // Add window event handler to intercept close requests for main window
+        .on_window_event(|event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
+                if event.window().label() == "main" {
+                    // Intercept close request for settings window
+                    info!("Intercepted close request for main window. Hiding instead of closing.");
+                    if let Err(e) = event.window().hide() {
+                        error!("Failed to hide main window: {}", e);
+                    }
+                    api.prevent_close();
+                }
+            }
+        })
         .system_tray(system_tray)
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::LeftClick { position: _, size: _, .. } => {
-                println!("[Tray Event] Left click detected.");
+                info!("[Tray Event] Left click detected.");
                 if let Some(main_window) = app.get_window("main") {
-                    // Window handle exists, proceed with toggle logic
-                    if let Ok(is_visible) = main_window.is_visible() {
-                        if is_visible {
-                            println!("[Tray Event] Hiding settings window.");
-                            // Optionally, you could unminimize first if you want hide to work after minimize
-                            // main_window.unminimize().unwrap_or_else(|e| eprintln!("Failed to unminimize: {}", e));
-                            main_window.hide().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to hide window: {}", e));
-                        } else {
-                            println!("[Tray Event] Showing settings window.");
-                            main_window.show().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to show window: {}", e));
-                            main_window.set_focus().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to focus window: {}", e));
-                        }
-                    } else {
-                         eprintln!("[Tray Event ERROR] Failed to check main window visibility.");
+                    info!("[Tray Event] Attempting to unminimize, show and focus main window.");
+                    // Attempt to unminimize first
+                    if let Err(e) = main_window.unminimize() {
+                        error!("[Tray Event WARN] Failed to unminimize window (may already be unminimized): {}", e);
+                    }
+                    // Attempt to show
+                    if let Err(e) = main_window.show() {
+                        error!("[Tray Event ERROR] Failed to show window: {}", e);
+                    }
+                    // Attempt to focus
+                    if let Err(e) = main_window.set_focus() {
+                        error!("[Tray Event ERROR] Failed to focus window: {}", e);
                     }
                 } else {
-                    // Window handle DOES NOT exist
-                    eprintln!("[Tray Event WARNING] Could not get main window handle on tray click. Window might be closed or in an unexpected state.");
+                    error!("[Tray Event WARNING] Could not get main window handle on tray click.");
                 }
             }
             SystemTrayEvent::RightClick { position: _, size: _, .. } => {
@@ -533,7 +556,11 @@ fn main() {
             write_to_clipboard_command,
             paste_text_to_cursor, // Defined in this file now
             signal_reset_complete,
-            delete_file
+            delete_file,
+            // Settings Commands:
+            get_settings,
+            save_settings,
+            get_available_models
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");
@@ -589,4 +616,85 @@ fn emit_stop_transcribe(app_handle: &AppHandle) {
 fn delete_file(path: String) -> Result<(), String> {
     if !std::path::Path::new(&path).exists() { return Ok(()); }
     std::fs::remove_file(path).map_err(|e| format!("Failed to delete file: {:?}", e))
+}
+
+// --- Settings Commands ---
+
+#[tauri::command]
+async fn get_settings(_app_handle: AppHandle) -> Result<AppSettings, String> {
+    info!("[Settings] Getting current application settings");
+    
+    // Access settings through the mutex
+    let settings_guard = SETTINGS.lock()
+        .map_err(|_| "Failed to lock settings mutex".to_string())?;
+    
+    // Clone the settings to return to the frontend
+    let cloned_settings = settings_guard.clone();
+    info!("[Settings] Retrieved settings: model_name={}, language={}, auto_paste={}", 
+          cloned_settings.model_name, cloned_settings.language, cloned_settings.auto_paste);
+    
+    Ok(cloned_settings)
+}
+
+#[tauri::command]
+async fn save_settings(settings: AppSettings, _app_handle: AppHandle) -> Result<(), String> {
+    info!("[Settings] Saving new settings: model_name={}, language={}, auto_paste={}", 
+          settings.model_name, settings.language, settings.auto_paste);
+    
+    // Access settings through the mutex
+    let mut settings_guard = SETTINGS.lock()
+        .map_err(|_| "Failed to lock settings mutex".to_string())?;
+    
+    // Update the settings in memory
+    *settings_guard = settings.clone();
+    
+    // Persist settings to file
+    settings_guard.save()
+        .map_err(|e| format!("Failed to save settings to file: {}", e))?;
+    
+    info!("[Settings] Settings saved successfully");
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_available_models(_app_handle: AppHandle) -> Result<Vec<String>, String> {
+    info!("[Settings] Getting available Whisper models");
+    
+    // For debug builds, check vendor/models directory in the project
+    let model_path = if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let vendor_dir = manifest_dir.join("vendor").join("models");
+        info!("[Settings] Debug mode - looking for models in: {:?}", vendor_dir);
+        vendor_dir
+    } else {
+        // For release builds, use Tauri's resource resolver
+        let resource_path = _app_handle.path_resolver()
+            .resolve_resource("vendor/models")
+            .ok_or_else(|| "Could not resolve resource path vendor/models".to_string())?;
+        info!("[Settings] Release mode - looking for models in: {:?}", resource_path);
+        resource_path
+    };
+    
+    // Read the directory contents
+    let entries = fs::read_dir(&model_path)
+        .map_err(|e| format!("Failed to read models directory {:?}: {}", model_path, e))?;
+    
+    // Collect model filenames
+    let mut model_files = Vec::new();
+    for entry_result in entries {
+        let entry = entry_result.map_err(|e| format!("Error reading directory entry: {}", e))?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(filename_os) = path.file_name() {
+                if let Some(filename_str) = filename_os.to_str() {
+                    if filename_str.ends_with(".bin") {
+                        model_files.push(filename_str.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    info!("[Settings] Found models: {:?}", model_files);
+    Ok(model_files)
 }

@@ -1,5 +1,116 @@
 # Dev Log
 
+## [2024-09-20] - Implemented Settings Page Frontend
+Goal: Create the frontend UI for the Settings page using React components
+
+### Changes Made:
+- Added `AppSettings` interface to `src/types.ts` to match the Rust struct fields
+  - Included `model_name`, `language`, and `auto_paste` fields
+- Created a new `SettingsPage.tsx` component in the `src/pages` directory
+  - Implemented UI to display and modify the application settings
+  - Added model selection dropdown using available models from the backend
+  - Added auto-paste toggle switch with clear labeling
+  - Included placeholder for future language selection
+  - Added About section with version information and license details
+- Updated `App.tsx` to use the new SettingsPage component
+  - Replaced placeholder component with the real SettingsPage
+  - Maintained routing for both pill and settings windows
+- Implemented temporary component stubs for UI elements
+  - Created simple React components to handle UI rendering
+  - Styled with Tailwind CSS to match the desired aesthetic
+  - Used consistent dark theme with the application's color palette
+
+### Technical Details:
+- The page uses `useState` hooks to manage settings state and UI feedback
+- Added data fetching with `useEffect` to load settings and available models
+- Implemented proper error handling for both loading and saving operations
+- Used React-Hot-Toast for notifications to provide user feedback
+- The settings page uses a card layout with clear section organization
+- Added loading states and error displays for better user experience
+
+### Impact:
+- Users can now view and modify application settings
+- Settings are persisted across application restarts
+- Provides visual feedback for loading, errors, and successful operations
+- Creates a consistent visual identity with the rest of the application
+
+### Next Steps:
+- Integrate shadcn/ui components properly once the library is set up
+- Add language selection functionality when supported
+- Consider adding additional settings as needed (audio quality, hotkey configuration)
+- Add animations for smoother transitions between states
+
+## [2024-09-20] - Implemented Backend Commands for Settings Page
+Goal: Create the Tauri commands needed for the Settings page functionality
+
+### Changes Made:
+- Added three new backend commands in `src-tauri/src/main.rs`:
+  - `get_settings`: Retrieves current application settings from the SETTINGS global
+  - `save_settings`: Updates and persists application settings to the configuration file
+  - `get_available_models`: Discovers available Whisper model files in the vendor/models directory
+- Enhanced imports to include necessary dependencies:
+  - Added `fs` module for directory operations
+  - Added `log` crate for better logging
+  - Added `State` from Tauri for dependency injection
+- Implemented platform-specific path resolution for model discovery:
+  - Debug mode uses CARGO_MANIFEST_DIR to locate the vendor directory
+  - Release mode uses Tauri's resource resolver to find bundled resources
+- Added detailed logging throughout the commands for better diagnosability
+
+### Technical Details:
+- The `get_settings` command accesses the global SETTINGS mutex, clones the contents, and returns them to the frontend
+- The `save_settings` command updates the global SETTINGS and calls the `save` method to persist changes to disk
+- The `get_available_models` command scans for .bin files in the models directory and returns their filenames
+- Added proper error handling for all file operations and mutex access
+
+### Impact:
+- Enables frontend settings UI to retrieve and update application configuration
+- Provides a list of available model files for model selection dropdown
+- Creates a foundation for extending settings functionality in the future
+- Ensures consistent settings management across debug and release builds
+
+### Next Steps:
+- Implement frontend React components for the Settings page
+- Connect frontend UI to these backend commands
+- Test configuration changes and persistence
+- Consider adding additional settings options for future features
+
+## [2024-09-19] - FFmpeg Bundling and Path Resolution
+Goal: Bundle FFmpeg with the application and properly resolve its path across platforms
+
+### Changes Made:
+- Modified `tauri.conf.json` to include FFmpeg in the externalBin array:
+  - Added `"vendor/ffmpeg"` alongside the existing `"vendor/whisper"` entry
+  - This ensures FFmpeg is bundled with the application on all platforms
+
+- Enhanced `transcription.rs` with improved FFmpeg handling:
+  - Added proper imports: `std::process::{Command, Stdio}`
+  - Replaced the synchronous `convert_to_wav_predictable` function with an async `run_ffmpeg_conversion` function
+  - Implemented platform-specific path resolution for FFmpeg in both debug and release modes
+  - Added executable existence checks with detailed error messaging
+  - Improved command execution with proper working directory settings
+  - Enhanced output verification to ensure valid WAV file generation
+
+### Technical Details:
+- Debug mode now resolves FFmpeg from the source vendor directory using `CARGO_MANIFEST_DIR`
+- Release mode resolves FFmpeg from next to the main executable, with proper platform-specific naming
+- Platform-specific binary names are handled with conditional compilation:
+  ```rust
+  let release_ffmpeg_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+  ```
+- Added detailed logging for path resolution and command execution
+
+### Impact:
+- More robust audio processing across different platforms (Windows, macOS, Linux)
+- Consistent FFmpeg availability without requiring system-installed version
+- Better error handling with detailed diagnostics
+- Clean separation of debug vs. release path resolution
+
+### Next Steps:
+- Test FFmpeg bundling across different platforms
+- Consider adding more audio processing options
+- Explore optimizing FFmpeg parameters for better voice quality
+
 ## [2024-09-19] - Improved Cross-Platform Resource Bundling
 Goal: Enhance Fethr's cross-platform compatibility and resource handling
 
@@ -554,3 +665,258 @@ Goal: Modify the application to use Tauri's bundled resources for Whisper binary
 - Test bundling on different platforms to ensure resource paths resolve correctly
 - Consider adding a UI for selecting different model sizes
 - Add support for additional languages beyond English
+
+## [2024-07-18] - UI Component Library Update
+
+Goal: Update the frontend to use shadcn/ui components
+
+- Integrated shadcn/ui components into the project
+- Replaced all placeholder component implementations in `SettingsPage.tsx` with proper shadcn/ui imports
+- Updated the app structure to use `TooltipProvider` and shadcn's `Toaster` component
+- Added proper TypeScript type annotations to fix type errors
+- Maintained the existing dark theme styling with custom color values
+- Enhanced component structure to match shadcn/ui's requirements (e.g., proper nesting of Select components)
+
+This update brings several benefits:
+- Improved accessibility and keyboard navigation
+- Consistent styling and behavior across components
+- Better TypeScript integration with proper component typing
+- Reduced code maintenance burden by using a well-maintained component library
+
+Note: We're maintaining react-hot-toast for now as it's still used for notifications in multiple places, but will migrate to shadcn's toast system in a future update.
+
+## [2024-07-18] - Enhanced Settings Page Data Fetching
+
+Goal: Implement robust data fetching and saving for the Settings page
+
+- Enhanced the data fetching logic in `SettingsPage.tsx`:
+  - Added comprehensive error handling with detailed error messages
+  - Implemented proper loading state management
+  - Added detailed console logging for better debugging
+  - Added validation to ensure received data is valid
+  - Set sensible defaults for error cases
+
+- Improved the settings saving functionality:
+  - Enhanced error handling with more descriptive messages
+  - Added truncation for long error messages in toast notifications
+  - Included proper validation before saving attempts
+  - Added detailed logging for successful saves and errors
+
+- Refined UI state management:
+  - Ensured UI elements are properly disabled during loading/saving operations
+  - Disabled the Save button when no settings are available
+  - Also disabled the About button during saving operations to prevent user confusion
+  - Improved error display for both fatal and non-fatal errors
+
+This implementation connects the frontend Settings page to the backend Tauri commands, allowing users to view and modify application settings, which are then persisted across application restarts.
+
+## [2024-07-19] - Configured Vite Alias Resolution
+
+Goal: Set up proper import alias resolution in Vite
+
+- Updated `vite.config.ts` to support the `@/` import alias pattern:
+  - Added import for the `path` module 
+  - Added `resolve.alias` configuration to map `@` to the src directory
+  - Configured Vite to properly watch files (ignoring src-tauri)
+
+This change enables the use of absolute imports with the `@/` prefix (e.g., `import { Button } from "@/components/ui/button"`), which makes imports cleaner and more maintainable. The configuration aligns Vite's path resolution with the TypeScript path aliases defined in `tsconfig.json`.
+
+Benefits:
+- Eliminates the need for complex relative imports (../../..)
+- Prevents import path breakage when files are moved
+- Improves code readability and maintainability
+- Resolves build errors when using shadcn/ui components
+
+## [2024-07-19] - Improved Window Close Behavior
+
+Goal: Prevent the settings window from closing permanently when user clicks the X button
+
+- Added a window event handler in `src-tauri/src/main.rs` to intercept close requests:
+  - Used the `.on_window_event()` handler in the Tauri builder chain
+  - Checked if the event is for the "main" window (settings window)
+  - When the close button is clicked, hide the window instead of closing it
+  - Used `api.prevent_close()` to prevent the default close behavior
+  - This ensures the window can be reopened later via the system tray icon
+
+- Fixed Rust compiler warnings:
+  - Removed unused import (`State`) from the top of the file
+  - Prefixed unused function parameters with underscores in command handlers:
+    - `_app_handle` in `get_settings`, `save_settings`, and `get_available_models`
+  - Ensured consistent parameter usage across all functions
+
+This improves the user experience by making the app behave like a proper system tray application, where the main window can be hidden and shown rather than closed permanently.
+
+## [2024-07-19] - Configured Vite Alias Resolution
+
+Goal: Set up proper import alias resolution in Vite
+
+- Updated `vite.config.ts` to support the `@/` import alias pattern:
+  - Added import for the `path` module 
+  - Added `resolve.alias` configuration to map `@` to the src directory
+  - Configured Vite to properly watch files (ignoring src-tauri)
+
+This change enables the use of absolute imports with the `@/` prefix (e.g., `import { Button } from "@/components/ui/button"`), which makes imports cleaner and more maintainable. The configuration aligns Vite's path resolution with the TypeScript path aliases defined in `tsconfig.json`.
+
+Benefits:
+- Eliminates the need for complex relative imports (../../..)
+- Prevents import path breakage when files are moved
+- Improves code readability and maintainability
+- Resolves build errors when using shadcn/ui components
+
+## [2024-07-18] - Enhanced Settings Page Data Fetching
+
+Goal: Implement robust data fetching and saving for the Settings page
+
+- Enhanced the data fetching logic in `SettingsPage.tsx`:
+  - Added comprehensive error handling with detailed error messages
+  - Implemented proper loading state management
+  - Added detailed console logging for better debugging
+  - Added validation to ensure received data is valid
+  - Set sensible defaults for error cases
+
+- Improved the settings saving functionality:
+  - Enhanced error handling with more descriptive messages
+  - Added truncation for long error messages in toast notifications
+  - Included proper validation before saving attempts
+  - Added detailed logging for successful saves and errors
+
+- Refined UI state management:
+  - Ensured UI elements are properly disabled during loading/saving operations
+  - Disabled the Save button when no settings are available
+  - Also disabled the About button during saving operations to prevent user confusion
+  - Improved error display for both fatal and non-fatal errors
+
+This implementation connects the frontend Settings page to the backend Tauri commands, allowing users to view and modify application settings, which are then persisted across application restarts.
+
+## [2024-07-18] - UI Component Library Update
+
+Goal: Update the frontend to use shadcn/ui components
+
+- Integrated shadcn/ui components into the project
+- Replaced all placeholder component implementations in `SettingsPage.tsx` with proper shadcn/ui imports
+- Updated the app structure to use `TooltipProvider` and shadcn's `Toaster` component
+- Added proper TypeScript type annotations to fix type errors
+- Maintained the existing dark theme styling with custom color values
+- Enhanced component structure to match shadcn/ui's requirements (e.g., proper nesting of Select components)
+
+This update brings several benefits:
+- Improved accessibility and keyboard navigation
+- Consistent styling and behavior across components
+- Better TypeScript integration with proper component typing
+- Reduced code maintenance burden by using a well-maintained component library
+
+Note: We're maintaining react-hot-toast for now as it's still used for notifications in multiple places, but will migrate to shadcn's toast system in a future update.
+
+## [2024-07-20] - Improved Clipboard Behavior and System Tray Functionality
+
+Goal: Enhance clipboard behavior and make system tray interaction more reliable
+
+### Clipboard Improvements:
+- Modified `stop_backend_recording` in `src-tauri/src/audio_manager_rs.rs`:
+  - Always copy transcription text to clipboard, regardless of auto-paste setting
+  - Separated clipboard copying and paste simulation for better control flow
+  - User now always gets the transcription in clipboard, even when auto-paste is disabled
+  - Fixed proper error handling to prevent cascading failures
+
+### System Tray Enhancements:
+- Simplified the tray click handler in `src-tauri/src/main.rs`:
+  - Removed the visibility toggle logic (show/hide) that was causing issues
+  - Now always attempts to show and focus the main window on tray click
+  - Improved error handling and logging
+  - Ensures consistent behavior when reopening the settings window
+
+### Interface Improvements:
+- Updated `paste_text_to_cursor` command:
+  - Removed unnecessary text parameter since paste uses clipboard content
+  - Improved function description and logging
+  - Simulation now properly represents user workflow (copy then paste)
+
+These changes improve user experience by ensuring transcription results are never lost and making system tray behavior more predictable and reliable.
+
+## [2024-07-20] - Fixed FFmpeg Executable Path Resolution
+
+Goal: Correct the FFmpeg executable filename to match the actual bundled filename on Windows
+
+- Updated `run_ffmpeg_conversion` function in `src-tauri/src/transcription.rs`:
+  - Added platform-specific FFmpeg executable name determination using conditional compilation
+  - Used `ffmpeg-x86_64-pc-windows-msvc.exe` for Windows builds
+  - Used `ffmpeg` for non-Windows builds (macOS, Linux)
+  - Applied the correct filename in both debug and release modes
+  - Improved error messaging when the executable is not found
+
+- Updated `tauri.conf.json` to specify the correct FFmpeg executable in the `externalBin` array:
+  - Changed `vendor/ffmpeg` to `vendor/ffmpeg-x86_64-pc-windows-msvc`
+  - This ensures the correct binary is bundled with the application on Windows
+
+This change resolves an issue where audio conversion would fail on Windows because the code was looking for `ffmpeg.exe` but the actual bundled file was named `ffmpeg-x86_64-pc-windows-msvc.exe`. The fix ensures proper audio resampling before passing to the Whisper transcription engine, improving transcription quality.
+
+## [2023-09-20] - Whisper Auto Language Detection Implementation
+
+Goal: Enable automatic language detection when the user selects "auto" language
+
+- Modified `transcription.rs` to conditionally include the `-l` language argument:
+  - When language is set to "auto" - omit the language flag entirely to enable Whisper's built-in detection
+  - When language is specified - pass the language code as before
+  - Added appropriate logging to track which mode is being used
+  
+- Technical details:
+  - Whisper's native auto-detection works by omitting the language argument
+  - The app now properly handles this configuration by checking language_string
+  - Added empty language check as a fallback case
+  
+- Impact:
+  - Users can now use automatic language detection by selecting "auto" in settings
+  - Improves usability for multilingual environments
+  - Enhanced logging for better debugging of language selection issues
+
+TODO: 
+- Consider adding a language detection result to the transcription output
+- Test with multiple languages to ensure detection quality
+
+## [2023-09-20] - Preventing Automatic Translation in Whisper
+
+Goal: Ensure transcription occurs in the original spoken language without automatic translation to English
+
+- Added `--task transcribe` argument to the Whisper command:
+  - Unconditionally set the task to "transcribe" rather than the default "translate" when auto-detecting
+  - Placed the task argument after language handling but before the `-nt` (no timestamps) flag
+  - Ensures proper ordering of command-line arguments
+
+- Technical details:
+  - Whisper's default behavior is to translate non-English speech to English when auto-detecting language
+  - The `--task transcribe` explicitly instructs Whisper to output in the source language
+  - This works alongside the auto-detection feature implemented earlier
+
+- Impact:
+  - Multilingual transcriptions now remain in their original language
+  - Prevents unintended translations when language is auto-detected
+  - Provides a more accurate representation of the original speech
+
+TODO:
+- Consider adding a configuration option to allow users to choose between transcribe and translate modes
+- Test with various languages to verify output is in the correct language
+
+## [2023-09-20] - Fixed Whisper Command Arguments for Bundled Binary
+
+Goal: Fix incompatible command-line arguments with the bundled Whisper executable
+
+- Removed the `--task transcribe` argument added in previous update:
+  - The bundled `whisper-x86_64-pc-windows-msvc.exe` does not support the `--task` parameter
+  - Runtime logs showed error messages when trying to use this argument
+  - Restored the simpler command structure while keeping the language detection logic
+
+- Technical details:
+  - For this specific Whisper binary, transcription is already the default behavior
+  - Translation would be enabled with the `-tr` or `--translate` flag, which we do not use
+  - The correct approach is to simply not add any task-specific argument
+  - Language selection/auto-detection works correctly without this parameter
+
+- Impact:
+  - Fixed error messages and ensured successful transcription
+  - Maintained the auto-detection functionality introduced earlier
+  - Simplified command structure to match the binary's expectations
+
+TODO:
+- Document the exact command-line interface supported by each bundled binary version
+- Consider adding a translation mode option in the future using the correct flags
+- Test with various languages to ensure correct mode is being used

@@ -1,6 +1,8 @@
 import React from 'react';
-// Make sure the path to types is correct, likely '../types' if types.ts is in src/
+import { motion, AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { RecordingState } from '../types';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -9,102 +11,208 @@ import { RecordingState } from '../types';
  * Why it exists: Users need to know when recording is active and what hotkey to use
  */
 
+// Example Placeholder Waveform (replace later with actual audio visualization)
+const WaveformPlaceholder = () => (
+     <div className="flex items-center space-x-0.5 h-3">
+         <span className="block w-0.5 h-1 bg-white rounded-full"></span>
+         <span className="block w-0.5 h-2 bg-white/80 rounded-full"></span>
+         <span className="block w-0.5 h-3 bg-white/90 rounded-full"></span>
+         <span className="block w-0.5 h-2 bg-white/80 rounded-full"></span>
+         <span className="block w-0.5 h-1 bg-white rounded-full"></span>
+     </div>
+);
+
 // Define the props the component will accept
 interface RecordingPillProps {
     currentState: RecordingState;
-    duration: string; // Expecting pre-formatted string "0.0s"
+    duration: string; // Expecting pre-formatted string like "0s"
     transcription?: string; // Optional transcription text
     error?: string; // Optional error message
 }
 
-// Helper to get display text based on state
-const getStateText = (state: RecordingState, error?: string): string => {
-    switch (state) {
-        case RecordingState.IDLE:
-            return "Idle"; // Or maybe "" or "."
-        case RecordingState.RECORDING:
-        case RecordingState.LOCKED_RECORDING:
-            return "Rec";
-        case RecordingState.TRANSCRIBING:
-            return "Proc";
-        case RecordingState.PASTING: // Assuming this state exists
-            return "Paste";
-        case RecordingState.ERROR:
-            // Show truncated error, or just "Error"
-            return error ? `Error: ${error.substring(0,15)}...` : "Error";
-        default:
-            console.warn("RecordingPill: Unknown currentState received:", state);
-            return "???";
-    }
+// --- Animation Variants ---
+const pillContainerVariants = {
+  idle: {
+    width: "28px",
+    height: "28px",
+    padding: "4px",
+    minWidth: "28px",
+    borderRadius: "9999px"
+  },
+  recording: {
+    width: "auto",
+    height: "32px",
+    padding: "4px 8px",
+    minWidth: "110px",
+    borderRadius: "9999px"
+  },
+  processing: {
+    width: "auto",
+    height: "32px",
+    padding: "4px 8px",
+    minWidth: "70px",
+    borderRadius: "9999px"
+  },
+  error: {
+    width: "auto",
+    height: "32px",
+    padding: "4px 8px",
+    minWidth: "110px",
+    borderRadius: "9999px"
+  }
 };
 
-// Helper to get background color based on state
-const getBackgroundColor = (state: RecordingState): string => {
-    switch (state) {
-        case RecordingState.IDLE:
-            return "bg-slate-600 hover:bg-slate-500";
-        case RecordingState.RECORDING:
-        case RecordingState.LOCKED_RECORDING:
-            return "bg-red-600 hover:bg-red-500";
-        case RecordingState.TRANSCRIBING:
-        case RecordingState.PASTING:
-            return "bg-blue-600 hover:bg-blue-500";
-        case RecordingState.ERROR:
-            return "bg-orange-700 hover:bg-orange-600";
-        default:
-            return "bg-gray-700";
-    }
-}
+const iconVariant = {
+  idle: { opacity: 1, scale: 1 },
+  recording: { opacity: 1, scale: 0.9 },
+  processing: { opacity: 0.6, scale: 0.8 },
+  error: { opacity: 1, scale: 0.9 }
+};
+
+const contentVariants = {
+  hidden: { opacity: 0, scale: 0.95, x: 5 },
+  visible: { 
+    opacity: 1, 
+    scale: 1, 
+    x: 0, 
+    transition: { duration: 0.2, delay: 0.1 } 
+  },
+  exit: { 
+    opacity: 0, 
+    scale: 0.95, 
+    x: -5, 
+    transition: { duration: 0.1 } 
+  }
+};
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error }) => {
-    const statusText = getStateText(currentState, error);
-    const bgColor = getBackgroundColor(currentState);
-    const showTimer = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
-    // Show transcription ONLY if state is IDLE and transcription prop is present and no error
-    const showTranscription = currentState === RecordingState.IDLE && transcription && !error;
+    const isIdle = currentState === RecordingState.IDLE;
+    const isRecording = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
+    const isProcessing = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
+    const isError = currentState === RecordingState.ERROR;
+    const showTranscription = isIdle && transcription && !error;
+    
+    let containerVariant = "idle";
+    if (isRecording) containerVariant = "recording";
+    else if (isProcessing) containerVariant = "processing";
+    else if (isError) containerVariant = "error";
 
+    // State classes for non-layout styles
+    let stateClasses = "text-white"; // Base text color
+    if (isIdle) {
+        stateClasses += " bg-gradient-to-br from-[#0A0F1A] to-[#020409] shadow-[0_0_5px_#A6F6FF33] hover:shadow-[0_0_10px_#A6F6FF66] border border-[#A6F6FF]/10";
+    } else if (isRecording) {
+        stateClasses += " bg-[#020409] border border-[#FF4D6D]/50 shadow-[0_0_8px_#FF4D6D44] hover:shadow-[0_0_12px_#FF4D6D77] text-xs font-mono";
+    } else if (isProcessing) {
+        stateClasses += " bg-[#020409] border border-[#8B9EFF]/50 shadow-[0_0_10px_#8B9EFF66] text-[#8B9EFF]";
+    } else if (isError) {
+        stateClasses += " bg-orange-700/20 border border-orange-500/50 shadow-[0_0_8px_#FF8B6644] text-xs font-mono";
+    }
+    
     // Log the props received by this component render
     console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}`);
 
     return (
-        // Main pill container: rounded, background, padding, layout, transition, font
-        <div className={`min-w-[70px] h-[32px] ${bgColor} text-white rounded-full px-3 py-1 flex items-center justify-center shadow-md transition-colors duration-200 ease-in-out text-sm font-mono`}>
-            {/* --- Conditional Rendering Logic --- */}
+        <motion.div
+            layout // Animate layout: size, position, padding, border-radius
+            variants={pillContainerVariants}
+            initial={false}
+            animate={containerVariant}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            className={`flex items-center ${isIdle ? 'justify-center' : 'justify-start'} relative overflow-hidden ${stateClasses} outline outline-1 outline-transparent`}
+        >
+            {/* Icon - always present, part of flex, animates scale/opacity */}
+            <motion.div
+                layout="position" // Allow slight position adjustment within flex
+                variants={iconVariant}
+                animate={containerVariant}
+                transition={{ duration: 0.2 }}
+                className="flex-shrink-0 flex items-center justify-center z-10"
+            >
+                <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <img
+                                src="/feather-logo.png"
+                                alt="Fethr"
+                                className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]"
+                            />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="bg-[#0A0F1A] text-white border-[#A6F6FF]/30">
+                            <p>Hold RightAlt to record</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </motion.div>
 
-            {/* Priority 1: Show Error */}
-            {currentState === RecordingState.ERROR && (
-                 <span className="truncate max-w-[200px] text-xs" title={error || 'Unknown Error'}>
-                    {statusText} {/* Shows "Error: ..." */}
-                 </span>
-            )}
+            {/* Animated Content Area */}
+            <div className="flex-grow h-full flex items-center overflow-hidden relative">
+                <AnimatePresence mode="wait" initial={false}>
+                    {/* Recording Content */}
+                    {isRecording && (
+                        <motion.div
+                            key="content-recording"
+                            variants={contentVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                            className="flex items-center justify-end w-full h-full space-x-1.5 px-1"
+                        >
+                            <div className="flex-grow flex justify-center">
+                                <WaveformPlaceholder />
+                            </div>
+                            <span className="flex-shrink-0 font-mono text-xs">{duration}</span>
+                        </motion.div>
+                    )}
 
-            {/* Priority 2: Show Transcription Result (only when back to Idle, no error) */}
-            {showTranscription && ( // currentState is implicitly IDLE here
-                <span className="truncate max-w-[200px] text-xs" title={transcription}>
-                     {transcription}
-                </span>
-            )}
+                    {/* Processing Content */}
+                    {isProcessing && (
+                        <motion.div
+                            key="content-processing"
+                            variants={contentVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                            className="absolute inset-0 flex items-center justify-center"
+                        >
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        </motion.div>
+                    )}
 
-             {/* Priority 3: Show Recording Status and Timer */}
-            {(currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING) && (
-                <div className="flex items-center space-x-1.5">
-                     {/* Optional: Add a recording icon/dot here */}
-                     <span className="font-bold">{statusText}</span>
-                    {showTimer && <span>{duration}</span>}
-                </div>
-            )}
+                    {/* Error Content */}
+                    {isError && (
+                        <motion.div
+                            key="content-error"
+                            variants={contentVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                            className="absolute inset-0 flex items-center justify-center px-1"
+                        >
+                            <span className="truncate text-xs font-mono" title={error}>
+                                ⚠️ {error ? `Error: ${error.substring(0,15)}...` : "Error"}
+                            </span>
+                        </motion.div>
+                    )}
 
-            {/* Priority 4: Show Processing/Pasting Status (if not error/idle/recording) */}
-             {(currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING) && (
-                <span className="font-bold">{statusText}</span>
-             )}
-
-            {/* Priority 5: Show Idle Status (only if Idle and not showing transcription/error) */}
-             {currentState === RecordingState.IDLE && !showTranscription && !error && (
-                 <span className="font-bold">{statusText}</span>
-             )}
-
-        </div>
+                    {/* Transcription Result */}
+                    {showTranscription && (
+                        <motion.div
+                            key="content-transcription"
+                            variants={contentVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                            className="absolute inset-0 flex items-center justify-center px-1"
+                        >
+                            <span className="truncate max-w-[200px] text-xs" title={transcription}>
+                                {transcription}
+                            </span>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </motion.div>
     );
 };
 

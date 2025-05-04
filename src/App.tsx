@@ -5,7 +5,10 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window';
 import { RecordingState } from './types';
 import RecordingPill from './components/RecordingPill';
-import { Toaster, toast } from 'react-hot-toast';
+import { toast } from "react-hot-toast"; // Keep react-hot-toast for now as it's still used for notifications
+import { Toaster } from "@/components/ui/toaster"; // Import shadcn/ui Toaster
+import { TooltipProvider } from "@/components/ui/tooltip"; // Import TooltipProvider
+import SettingsPage from './pages/SettingsPage';
 import './index.css';
 
 // Define interface for the test utility
@@ -27,17 +30,6 @@ interface StateUpdatePayload {
     duration_ms: number;
     transcription_result: string | null;
     error_message: string | null;
-}
-
-function SettingsPagePlaceholder() {
-    console.log("[SettingsPagePlaceholder] Rendering.");
-    return (
-        <div style={{ padding: '20px', background: 'lightblue', height: '100vh' }}>
-            <h1>Fethr Settings</h1>
-            <p>This is the main settings window content.</p>
-            <p>(Should initially be hidden)</p>
-        </div>
-    );
 }
 
 function PillPage() {
@@ -261,15 +253,15 @@ function PillPage() {
 
     // Format duration
     const formatDuration = (ms: number): string => {
-        if (ms <= 0) return "0.0s";
-        return (ms / 1000).toFixed(1) + "s";
+        if (ms <= 0) return "0s";
+        return Math.floor(ms / 1000).toString() + "s";
     };
 
     console.log("PillPage: Rendering with State:", RecordingState[currentState], "Duration:", duration);
 
     // Render container and RecordingPill
     return (
-        <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen cursor-move select-none">
+        <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
              <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
@@ -290,17 +282,17 @@ function App() {
   console.log(`[App] Rendering. Initial Pathname detected: ${initialPathname}`);
 
   return (
-    <>
+    <TooltipProvider>
       {/* Pass the detected pathname as the initial route */}
       <MemoryRouter initialEntries={[initialPathname]}>
         <Routes>
-          <Route path="/" element={<SettingsPagePlaceholder />} />
+          <Route path="/" element={<SettingsPage />} />
           {/* Ensure PillPage component (the simplified green/red one) is rendered here */}
           <Route path="/pill" element={<PillPage />} />
         </Routes>
       </MemoryRouter>
-      <Toaster position="bottom-center" />
-    </>
+      <Toaster />
+    </TooltipProvider>
   );
 }
 

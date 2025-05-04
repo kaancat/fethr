@@ -1,1 +1,33 @@
-node_modules
+# Dependencies
+/node_modules/
+
+# Tauri build output
+/src-tauri/target/
+/src-tauri/Cargo.lock
+
+# Vite build output
+/dist/
+
+# IDE / OS files
+.DS_Store
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+Thumbs.db
+/build/
+/debug/
+/release/
+*.log
+*.cache
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Tauri state cache
+/src-tauri/app.db*
+/src-tauri/vendor/
+/window-state.json # Might be in %APPDATA% but good to ignore anyway

@@ -10,6 +10,7 @@ use scopeguard;
 use uuid::Uuid;
 use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
+use std::process::{Command, Stdio}; // Add these imports for FFmpeg
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -58,52 +59,92 @@ pub fn check_model_exists(model_directory: &PathBuf, model_name: &str) -> bool {
 }
 
 // Helper function to convert to WAV with predictable output path & error checking
-fn convert_to_wav_predictable(input_path: &str, output_path_str: &str) -> Result<(), String> {
-    println!("[RUST FFMPEG] Converting {} to 16kHz WAV at {}", input_path, output_path_str); // No volume boost
-    let ffmpeg_command = std::process::Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-i").arg(input_path)
-        .arg("-ar").arg("16000")
-        .arg("-ac").arg("1")
-        .arg("-c:a").arg("pcm_s16le")
-        .arg(output_path_str)
-        .output(); // Use .output() to get status, stdout, stderr
+async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, app_handle: &AppHandle) -> Result<(), String> {
+    println!("[RUST FFMPEG] Converting {} to 16kHz WAV at {}", input_path.display(), output_path.display());
 
-    match ffmpeg_command {
-        Ok(output) => {
-            if output.status.success() {
-                // Verify output file size (must be > 44 bytes)
-                match std::fs::metadata(output_path_str) {
-                    Ok(m) if m.len() > 44 => { // Basic check for non-empty data
-                         println!("[RUST FFMPEG] Output file {} verified ({} bytes).", output_path_str, m.len());
-                         Ok(())
-                    },
-                    Ok(m) => {
-                        let err_msg = format!("FFmpeg created empty/tiny output file ({} bytes)", m.len());
-                        println!("[RUST FFMPEG ERROR] {}", err_msg);
-                        Err(err_msg)
-                    },
-                    Err(e) => {
-                         let err_msg = format!("Failed to verify FFmpeg output file metadata: {}", e);
-                         println!("[RUST FFMPEG ERROR] {}", err_msg);
-                         Err(err_msg)
-                    }
-                }
-            } else {
-                // Log FFmpeg errors clearly
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let err_msg = format!("FFmpeg execution failed with status: {}. Stderr: '{}'. Stdout: '{}'", output.status, stderr.trim(), stdout.trim());
-                println!("[RUST FFMPEG ERROR] {}", err_msg);
-                Err(err_msg)
-            }
-        },
-        Err(e) => {
-             let err_msg = format!("Failed to execute FFmpeg command: {}", e);
-             println!("[RUST FFMPEG ERROR] {}", err_msg);
-             Err(err_msg)
-        },
+    // --- Resolve FFmpeg Path (Debug vs Release) ---
+    let ffmpeg_path: PathBuf;
+    let ffmpeg_cwd: PathBuf; // Directory to run ffmpeg from
+
+    // Determine the correct ffmpeg executable name based on OS
+    #[cfg(target_os = "windows")]
+    let ffmpeg_exe_name = "ffmpeg-x86_64-pc-windows-msvc.exe";
+    #[cfg(not(target_os = "windows"))]
+    let ffmpeg_exe_name = "ffmpeg"; // Standard name for Linux/macOS
+
+    if cfg!(debug_assertions) {
+        // DEBUG MODE: Point directly to the source vendor directory
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // Path to src-tauri
+        let vendor_dir = manifest_dir.join("vendor");
+        ffmpeg_path = vendor_dir.join(ffmpeg_exe_name); // Use platform-specific name
+        ffmpeg_cwd = vendor_dir.clone(); // Use vendor dir as CWD
+        println!("[RUST FFMPEG DEBUG] Using ffmpeg path: {}", ffmpeg_path.display());
+        println!("[RUST FFMPEG DEBUG] Using CWD: {}", ffmpeg_cwd.display());
+
+    } else {
+        // RELEASE MODE: Assume bundled next to main executable
+        let exe_dir = std::env::current_exe()
+             .ok().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+             .ok_or_else(|| "Could not determine executable directory in release build".to_string())?;
+        ffmpeg_path = exe_dir.join(ffmpeg_exe_name); // Use platform-specific name
+        ffmpeg_cwd = exe_dir.clone(); // Use executable dir as CWD for release
+        println!("[RUST FFMPEG RELEASE] Attempting ffmpeg path: {}", ffmpeg_path.display());
+        println!("[RUST FFMPEG RELEASE] Using CWD: {}", ffmpeg_cwd.display());
     }
+    // --- End Path Resolution ---
+
+    // --- Check if ffmpeg exists ---
+    if !ffmpeg_path.exists() {
+         let err_msg = format!("Bundled ffmpeg executable not found at expected location: {}", ffmpeg_path.display());
+         eprintln!("[RUST FFMPEG ERROR] {}", err_msg);
+         return Err(err_msg);
+    }
+
+    // --- Execute FFmpeg Command using resolved path and CWD ---
+    println!("[RUST DEBUG] ========== STARTING FFMPEG COMMAND (Bundled) ... ==========");
+    println!("    Executable: {}", ffmpeg_path.display());
+    println!("    Input WAV: {}", input_path.display());
+    println!("    Output WAV: {}", output_path.display());
+    println!("    CWD: {}", ffmpeg_cwd.display());
+    println!("=====================================================================");
+
+    let mut command = Command::new(&ffmpeg_path); // Use resolved path
+    command.current_dir(&ffmpeg_cwd); // Set CWD
+    command.arg("-i")
+        .arg(input_path)
+        .arg("-ar")
+        .arg("16000")
+        .arg("-ac")
+        .arg("1")
+        .arg("-c:a")
+        .arg("pcm_s16le")
+        .arg("-y")
+        .arg(output_path)
+        .stdout(Stdio::null()) // Suppress stdout
+        .stderr(Stdio::piped()); // Capture stderr
+
+    println!("[RUST DEBUG] Running FFmpeg with args: {:?}", command.get_args().collect::<Vec<_>>());
+
+    let output = command.output() // Use output() to capture stderr
+        .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let err_msg = format!("ffmpeg command failed with status: {}. Stderr: {}", output.status, stderr.trim());
+        eprintln!("[RUST FFMPEG ERROR] {}", err_msg);
+        return Err(err_msg);
+    }
+
+    // Verify output file exists and has size
+    if !output_path.exists() || fs::metadata(output_path).map(|m| m.len()).unwrap_or(0) == 0 {
+         let err_msg = format!("ffmpeg conversion failed: Output file {} is missing or empty.", output_path.display());
+         eprintln!("[RUST FFMPEG ERROR] {}", err_msg);
+         return Err(err_msg);
+    }
+
+    let size = fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
+    println!("[RUST FFMPEG] Output file {} verified ({} bytes).", output_path.display(), size);
+    Ok(())
 }
 
 // New command that accepts a specific audio file path - CALLED BY stop_backend_recording
@@ -270,7 +311,7 @@ pub async fn transcribe_local_audio_impl(
     let converted_wav_path = temp_dir.join(format!("fethr_converted_{}.wav", unique_id));
     println!("[RUST DEBUG] Attempting FFmpeg resampling to: {}", converted_wav_path.display());
 
-    match convert_to_wav_predictable(&wav_path_in, converted_wav_path.to_str().unwrap()) {
+    match run_ffmpeg_conversion(input_wav_path, &converted_wav_path, &app_handle).await {
         Ok(_) => {
             println!("[RUST DEBUG] FFmpeg resampling successful.");
             converted_wav_path_opt = Some(converted_wav_path.clone());
@@ -312,9 +353,22 @@ pub async fn transcribe_local_audio_impl(
     // --- Setup Whisper command ---
     let mut command = std::process::Command::new(&whisper_binary_path);
     command.current_dir(&whisper_working_dir) // Set CWD
-           .arg("-m").arg(&model_path) // Pass model path
-           .arg("-l").arg(&language_string) // Pass language
-           .arg("-nt") // No timestamps flag
+           .arg("-m").arg(&model_path); // Pass model path
+    
+    // --- Conditionally add language argument ---
+    if language_string.trim().to_lowercase() == "auto" {
+        println!("[RUST WHISPER] Language set to 'auto', enabling Whisper auto-detection.");
+        // Do NOT add the -l argument
+    } else if !language_string.trim().is_empty() {
+        println!("[RUST WHISPER] Using specified language: {}", language_string);
+        command.arg("-l").arg(&language_string); // Pass language only if specified and not "auto"
+    } else {
+        println!("[RUST WHISPER] Language setting is empty, defaulting to Whisper auto-detection.");
+        // Do NOT add the -l argument
+    }
+    // --- End conditional language ---
+    
+    command.arg("-nt") // No timestamps flag
            .arg(&whisper_input_path); // Pass input audio AFTER flags
 
     // --- Run Whisper command and read output ---

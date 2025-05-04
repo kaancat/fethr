@@ -60,7 +60,8 @@
         "depends": []
       },
       "externalBin": [
-        "vendor/whisper"
+        "vendor/whisper",
+        "vendor/ffmpeg"
       ],
       "icon": [
         "icons/icon.ico",
@@ -99,7 +100,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Fethr Settings",
+        "title": "fethr",
         "width": 800,
         "height": 600,
         "visible": false,
@@ -122,8 +123,8 @@
         "skipTaskbar": true,
         "resizable": false,
         "fullscreen": false,
-        "x": 1650,
-        "y": 1000
+        "x": 1730,
+        "y": 980
       }
     ]
   }
