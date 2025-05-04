@@ -155,29 +155,31 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                 />
             </motion.div>
 
-            {/* Content Area */}
-            <div className="flex-grow h-full flex items-center overflow-hidden relative min-w-0 ml-2">
-                <AnimatePresence mode="wait" initial={false}>
-                    {/* Show content ONLY if not idle */}
-                    {(targetVariant !== 'idle') && (
-                        <motion.div
-                            key="content"
-                            variants={contentVariants}
-                            initial="hidden"
-                            animate="visible"
-                            exit="exit"
-                            className="flex items-center justify-end w-full h-full space-x-1.5"
-                        >
-                            {/* Show LiveWaveform during both hover and actual recording */}
-                            {(isRecording || targetVariant === 'ready') && <LiveWaveform />}
-                            {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-                            {isError && <span className="truncate text-xs font-mono" title={error}>⚠️ Error</span>}
-                            {isRecording && <span className="flex-shrink-0 font-mono text-xs">{duration}</span>}
-                            {(targetVariant === 'ready' && !isRecording) && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
+            {/* Content Area - only render when not in idle state */}
+            {targetVariant !== 'idle' && (
+                <div className="flex-grow h-full flex items-center overflow-hidden relative min-w-0 ml-2">
+                    <AnimatePresence mode="wait" initial={false}>
+                        {/* Show content ONLY if not idle */}
+                        {(targetVariant !== 'idle') && (
+                            <motion.div
+                                key="content"
+                                variants={contentVariants}
+                                initial="hidden"
+                                animate="visible"
+                                exit="exit"
+                                className="flex items-center justify-end w-full h-full space-x-1.5"
+                            >
+                                {/* Show LiveWaveform during both hover and actual recording */}
+                                {(isRecording || targetVariant === 'ready') && <LiveWaveform />}
+                                {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                                {isError && <span className="truncate text-xs font-mono" title={error}>⚠️ Error</span>}
+                                {isRecording && <span className="flex-shrink-0 font-mono text-xs">{duration}</span>}
+                                {(targetVariant === 'ready' && !isRecording) && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
         </motion.div>
     );
 };
