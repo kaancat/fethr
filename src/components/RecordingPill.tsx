@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { RecordingState } from '../types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -129,20 +130,11 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                 transition={{ duration: 0.2 }}
                 className="flex-shrink-0 flex items-center justify-center z-10"
             >
-                <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <img
-                                src="/feather-logo.png"
-                                alt="Fethr"
-                                className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]"
-                            />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="bg-[#0A0F1A] text-white border-[#A6F6FF]/30">
-                            <p>Hold RightAlt to record</p>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
+                <img
+                    src="/feather-logo.png"
+                    alt="Fethr"
+                    className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]"
+                />
             </motion.div>
 
             {/* Animated Content Area */}
@@ -156,10 +148,10 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                             initial="hidden"
                             animate="visible"
                             exit="exit"
-                            className="flex items-center justify-end w-full h-full space-x-1.5 px-1"
+                            className="flex items-center justify-between w-full h-full space-x-1.5 pl-1 pr-1"
                         >
-                            <div className="flex-grow flex justify-center">
-                                <WaveformPlaceholder />
+                            <div className="flex-grow w-full flex justify-center">
+                                <LiveWaveform />
                             </div>
                             <span className="flex-shrink-0 font-mono text-xs">{duration}</span>
                         </motion.div>
