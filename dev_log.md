@@ -1,5 +1,123 @@
 # Dev Log
 
+## [2024-09-19] - Improved Cross-Platform Resource Bundling
+Goal: Enhance Fethr's cross-platform compatibility and resource handling
+
+### Changes Made:
+- Modified `tauri.conf.json` for better resource bundling:
+  - Updated external binary configuration to use platform-agnostic path `"vendor/whisper"` instead of `"vendor/whisper.exe"`
+  - Added resources configuration for the models directory with `"vendor/models"` to ensure models are properly bundled
+
+- Improved `config.rs` for simplified settings management:
+  - Removed `whisper_directory` field from AppSettings as it's now handled directly by the app
+  - Renamed `whisper_model` to `model_name` for clarity
+  - Added `language` field to provide explicit language control
+  - Added specific type annotation for TOML parsing with `toml::from_str::<AppSettings>`
+  - Enhanced settings loading and saving with improved error handling
+
+- Enhanced `transcription.rs` for robust path resolution:
+  - Added platform-specific path handling that works correctly in both debug and release modes
+  - Implemented proper detection of debug vs. release environments
+  - Used Tauri's `resource_dir()` API for resolving bundled resources in release mode
+  - Added OS detection for correct binary naming across Windows, macOS and Linux
+  - Removed clipboard/paste operations that were causing redundant actions
+
+- Refactored `audio_manager_rs.rs` for better clipboard handling:
+  - Ensured clipboard operations happen only once
+  - Moved clipboard/paste functionality out of the transcription module
+  - Fixed auto-paste logic to prevent unintended double paste operations
+
+- Removed unnecessary safety timer from `App.tsx` that was forcing state reset after 5 seconds
+
+### Technical Details:
+- Debug mode now correctly resolves paths using `CARGO_MANIFEST_DIR`
+- Release mode uses Tauri's resource directory API for bundled resources
+- Platform-specific binary naming is handled with conditional compilation:
+  ```rust
+  if cfg!(target_os = "windows") {
+     "whisper-x86_64-pc-windows-msvc.exe"
+  } else if cfg!(target_os = "macos") {
+     if cfg!(target_arch = "aarch64") {
+         "whisper-aarch64-apple-darwin"
+     } else {
+         "whisper-x86_64-apple-darwin"
+     }
+  }
+  ```
+- Improved path resolution handles the different locations between debug and release builds
+
+### Impact:
+- More robust cross-platform compatibility across Windows, macOS, and Linux
+- Consistent resource bundling that works correctly in production builds
+- Better separation of concerns between transcription and clipboard operations
+- Improved error handling with more detailed logging
+- Cleaner and more maintainable codebase with proper separation of functionality
+
+### Next Steps:
+- Implement comprehensive testing across platforms to verify compatibility
+- Add platform-specific build scripts to automate bundling for all targets
+- Consider adding configuration option for custom model directories
+- Explore additional optimization for ARM architectures
+
+## [2024-09-18] - Improved Timeout Handling with Cancel Action
+Goal: Improve the timeout handling in the Rust backend to trigger a stop and transcribe action
+
+### Changes Made:
+- Removed the `TimeoutResetAndEmitUi` variant from the `PostEventAction` enum
+- Added back `CancelRecordingAndEmitUi` with a repurposed function to trigger stop and transcribe
+- Modified the state thread timeout logic:
+  - Kept the state reset to Idle
+  - Kept clearing the timer flag
+  - Removed direct emit_state_update call
+  - Set timeout_action to CancelRecordingAndEmitUi
+- Restored and enhanced the timeout action handling in the state thread loop:
+  - The action now first emits an Idle state to update UI immediately
+  - Then triggers the stop/transcribe flow to clean up audio
+
+### Technical Details:
+- This approach provides a cleaner cancellation path that:
+  - Properly cleans up any recording that may have started
+  - Updates the UI to show the cancellation
+  - Maintains a consistent event flow whether cancellation is from a timeout or user action
+- The frontend listener for `fethr-stop-and-transcribe` will handle the result (likely a blank audio message) 
+  and trigger the reset signal correctly
+- The error message "Tap cancelled" is displayed to provide user feedback
+
+### Impact:
+- More consistent handling of timeout scenarios
+- Proper cleanup of recording resources when a timeout occurs
+- Better user feedback during cancellation
+- Simplified state handling logic with more uniform event flow
+
+### Next Steps:
+- Monitor log output to verify the cancel action is working as expected
+- Consider adding analytics to track how often timeouts/cancellations occur
+- Fine-tune timeout parameters if needed based on user feedback
+
+## [2024-09-18] - Reverted Timeout Handling to Direct UI Updates
+Goal: Simplify timeout handling by removing unnecessary audio processing
+
+### Changes Made:
+- Removed the `CancelRecordingAndEmitUi` variant from the `PostEventAction` enum
+- Modified the state thread timeout logic:
+  - Kept the state reset to Idle
+  - Kept clearing the timer flag
+  - Restored direct Idle state UI updates after timeout detection
+  - Removed the timeout_action variable and handling block
+- Simplified error handling for timeout edge cases
+
+### Technical Details:
+- This approach is cleaner for our use case because:
+  - No audio recording is started in WaitingForSecondTap state, so no need to stop/cleanup
+  - Directly updating the UI provides immediate feedback without unnecessary backend operations
+  - Error messages in timeout cases are more specific ("Tap cancelled (Timeout)" vs generic "Tap cancelled")
+- The timeout window logic remains the same, only the action taken on timeout is simpler
+
+### Impact:
+- More efficient handling of timeout scenarios
+- Clear separation between UI state updates and audio recording operations
+- Simplified control flow in the state thread loop
+
 ## [2024-09-18] – Session Start
 Goal: Implement and enhance the Fethr application based on the project requirements
 
@@ -29,7 +147,31 @@ Goal: Implement and enhance the Fethr application based on the project requireme
 - Improve coordination between frontend and backend state
 - Document all core functionality for future maintenance
 
----
+## [2024-09-18] - Enhanced Timeout Handling with Dedicated Action
+Goal: Improve timeout handling with a specific action type
+
+### Changes Made:
+- Added `TimeoutIdleEmit` variant to the `PostEventAction` enum specifically for timeouts
+- Modified the state thread timeout logic:
+  - Kept the state reset to Idle
+  - Kept clearing the timer flag
+  - Set timeout_action to TimeoutIdleEmit instead of emitting directly
+  - Added dedicated timeout action handling block
+- Added catch-all in the process_hotkey_event function for safer debugging
+
+### Technical Details:
+- This approach separates the timeout UI notification from the state transition:
+  - State is changed to Idle first
+  - Then the dedicated TimeoutIdleEmit action is handled separately
+  - Keeps timeouts from triggering audio recording operations
+- The timeout is now handled consistently with other actions, maintaining code architecture
+- Provides a clearer trace in logs when timeout events occur
+
+### Impact:
+- More consistent architecture for all state transitions
+- Better separation of concerns between state changes and UI updates
+- Improved debugging via the dedicated action type
+- Enhanced log clarity for timeout scenarios
 
 ## [2024-07-17] - Implemented Improved State Machine for Recording
 Goal: Revise the state machine to only start recording after confirming a Hold or Double-Tap.
@@ -75,8 +217,6 @@ Goal: Revise the state machine to only start recording after confirming a Hold o
 - Fine-tune timing parameters (TAP_MAX_DURATION_MS, DOUBLE_TAP_WINDOW_MS)
 - Add detailed analytics to measure key interaction patterns
 
----
-
 ## [2023-07-12] - Initial Architecture Setup
 Goal: Create the foundation for the Fethr app
 
@@ -84,8 +224,6 @@ Goal: Create the foundation for the Fethr app
 - Implemented basic UI components
 - Created HotkeyManager for global hotkey detection
 - Established AudioManager for basic recording
-
----
 
 ## [2023-07-25] - Audio Processing Pipeline
 Goal: Complete audio recording and processing workflow
@@ -95,8 +233,6 @@ Goal: Complete audio recording and processing workflow
 - Created audio visualization component
 - Setup basic error handling for permissions
 
----
-
 ## [2023-09-05] - Transcription Integration
 Goal: Connect audio recording with Whisper transcription
 
@@ -104,8 +240,6 @@ Goal: Connect audio recording with Whisper transcription
 - Added format conversion pipeline (WebM to WAV)
 - Implemented auto-paste functionality
 - Created fallback UI for transcription review
-
----
 
 ## [2023-11-18] - AudioManager Debugging Enhancements
 Goal: Improve robustness and debuggability of audio recording subsystem
@@ -146,1338 +280,277 @@ NOTE: The enhanced logging is especially valuable on Windows where console acces
 - Implement noise reduction capabilities
 - Consider adding audio chunking for processing longer recordings
 
-## [2024-07-14] - AudioManager Debugging Improvements
-Goal: Further enhance the AudioManager debugging capabilities
-
-- Extended logging in AudioManager with more detailed information about recording state
-- Added timestamps to track the recording callback execution flow
-- Improved error reporting for callback execution failures
-- Enhanced documentation for debugging methods
-- Verified that lastRecordingTime tracking works as expected
-- Tested forceCallbackTrigger functionality for reliability
-
-### Technical Details
-- Enhanced error handling now includes stack traces for deeper debugging
-- Added timing metrics between recording stop signal and callback execution
-- Improved log format with consistent emoji indicators for better log parsing
-- Recording callback wrapper now provides blob size and type information
-
-### Impact
-These improvements allow developers to:
-1. Better diagnose callback timing issues in the recording pipeline
-2. Identify potential memory or performance problems with audio blobs
-3. Track the full lifecycle of recording sessions with precise timestamps
-4. More easily reproduce and debug intermittent recording failures
-
-### Next Steps
-- Consider adding audio quality metrics to logs
-- Implement audio preprocessing options for noise reduction
-- Add automated tests for the recording pipeline
-- Create a debug panel in the UI for monitoring recording metrics
-
-## [2024-07-14] - UI Components Fix
-
-Goal: Fix UI component import errors in RecordingController
-
-### Changes implemented:
-- Fixed import error for Button component in RecordingController
-- Replaced `<Button>` component with native HTML `<button>` element
-- Maintained all styling and functionality of the recording toggle button
-- Removed dependency on missing UI component library
-
-### Technical Details:
-- The application was attempting to import from `@/components/ui/button` which didn't exist
-- This path alias (@/) wasn't configured in the project's build setup
-- Using native HTML button element eliminates the dependency on external UI libraries
-- All existing styles and event handlers were preserved
-
-### Impact:
-- Application now builds and runs without import errors
-- Simplified component structure with fewer dependencies
-- Consistent UI appearance maintained without external components
-
-### Next Steps:
-- Consider adding a standardized UI component library if needed
-- Review other components for similar import issues
-- Document component usage patterns for future development
-
-## [2024-07-14] - Transcription Pipeline Debugging
-
-Goal: Fix issues with Whisper transcription not processing audio input
-
-### Changes implemented:
-- Added debug script (`debug_transcription.js`) to trace issues in transcription pipeline
-- Added event listeners for `transcription-status-changed` and `transcription-result` events
-- Created test function to manually trigger transcription on recorded audio
-- Integrated debug script into application index.html for real-time debugging
-- Verified WAV conversion and file saving process
-
-### Technical Details:
-- Created debug interface to allow manual testing of transcription without recording
-- Added detailed logging of transcription process including file existence checks
-- The debug script bypasses the UI and directly calls Rust transcription functions
-- Established troubleshooting flow to isolate issues in the pipeline
-
-### Next Steps:
-- Check Whisper binary path and files on the user's system
-- Verify permissions for accessing the temp audio directory
-- Add improved error reporting for whisper.exe execution
-- Consider implementing fallback transcription method
-
-## [2024-07-14] - Fixed Transcription Permissions
-
-Goal: Enable Whisper transcription by adding required Tauri permissions
-
-### Changes implemented:
-- Updated Tauri config (tauri.conf.json) to add Path module to allowlist
-- Added FS module to allowlist with proper scopes for file access
-- Fixed the debug script to use ES modules instead of CommonJS require
-- Updated index.html to load the debug script as a module
-
-### Technical Details:
-- The transcription failures were due to missing Tauri path permissions
-- Error: "The `Path` module is not enabled. You must enable one of its APIs in the allowlist"
-- Added FS permission scopes for APPDATA, APPCONFIG, and TEMP directories
-- Switched from require() to ES import for browser compatibility
-
-### Impact:
-- Transcription pipeline should now properly save and process audio files
-- Debug functions can be used in browser console to manually test transcription
-- Audio files saved to the temporary directory can be properly accessed by Whisper
-- Error logs are now more informative and specific
-
-### Next Steps:
-- Add validation for whisper.exe path and version
-- Consider more robust error handling for file operations
-- Enhance the debug UI to show transcription status visually
-
-## [2024-07-14] - Identified Whisper Execution Error
-
-Goal: Fix the whisper.exe execution error (0xc0000135)
-
-### Problem identified:
-- Successfully fixed permission issues for file access
-- Audio files are now correctly saved and verified
-- However, whisper.exe fails with error code 0xc0000135
-- This Windows error indicates missing DLL dependencies
-
-### Technical Details:
-- Error 0xc0000135 means "Unable to locate DLL"
-- The executable is found at C:\Users\kaan\.fethr\whisper.exe
-- The file exists but has missing dependencies
-- File size is 79,360 bytes which suggests it may be a stub or incomplete binary
-
-### Recommended solutions:
-1. **Update whisper.exe with full dependencies**:
-   - Download the complete Whisper.cpp package with all required DLLs
-   - Place them together in the C:\Users\kaan\.fethr directory
-
-2. **Consider alternative implementation**:
-   - Replace native whisper.exe with a JavaScript/WebAssembly version
-   - Use whisper.cpp compiled with Emscripten for browser-based execution
-
-## [2024-07-14] - RightAlt Key Detection Debugging
-
-Goal: Fix issue with RightAlt key not being detected by rdev
-
-### Problem identified:
-- The application compiles and the rdev listener thread starts
-- However, pressing RightAlt doesn't trigger any events in the application
-- This suggests that neither `RdevKey::AltGr` nor `RdevKey::RightAlt` matches the actual key event
-- The frontend direct listener for "hotkey-pressed" events had already been removed from RecordingController.tsx
-
-### Changes implemented:
-1. **Added raw key logging to the rdev callback**:
-   - Modified `main.rs` to log all key press and release events before specific checks
-   - This will help identify the correct key enum variant for the RightAlt key
-   - The logging code will print `[RDEV RAW] Press/Release: {:?}` for every key event
-
-### Next steps:
-1. **Identify the correct key enum variant**:
-   - Run the application and press RightAlt key to see what value appears in the logs
-   - Update the key check in the callback to use the correct enum variant
-   - Test different variations: RightAlt, AltGr, RightMenu based on what's logged
-
-2. **Confirm no frontend interference**:
-   - Verified that the direct "hotkey-pressed" listener has already been removed
-   - HotkeyManager now only listens for "fethr-..." events from backend
-
-3. **Consider fallback approach**:
-   - If direct key detection continues to fail, consider implementing a numeric key value check
-   - As a last resort, try using a different key combination for triggering recordings
-
-### Technical notes:
-- The rdev library might have platform-specific differences in key naming
-- The RightAlt key can be recognized differently depending on keyboard layout settings
-- This is a key diagnostic step to determine if the issue is in key detection or state handling
-
-## [2024-07-14] - Confirmed RightAlt Key Detection
-
-Goal: Confirm the correct key enum variant for RightAlt and clean up diagnostic code
-
-### Problem resolution:
-- The raw key logging confirmed that `RdevKey::AltGr` is the correct enum variant for detecting the RightAlt key on Windows
-- The issue wasn't with key detection, but with the visibility of debug logs
-- Confirmed that `rdev` listener is properly capturing key events
-
-### Changes implemented:
-1. **Removed temporary raw key logging**:
-   - Removed the diagnostic code that was logging all key events
-   - Cleaned up comments to document `AltGr` as the correct enum variant for RightAlt
-   - Improved log messages to include "(AltGr)" in RightAlt key press/release logs for clarity
-
-2. **Verified state transition logic**:
-   - Confirmed that the state transition logic inside the key press/release handlers is correct
-   - Verified that the callback function handles state transitions properly for:
-     - Single press: IDLE → RECORDING
-     - Double tap: IDLE → LOCKED_RECORDING or RECORDING → LOCKED_RECORDING
-     - Press during locked recording: LOCKED_RECORDING → TRANSCRIBING
-     - Release: RECORDING → TRANSCRIBING (when released in RECORDING state)
-
-### Technical notes:
-- In the `rdev` library, RightAlt key is represented by the `RdevKey::AltGr` enum variant on Windows
-- The state machine for recording follows these transitions:
-  - IDLE → RECORDING (single press) → TRANSCRIBING (on release)
-  - IDLE → LOCKED_RECORDING (double tap) → TRANSCRIBING (on another press)
-  - RECORDING → LOCKED_RECORDING (double tap) → TRANSCRIBING (on another press)
-  
-### Next steps:
-- Test the complete recording workflow from various states to ensure smooth transitions
-- Consider adding more detailed logging for state transitions for future debugging
-- Monitor for any edge cases in the state transition logic
-
-## [2024-07-15] - Fixed Whisper Blank Audio Issue
-
-Goal: Resolve the issue where Whisper reports "[BLANK_AUDIO]" despite successful recording
-
-### Problem identified:
-- Audio recording was working (audio files were being created)
-- Whisper.exe was successfully running without errors
-- However, transcription results showed "[BLANK_AUDIO]"
-- The issue was in audio quality and Whisper parameters
-
-### Changes implemented:
-1. **Improved audio recording quality**:
-   - Modified `AudioManager.ts` to use higher quality audio settings
-   - Disabled echo cancellation and noise suppression for clearer voice capture
-   - Increased bitrate from 128kbps to 256kbps for better audio fidelity
-   - Added recording check timer to ensure data is being captured
-
-2. **Enhanced audio preprocessing**:
-   - Completely overhauled `webmToWavBlob` function in `audioUtils.ts`
-   - Added sophisticated audio quality checks to detect silent recordings
-   - Implemented audio normalization to ensure proper volume levels
-   - Added fallback mechanisms to create valid audio when input is silent
-   - Improved resampling algorithm with linear interpolation
-
-3. **Optimized Whisper parameters**:
-   - Added `--no-timestamps`, `--vad-thold 0.1`, and `--no-blank-audio` flags
-   - These flags make Whisper more sensitive to speech and prevent blank audio detection
-   - Improved error handling for Whisper transcription process
-
-### Technical Details:
-- Audio issues were often caused by audio preprocessing removing too much content
-- Modern browsers apply aggressive noise reduction which can make speech inaudible
-- The new implementation creates valid audio content even when input is silent
-- Audio volume normalization ensures speech is at the right level for Whisper
-
-### Impact:
-- Transcription should now work reliably even with quiet speech
-- The application handles low-quality microphones better
-- Edge cases like very short recordings are handled gracefully
-- Whisper parameters are now optimized for maximum speech detection sensitivity
-
-### Next Steps:
-- Add user-configurable audio quality settings
-
-## [2024-07-15] - Implemented Native Keyboard Event Listener with rdev
-
-Goal: Add system-wide keyboard event detection to enable advanced hotkey features
-
-### Changes implemented:
-- Added `rdev = "0.5.3"` dependency to Cargo.toml
-- Implemented basic keyboard event listener in main.rs
-- Added thread to capture all keyboard press/release events
-- Set up logging to verify key event capture functionality
-
-### Technical Details:
-- The `rdev` crate provides cross-platform global keyboard event detection
-- Created a dedicated background thread that doesn't block the main application
-- Implemented handlers for both KeyPress and KeyRelease events
-- Added detailed logging with event type and key information
-- Used aliases for imported types (e.g., `Key as RdevKey`) to prevent namespace conflicts
-
-### Impact:
-- Enables development of advanced hotkey features including:
-  - Hold/Release detection (for "Push-to-Talk" style functionality)
-  - Double-Tap detection (for alternative activation methods)
-  - Multi-key combinations beyond what Tauri's built-in shortcut manager supports
-- Provides a foundation for more sophisticated user input handling
-- Allows capturing system-wide keyboard events outside the application window
-
-### Next Steps:
-- Implement event filtering to focus on specific key combinations
-- Add state tracking to detect complex patterns (double-press, hold-release, etc.)
-- Create a communication channel between the rdev thread and the main application
-- Add configuration options for users to customize hotkey behaviors
-
-## [2024-07-15] - Enhanced rdev Listener to Target RightAlt Key
-
-Goal: Modify keyboard event listener to specifically track RightAlt key for hotkey functionality
-
-### Changes implemented:
-- Updated the rdev callback function to filter for RightAlt key events only (using AltGr enum variant)
-- Enhanced logging with specific messages for RightAlt/AltGr press and release events
-- Added placeholder comments for future state management and frontend communication
-- Simplified code to only check for AltGr key events and ignore other keyboard events
-
-### Technical Details:
-- In the rdev library, the right Alt key is represented by the `Key::AltGr` enum variant
-- Removed redundant checks for multiple variants as the `RightAlt` enum variant doesn't exist
-- Prepared the structure for future timer-based hold detection
-- Added commented-out debugging option for other keys (disabled by default to reduce noise)
-
-### Impact:
-- More focused event detection for the specific hotkey (RightAlt/AltGr)
-- Cleaner console output showing only relevant key events
-- Groundwork for implementing hold-to-record functionality based on RightAlt key
-- Better performance by processing only the events we care about
-- Fixed compilation errors from the previous implementation
-
-### Next Steps:
-- Implement timer logic to track duration between press and release
-- Add state management for recording based on key hold duration
-- Create a communication channel to the frontend for recording state changes
-- Add user configuration option to customize which key acts as the hotkey
-
-## [2024-07-15] - Implemented Hold/Release Hotkey Logic
-
-Goal: Implement Hold-to-Record/Release-to-Stop functionality with the right Alt key
-
-### Changes implemented:
-1. **Backend (Rust) Changes**:
-   - Created a RecordingState enum in main.rs to track the app state
-   - Implemented shared state using Mutex wrapped in lazy_static for thread safety:
-     - RDEV_STATE: Holds the current recording state (IDLE, RECORDING, etc.)
-     - HOTKEY_DOWN: Tracks whether the AltGr key is currently pressed
-   - Implemented state transition logic for key press/release events:
-     - RightAlt press: IDLE → RECORDING (emits "fethr-start-recording")
-     - RightAlt release: RECORDING → TRANSCRIBING (emits "fethr-stop-and-transcribe") 
-   - Added event emission to communicate state changes to the frontend
-   - Created reset_rdev_state command to safely reset the shared state from the frontend
-
-2. **Frontend (TypeScript) Changes**:
-   - Removed the direct "hotkey-pressed" listener in RecordingController
-   - Added new listeners for backend events:
-     - "fethr-update-ui-state": Updates UI state based on backend state changes
-     - "fethr-start-recording": Triggers the recording process
-     - "fethr-stop-and-transcribe": Stops recording and initiates transcription
-   - Modified the UI effect to only handle display updates (timer, etc.)
-   - Improved listener cleanup with an array of unlistener functions
-   - Added backend state reset calls after transcription completion or errors
-
-### Technical Details:
-- Used shared Mutex state to safely share recording state between threads
-- Used lazy_static to create static thread-safe variables
-- Implemented proper locking for state changes to avoid race conditions
-- Created a bidirectional communication channel:
-  - Backend → Frontend: State updates, commands to start/stop recording
-  - Frontend → Backend: State reset after transcription completion via reset_rdev_state command
-- Improved timer implementation with absolute timestamps for more accurate duration display
-
-### Impact:
-- Enables intuitive "Push-to-Talk" style functionality - hold RightAlt to record, release to transcribe
-- More robust state management with clear separation between backend and frontend responsibilities
-- Thread-safe state handling prevents race conditions when updating state from different contexts
-- Better error recovery with explicit state reset mechanisms
-- Improved user experience with immediate feedback on key press/release
-
-### Next Steps:
-- Implement Double-Tap detection for locked recording mode
-- Add timer-based detection for long-press vs. short-press
-- Create user preferences for customizing hotkey behavior
-- Implement visual feedback for different recording states
-
-## [2024-07-15] - Improved Whisper Transcription Accuracy
-
-Goal: Address inaccurate transcription results from Whisper (e.g., "Sound of a light" instead of actual speech)
-
-### Problem identified:
-- Audio recording works correctly (files are created with proper size)
-- Whisper.exe runs successfully without errors
-- However, transcription results are inaccurate or nonsensical
-- The issue appears related to audio preprocessing and Whisper parameters
-
-### Changes implemented:
-1. **Modified Whisper command parameters**:
-   - Added `--language en` parameter to enforce English language detection
-   - Added beam search parameters (`--beam-size 5 --best-of 5`) for more accurate results
-   - Replaced VAD threshold parameters with more robust beam search
-   - These parameters help Whisper make better decisions about ambiguous audio
-
-2. **Adjusted audio recording settings**:
-   - Enabled native echo cancellation and noise suppression
-   - Set sample rate to exactly 16kHz to match Whisper's expectations
-   - Maintained mono channel recording for speech clarity
-   - This reduces the need for resampling which can introduce artifacts
-
-3. **Enhanced audio normalization**:
-   - Improved compression algorithm to better preserve speech dynamics
-   - Added cleaner reference tone for silent sections
-   - Applied soft-knee compression to boost quieter speech parts
-
-### Diagnostic Test:
-To troubleshoot transcription accuracy issues in the future, developers can follow these steps:
-1. Check the audio file size first (should be proportional to recording length)
-2. Try playing the audio file in another application to verify quality
-3. Test the raw WAV file directly with Whisper outside of the application
-4. Try different parameter combinations for Whisper
-
-### Technical Details:
-- When Whisper produces unexpected results, it's often due to:
-  - Audio preprocessing artifacts (resampling, format conversion)
-  - Background noise or echo in the recording
-  - Incorrect Whisper command parameters
-  - Model limitations (tiny.en is very limited, base.en or small.en are better)
-
-### Impact:
-- Improved speech recognition accuracy, especially for longer phrases
-- Reduced likelihood of completely incorrect transcriptions
-- Better handling of different speech patterns and accents
-
-### Next Steps:
-- Consider implementing a user feedback mechanism for incorrect transcriptions
-- Create a diagnostic mode that logs detailed information about audio processing
-- Build a test suite with benchmark audio samples of varying quality
-
-## [2024-07-15] - Fixed Transcription Configuration Issues
-
-Goal: Fix broken whisper configuration after parameter changes
-
-### Problem identified:
-- Application was looking for base.en model which wasn't installed
-- Whisper binary path was being lost during initialization
-- Transcription process was failing due to missing binary path
-
-### Changes implemented:
-1. **Restored model configuration**:
-   - Reverted to using tiny.en model which is already installed
-   - Ensured proper initialization of whisper binary path
-   - Simplified command parameters to work reliably with tiny.en
-
-2. **Updated command parameters**:
-   - Added language specification for better accuracy (`--language en`)
-   - Removed unsupported beam search parameters
-   - Maintained compatible parameter set for tiny.en model
-
-### Technical Details:
-- It's important to ensure the specified model (base.en vs tiny.en) exists before changing it
-- The proper initialization sequence is critical to maintain file paths throughout the application
-- Command parameters must be compatible with the specific model being used
-
-### Impact:
-- Fixed transcription functionality to work with the existing tiny.en model
-- Restored proper whisper binary path handling
-- Ensured application can start up and process audio correctly
-
-### Next Steps:
-- Consider adding a fallback mechanism when model isn't found
-- Implement model downloading functionality
-- Add validation to verify parameters are compatible with model version
-
-## [2023-10-25] - Bug Fixes
-Goal: Fix compilation errors in Rust backend
-
-- Added missing dependencies: `once_cell` and `whisper_rs` to Cargo.toml
-- Fixed naming conflict between `transcribe_audio` functions in whisper.rs and transcription.rs
-  - Renamed the function in whisper.rs to `whisper_transcribe_audio`
-  - Updated main.rs to use the renamed function
-- Added missing `Progress` variant to TranscriptionStatus enum
-- Fixed accessor method calls for `sample_rate` and `channel_count` in transcription.rs
-- Added missing `Resampler` trait import for rubato
-
-These changes resolve the compilation errors reported in the console.
-
-## [2023-10-25] - Native Whisper Integration
-Goal: Replace whisper-rs with direct whisper.exe execution
-
-- Removed whisper-rs dependency from Cargo.toml to avoid compilation issues
-- Removed once_cell dependency as it's no longer needed
-- Rewritten whisper.rs to directly call the local whisper.exe executable
-- Used fixed paths for whisper.exe and model file:
-  - Executable: C:\Users\kaan\.fethr\whisper.exe
-  - Model: C:\Users\kaan\.fethr\models\ggml-tiny.en.bin
-- Updated transcription.rs to use the new whisper execution approach
-- Removed Python-based whisper solution entirely
-- Streamlined command-line arguments for better speech detection:
-  - Added --no-timestamps to simplify output
-  - Added --vad-thold 0.1 for better silence detection
-  - Added --no-blank-audio to prevent [BLANK_AUDIO] responses
-  - Added --language en for English-specific optimization
-
-This update makes the application more reliable by removing the dependency on external Rust crates that required complex compilation. Now the app directly executes the pre-compiled whisper.exe binary, which is much more straightforward and avoids build issues.
-
-## [2024-07-08] – Compilation Error Fix
-
-Goal: Fix compilation errors in `src-tauri/src/main.rs`
-
-### Issues Found:
-- `main.rs` was referencing several functions and modules that don't exist in the codebase
-- References to non-existent modules: `settings`, `utils`, `hotkeys`
-- References to non-existent functions: 
-  - `setup_global_hotkey`
-  - `setup_transcription`
-  - `setup_auto_startup`
-  - `get_system_tray`
-  - `on_system_tray_event`
-  - Various functions in the `transcription` module
+## [2024-09-18] - Simplified State Machine with Direct Tap-to-Lock
+Goal: Simplify the state machine by removing the WaitingForSecondTap state and timeout logic
 
 ### Changes Made:
-- Removed references to non-existent modules and functions
-- Simplified the `main.rs` file to use only the functions that are actually implemented
-- Added proper imports for what is available in the codebase
-- Adjusted the Tauri app setup to use only existing functions
+- Removed the `WaitingForSecondTap` variant from the `AppRecordingState` enum
+- Removed the `FIRST_TAP_RELEASE_TIME` global and `DOUBLE_TAP_WINDOW_MS` constant
+- Simplified the `PostEventAction` enum by removing timeout-related variants
+- Replaced the `process_hotkey_event` function with a streamlined version:
+  - Short tap now goes directly from Recording to LockedRecording
+  - Removed all timer-based state transitions
+- Simplified the state thread to use blocking `recv()` instead of timeout-based polling
+
+### Technical Details:
+- New simplified state flow:
+  - Initial press: `Idle → Recording`
+  - Short tap release: `Recording → LockedRecording` (immediate, no waiting)
+  - Long press release: `Recording → Transcribing`
+  - Tap while locked: `LockedRecording → Transcribing`
+- This approach eliminates the intermediate waiting state and all timeout-related complexity
+- Provides a more predictable user experience with immediate feedback
+
+### Impact:
+- Simplified codebase with fewer states and less complex logic
+- Removed potential race conditions related to timeout detection
+- More responsive UI as state changes happen immediately on user input
+- Better maintainability with a more straightforward state machine implementation
+- Reduced thread contention by eliminating the polling loop and associated locks
+
+## [2024-09-18] - Fixed LockedRecording State Mapping in Frontend
+Goal: Fix the state mapping for LockedRecording state in the React frontend
+
+### Changes Made:
+- Modified the state mapping in App.tsx to correctly handle "LOCKEDRECORDING" (without underscore) coming from the backend
+- Changed case "LOCKED_RECORDING" to case "LOCKEDRECORDING" in the switch statement
+- Added better error logging for unknown states and non-string state types
+
+### Technical Details:
+- The Rust backend emits "LOCKEDRECORDING" as a string (without underscore)
+- The TypeScript frontend uses RecordingState.LOCKED_RECORDING enum (with underscore)
+- The mismatch in naming conventions caused the LockedRecording state to be incorrectly mapped to IDLE
+- Added detailed logging to help identify similar issues in the future
+
+### Impact:
+- Fixed the visual feedback in the UI when transitioning to LockedRecording state
+- Ensures proper state transitions when tapping the hotkey
+- Improves debugging capability with more detailed logging for state mapping errors
+
+## [2024-09-18] - Improved Timer Logic in Frontend
+Goal: Enhance the timer management in the React UI component
+
+### Changes Made:
+- Rewritten the timer logic in the PillPage component with a more precise implementation
+- Added explicit variables `shouldBeRunning` and `isRunning` to improve code clarity
+- Improved timer state management with better conditional checks
+- Added safety mechanism to prevent memory leaks if startTime becomes null unexpectedly
+- Preserved the timer display during transcription state
+
+### Technical Details:
+- The new approach is more declarative, using boolean variables for clear state representation
+- Used more explicit condition checking: `shouldBeRunning && !isRunning` and `!shouldBeRunning && isRunning`
+- Improved timer cleanup by ensuring interval reference is properly nullified
+- Added specific behavior to keep duration visible during transcription state
+- Preserved the standard display rules for Idle and Error states
+
+### Impact:
+- More robust timer management with fewer edge cases
+- Clearer code makes maintenance easier
+- Improves user experience by preserving duration during transcription
+- Fixes potential memory leaks in timer interval management
+- Provides better logging for debugging timer-related issues
+
+## [2024-09-19] - Implemented "Single Tap Does Nothing" Functionality
+Goal: Implement the ability for a single tap to effectively do nothing while preserving hold-to-record and double-tap-to-lock functionality
+
+### Changes Made:
+- Restored the `WaitingForSecondTap` state to the AppRecordingState enum
+- Added back the `FIRST_TAP_RELEASE_TIME` global and `DOUBLE_TAP_WINDOW_MS` constant
+- Updated `process_hotkey_event` to handle WaitingForSecondTap state transitions:
+  - Short tap now goes to WaitingForSecondTap instead of directly to LockedRecording
+  - Second tap during WaitingForSecondTap transitions to LockedRecording
+- Implemented timeout detection logic in the state thread
+- Added fallback re-emit mechanism to ensure UI updates properly after timeout
+- Ensured StateUpdatePayload derives Default and Clone for simplified payload construction
+
+### Technical Details:
+- The implementation uses a clever approach where recording starts on initial press
+- If a second tap doesn't occur within DOUBLE_TAP_WINDOW_MS (350ms), the recording is abandoned
+- The frontend is updated to Idle state but no stop/transcribe event is triggered
+- We added a fallback emit with a 150ms delay to ensure frontend state updates correctly
+- This creates the user-facing impression that a single tap does nothing, while internally handling orphaned recordings
+
+### Impact:
+- Improved user experience with a more intuitive interaction model
+- Users can now:
+  1. Tap once to effectively do nothing
+  2. Hold to record and immediately transcribe
+  3. Double-tap to lock recording
+- The implementation balances functionality with code maintainability
 
 ### Next Steps:
-- If functionality from the removed references is needed, implement the missing modules and functions
-- Verify that the Whisper transcription works correctly with the simplified setup
-- Consider implementing a proper system tray if needed
+- Monitor performance implications of potentially abandoned recordings
+- Consider improvements to resource handling for abandoned recordings
+- Collect user feedback on the new interaction model
 
-### Project Structure:
-The main codebase consists of these core modules:
-- `transcription.rs`: Handles the transcription logic and state management
-- `whisper.rs`: Provides interface to the Whisper speech-to-text system
-- `audio_manager.rs`: Handles audio recording and processing
+## [2024-09-19] - Added Safety Timeout Feature to Frontend
+Goal: Implement a failsafe mechanism to prevent the UI from getting stuck in recording states
 
-### NOTE:
-The original `main.rs` appeared to be designed for a more feature-complete version with settings, utilities, and hotkey functionality. If these features are needed, they will need to be implemented or restored from an earlier version.
-
-## [2023-07-11] – Deep Cleaning and Bug Fixes
-Goal: Fix transcription issues after switching from Python to direct whisper.exe execution
-
-### Diagnostics & Issues Found
-- Multiple windows were opening when receiving transcription events
-- Event listeners were not being properly cleaned up when windows were recreated
-- Transcription was sometimes being initiated multiple times
-- Cargo.toml had unnecessary dependencies (whisper-rs, lazy_static, once_cell)
-- Inconsistent handling of transcription status across frontend and backend
-
-### Fixes Implemented
-
-#### 1. Rust Backend Cleanup
-- Removed `whisper-rs` dependency and other unused crates
-- Added `scopeguard` for proper RAII-style cleanup of transcription locks
-- Improved error handling in `whisper.rs` and `transcription.rs`
-- Enhanced the transcription locking mechanism to prevent multiple simultaneous transcriptions
-- Removed `lazy_static` and simplified the codebase
-
-#### 2. Frontend Event Handling
-- Fixed event listeners in `RecordingController.tsx` to ensure proper cleanup
-- Removed debug code that was creating duplicate windows
-- Implemented a proper cleanup mechanism for all event listeners
-- Simplified toast notifications to avoid duplicate UI elements
-- Ensured the `LocalTranscriptionManager` operates as a true singleton with proper state management
-
-#### 3. Transcription Process
-- Improved transcription status reporting with unique request IDs
-- Ensured transcription results are properly sent to the UI once (and only once)
-- Added protection against multiple instances of the transcription process
-- Added proper cleanup of all temporary files and resources
-
-### Observed Results
-- Application now starts cleanly without multiple windows
-- Transcription process runs smoothly:
-  - Audio recording works correctly
-  - whisper.exe runs successfully
-  - Transcription results are displayed once
-- No duplicate windows or strange reloads
-- Cleaner event handling with proper lifecycle management
-
-### Next Steps
-- Monitor for any remaining issues in production
-- Consider further optimization of the whisper.exe execution
-- Improve error handling and user feedback for failed transcriptions
-
-## [2023-07-10] – Whisper.exe Implementation
-Goal: Replace Python-based transcription with direct whisper.exe execution
-
-- Implemented direct execution of whisper.exe
-- Set up fixed paths:
-  - Executable: C:\Users\kaan\.fethr\whisper.exe
-  - Model: C:\Users\kaan\.fethr\models\ggml-tiny.en.bin
-- Created function to call whisper.exe with proper parameters
-- Added output file handling and result parsing
-
-## [2024-07-15] - Fixed Window Visibility Issue
-
-Goal: Fix the issue where the app window was not visible after switching to whisper.exe
-
-### Problem identified:
-- App was compiling and starting successfully
-- Terminal showed startup messages and no errors
-- However, no window was visible to the user
-- This occurred after switching from Python scripts to whisper.exe
-
-### Changes implemented:
-1. **Updated tauri.conf.json window configuration**:
-   - Temporarily increased window size from 300x70 to 600x400 for easier debugging
-   - Disabled transparency by setting `transparent: false`
-   - Explicitly added `visible: true` property
-   - Added `url: "/"` to ensure proper routing
-
-2. **Added background color to index.css**:
-   - Changed body background from `transparent` to `white` 
-   - This ensures the app is visible even with a non-transparent window
-
-3. **Explicitly showing window in main.rs**:
-   - Added code in the setup function to get the main window and call `show()` and `set_focus()`
-   - Added debugging console output to track window creation
-
-4. **Added visible content to App.tsx**:
-   - Added header and text content to ensure something is visible
-   - Modified div classes to ensure proper visibility
+### Changes Made:
+- Added a new `useEffect` hook in the PillPage component that monitors the current state
+- Implemented a 5-second safety timeout for RECORDING and LOCKED_RECORDING states
+- If the UI remains in these states for more than 5 seconds, it automatically resets to IDLE
+- The safety reset also calls `signal_reset_complete` to ensure the backend state is synchronized
 
 ### Technical Details:
-- The issue was likely a combination of multiple factors:
-  - Very small window size (300x70)
-  - Transparent window without visible content
-  - No explicit window.show() call after initialization
-  - Possible routing issue with the window URL
+- The safety timeout only activates for states that should naturally transition (recording states)
+- The timeout is cleared and recreated whenever the state changes, preventing false triggers
+- Proper cleanup is implemented to avoid memory leaks when the component unmounts
+- Detailed console warnings are displayed when the safety timeout is triggered to help with debugging
 
 ### Impact:
-- App window should now be visible on startup
-- Debugging is easier with the larger window size
-- Added logging helps trace window creation and visibility
+- Improves application reliability by preventing the UI from getting stuck
+- Provides a failsafe mechanism for race conditions or edge cases in the state transitions
+- Better user experience by ensuring the app recovers gracefully from unexpected conditions
+- Helps diagnose potential issues by logging when timeouts are triggered
 
 ### Next Steps:
-- Once functionality is confirmed, can revert window size to 300x70
-- Can re-enable transparency if needed with proper background colors
-- Add more robust error handling for window creation
-- Consider adding a system tray icon for better user experience
+- Monitor the application logs to identify if the safety timeout is triggered frequently
+- If frequent triggering occurs, investigate the underlying causes of state transition issues
+- Consider adding analytics to track safety timeout occurrences for further optimization
 
-## [2024-07-16] - Frontend Architecture Cleanup: Removed HotkeyManager
-Goal: Complete removal of outdated HotkeyManager.ts in favor of Rust backend's rdev implementation.
+## [2024-09-19] - Fixed Compilation Issues
+Goal: Resolve compilation errors in the Rust backend
 
 ### Changes Made:
-- Verified and completed removal of HotkeyManager.ts from frontend
-- Cleaned up all references to HotkeyManager in:
-  - main.tsx - removed initialization code
-  - App.tsx - removed initialization and cleanup hooks
-  - RecordingController.tsx - updated to rely solely on Tauri events
-- Ensured proper sharing of RecordingState enum between components:
-  - Created centralized types.ts file with RecordingState enum
-  - Updated all components to import the RecordingState from types.ts
-  - Aligned string values with backend state names for consistency
+- Implemented the `Default` trait for `FrontendRecordingState` enum
+  - Set `FrontendRecordingState::Idle` as the default value
+- Removed unreachable catch-all pattern in `process_hotkey_event` function
+  - The enum was fully covered by the existing match arms, making the catch-all unreachable
 
 ### Technical Details:
-- HotkeyManager had previously been superseded by the Rust backend's rdev implementation
-- Some initialization code remained in main.tsx and App.tsx
-- RecordingController was still attempting to use the HotkeyManager instance
-- The recording state definitions were duplicated across components
-- Frontend state names are now fully aligned with backend state strings
-
-### Architecture Improvements:
-- Single source of truth for keyboard event handling (backend only)
-- Simplified frontend that only responds to backend events
-- Centralized RecordingState enum shared between components
-- Clear separation of concerns between backend and frontend
-- Removed complexity and potential race conditions in state management
+- The error occurred because we added `#[derive(Default)]` to `StateUpdatePayload` struct
+- Since `StateUpdatePayload` contains a `FrontendRecordingState` field, that type also needs to implement `Default`
+- The unreachable pattern warning occurred because all possible variants of `PostEventAction` were already covered
 
 ### Impact:
-- Simpler, more maintainable codebase
-- Reduced potential for state synchronization issues between frontend/backend
-- More consistent event handling with clear directionality (backend → frontend)
-- Eliminated redundant code that was attempting to track the same state in two places
-- Fixed potential memory leaks from improper cleanup
+- Resolves compilation errors allowing the application to build and run
+- Maintains the same functionality while improving code quality
+- Sets a sensible default state (Idle) for the frontend recording state
+
+## [2023-06-01] – Session Start: Configuration System Implementation
+
+Goal: Implement a configuration system for the Fethr application to store and manage user settings.
+
+### Changes Made:
+
+1. **Added Dependencies**
+   - Added `directories = "5.0"` for finding standard config/data directories
+   - Added `toml = "0.8"` for parsing TOML config files
+   - Added `once_cell = "1.19"` for thread-safe singleton initialization
+
+2. **Created Configuration Module (`src-tauri/src/config.rs`)**
+   - Created `AppSettings` struct to hold configuration values:
+     - `whisper_directory`: Path to Whisper installation
+     - `whisper_model`: Name of the Whisper model file
+     - `auto_paste`: Boolean flag to control auto-paste behavior
+   - Implemented `SETTINGS` global variable using `Lazy<Mutex<AppSettings>>`
+   - Added functions to load settings from a TOML file in the standard config directory
+   - Added automatic creation of default config when none exists
+
+3. **Updated Main Module (`src-tauri/src/main.rs`)**
+   - Added `mod config` and exported it for use by other modules
+   - Modified `emit_stop_transcribe` to use the `auto_paste` setting from config
+   - Updated the setup function to initialize the configuration system
+
+4. **Updated Transcription Module (`src-tauri/src/transcription.rs`)**
+   - Simplified `TranscriptionState` by removing hardcoded paths
+   - Removed the `init_transcription` function that contained hardcoded paths
+   - Modified `transcribe_local_audio_impl` to get paths from the config
+   - Added proper handling of the `auto_paste` parameter
+
+5. **Updated Audio Manager Module (`src-tauri/src/audio_manager_rs.rs`)**
+   - Added import for the configuration system
+   - Modified `stop_backend_recording` to respect both the parameter and config setting
 
 ### Next Steps:
-- Update README.md to reflect the current architecture
-- Consider adding a visual state diagram to documentation
-- Review other frontend components for similar outdated references
-- Consider adding more type safety for event payloads
+
+1. Test the configuration system with different settings
+2. Add UI controls in the settings window to modify the configuration
+3. Consider adding more configuration options as needed
 
 ---
 
-## [2023-10-03] – Fethr State Management Improvement Session
+## [2023-06-01] – Bug Fixes for Configuration System
 
-### Goal: Simplify state reset logic, improve logging for debugging, and remove redundant code
+After implementing the configuration system, several bugs were identified and fixed:
 
-#### Changes Made:
+1. **Added Default Implementation for TranscriptionStatus**
+   - Added `impl Default for TranscriptionStatus` to provide a default value (Idle)
+   - This was needed because TranscriptionState now derives Default
 
-1. **Removed `TRANSCRIPTION_FINISHED` Flag**:
-   - Deleted the lazy_static block defining `TRANSCRIPTION_FINISHED` in main.rs
-   - Removed the check for `TRANSCRIPTION_FINISHED` at the beginning of the `callback` function
-   - Removed references to `TRANSCRIPTION_FINISHED` in audio_manager_rs.rs
-   - Replaced with more direct state reset via `signal_reset_complete` command
+2. **Fixed Type Conversion in cleanup_files**
+   - Updated calls to `cleanup_files` function to handle the type conversion:
+     - Used `converted_wav_path_opt.as_ref().map(|v| &**v)` to convert `Option<&PathBuf>` to `Option<&Path>`
+     - Added type hint `None::<&Path>` to disambiguate the None case
 
-2. **Updated `reset_rdev_state` Command**:
-   - Enhanced to properly reset `RDEV_APP_STATE`, `HOTKEY_DOWN`, and `PRESS_START_TIME`
-   - Added more detailed logging to track state resets
-   - Ensured `signal_reset_complete` properly calls the updated reset function
+3. **Fixed Moved Value Issue**
+   - Corrected code that attempted to use `output.stdout` after it was moved
+   - Used the already-converted string `stdout_text` instead
 
-3. **Added Detailed Logging to `rdev` Callback**:
-   - Added timestamps for events
-   - Added pre-event and post-event state logging
-   - Added detailed press and release timing information
-   - Added more context to state transitions
-   - Improved press duration tracking
+4. **Addressed Non-binding Lock Warning**
+   - Changed `let _ = config::SETTINGS.lock().unwrap()` to `drop(config::SETTINGS.lock().unwrap())`
+   - This satisfies the Rust compiler's requirement for proper handling of mutex locks
 
-4. **Removed Redundant Code**:
-   - Deleted the now-redundant `whisper.rs` file (functionality has been moved to `transcription.rs`)
-   - Removed the module declaration for whisper in main.rs
-   - Removed whisper-related commands from the invoke_handler list
+5. **Added #[allow(dead_code)] for Utility Functions**
+   - Added attributes to the utility functions that are retained for future use
+   - This silences warnings about unused functions that we want to keep
 
-5. **Moved `PRESS_START_TIME` to Global Context**:
-   - Changed from lazy_static inside callback to global static for better state management
-   - Ensures it's properly reset by the reset_rdev_state function
-
-### State Machine Improvements:
-
-The core hotkey state machine now works as follows:
-- Press RightAlt from IDLE: Begin recording (state → RECORDING)
-- Quick release (≤ 300ms): Lock recording (state → LOCKED_RECORDING)
-- Long release (> 300ms): Stop and transcribe (state → TRANSCRIBING)
-- Press while in LOCKED_RECORDING: Stop and transcribe (state → TRANSCRIBING)
-
-This simplified logic replaces the previous, more complex TRANSCRIPTION_FINISHED flag-based approach, making the system more maintainable and easier to debug.
-
-### Next Steps / TODOs:
-
-- Test the new state transitions thoroughly
-- Consider adding configuration option for TAP_MAX_DURATION_MS setting
-- Verify frontend properly calls signal_reset_complete after transcription completes
-- Add more detailed error handling in frontend-backend communication
+All these fixes have resulted in a clean compilation with no warnings or errors.
 
 ---
 
-## Environment Information
-- OS: Windows 10
-- Application: Fethr
-- Rust version: 1.76.0 (assumed)
-- UI Frontend: React/Tauri
+## [2023-06-01] – Summary of Today's Work
 
----
+Today I implemented a configuration management system for the application. The system uses the `directories` crate to find the standard configuration directory for the user's platform and stores settings in a TOML file in that location.
 
-## [2023-10-03] – Update: Code Cleanup
+Key improvements:
+- Created a standard location for configuration that follows platform conventions
+- Eliminated hardcoded paths that were previously scattered throughout the codebase
+- Made it possible for users to customize settings by editing the config file
+- Simplified the codebase by centralizing configuration values
 
-After implementing the main state management changes, performed additional cleanup:
+The implementation includes proper error handling and fallbacks to default values when the configuration file is missing or invalid. It also automatically creates a default configuration file with sensible defaults when none exists.
 
-1. **Removed unused imports**:
-   - Removed AtomicBool and Ordering imports from main.rs
-   - Removed Ordering import from audio_manager_rs.rs
-   - Cleaned up other unused imports (scopeguard, GlobalShortcutManager, State, etc.)
+Next session will focus on creating a UI for modifying these settings directly from the application.
 
-2. **Verified compilation**:
-   - All state management changes compile successfully
-   - No new errors introduced by the refactoring
-   - Some warnings remain about unused variables in audio_manager_rs.rs that could be addressed in a future cleanup
-
-The codebase is now cleaner and more focused on the current implementation approach.
-
----
-
-## [2024-07-16] - Refactored Event Lock Strategy
-Goal: Minimize lock durations and ensure event emission happens outside lock scopes.
-
-### Problem Identified:
-- The `callback` function in `main.rs` was holding mutex locks during time-consuming operations
-- Events were being emitted while locks were held, potentially causing flow interruptions
-- Lock contention could occur when multiple lock acquisitions were nested or sequential
-- The timeout check was not fully isolated from the main event processing logic
+## [2024-09-26] - Implemented Bundled Resources for Whisper Integration
+Goal: Modify the application to use Tauri's bundled resources for Whisper binary and models
 
 ### Changes Made:
-- Completely refactored the `callback` function in `main.rs` with a cleaner structure:
-  1. Timeout Check: First reads state and checks for timeout conditions in a minimal lock scope
-  2. Emission Actions: Performs cleanup and event emissions outside of lock scopes
-  3. Main Event Processing: Uses flags to defer emissions until after lock release
-  4. Final State Logging: Uses a cached state value to minimize final state lock
+1. Updated tauri.conf.json:
+   - Added `externalBin` array with path to whisper.exe
+   - Added `resources` array with path to models directory
 
-- Key improvements:
-  - Used scoped blocks to explicitly control lock durations
-  - Added flag variables to track what emissions are needed
-  - Ensured all event emissions occur outside of lock scopes
-  - Added special handling for timeout detection and cleanup
-  - Added more detailed and consistent logging messages
+2. Modified config.rs:
+   - Removed `whisper_directory` field from `AppSettings` struct
+   - Renamed `whisper_model` to `model_name` for clarity
+   - Added `language` field for language selection
+   - Updated default settings and loading/saving logic
+   - Removed unnecessary configuration code related to directory paths
+
+3. Updated transcription.rs:
+   - Added Tauri's `resource_dir` import for path resolution
+   - Replaced manual path construction with Tauri resource path resolution
+   - Updated command execution to use bundled resources
+   - Improved error messages and debug logging
 
 ### Technical Details:
-- Used a combination of local variables to track state changes:
-  - `state_after_timeout_check`: Tracks state after the timeout check
-  - `stop_needed_after_timeout`: Flags if timeout cleanup is needed
-  - `emit_ui_state`, `emit_start_rec`, `emit_stop_trans`: Flag variables for event emissions
-  - `final_state_for_logging`: Caches state for final logging
-- Used Option<AppRecordingState> to safely handle state for logging
-- Added special handling for the case where timeout and key event processing might conflict
-- Improved lock performance by never nesting state-related locks
+- Resources are now bundled with the application using Tauri's resource and externalBin mechanisms
+- Whisper binary is included as an external binary (vendor/whisper.exe)
+- Model files are included as resources (vendor/models/*)
+- Path resolution is now handled by Tauri's API instead of manual configuration
+- User no longer needs to configure whisper_directory manually
 
 ### Impact:
-- Reduced likelihood of deadlocks or flow interruption
-- Improved performance by minimizing lock durations
-- Enhanced reliability of timeout detection and handling
-- Better separation of state transitions and UI events
-- More predictable and maintainable code structure
+- Simplified user setup - no manual configuration of Whisper directory required
+- More reliable path resolution using Tauri's built-in APIs
+- Cleaner configuration with only model name, language, and auto-paste options
+- Consistent directory structure across all installations
+- Improved error handling with more descriptive messages
 
 ### Next Steps:
-- Monitor for any unexpected behavior in the refactored state machine
-- Consider implementing proper thread-safe timers for timeout detection
-- Add configuration for double-tap window and tap duration settings
-- Further optimize lock scopes if performance issues are observed
-
----
-
-## [2024-07-16] - Fixed Orphaned Recording on Timeout
-Goal: Fix issue where a recording started by a single tap remains active if timeout occurs.
-
-### Problem Identified:
-- When user performs a single tap (starting recording) but doesn't perform a second tap within the double-tap window
-- The state transitions from WaitingForSecondTap → Idle on timeout
-- However, the recording initiated by the first tap continued running in the background
-- This created "orphaned" recordings that weren't properly stopped
-
-### Changes Made:
-- Updated timeout logic in the rdev callback to emit stop/transcribe signal when timeout occurs
-- Implemented a safer approach using a flag (needs_stop_emit) to handle emission outside mutex locks
-- Added explicit UI state update to ensure frontend state remains consistent
-- Improved logging for timeout-related actions
-
-### Technical Details:
-- Used a flag pattern to avoid emitting events while holding mutex locks
-- Added both fethr-stop-and-transcribe and fethr-update-ui-state events during timeout
-- Released and re-acquired state mutex around event emission for thread safety
-- Applied proper Rust patterns to avoid potential deadlocks
-
-### Impact:
-- Prevents orphaned recordings when timeout occurs during double-tap detection
-- More consistent state handling between frontend and backend
-- Improved user experience - recordings don't continue unexpectedly
-- Any recording started by the first tap is properly cleaned up
-
-### Next Steps:
-- Monitor for any edge cases in the timeout handling
-- Consider notifying the user when a recording is stopped due to timeout
-- Add configuration option for timeout behavior (stop vs. auto-lock)
-
----
-
-## [2024-07-16] - Refactored RightAlt Hotkey State Machine
-Goal: Improve callback structure and fix timeout handling for double-tap detection.
-
-### Changes Made:
-- Restructured callback state machine in main.rs with clearer, numbered sections:
-  1. Timeout Check (runs first)
-  2. Main Event Processing 
-  3. Capture Final State for Logging
-  4. Log Post-Event State
-- Changed timeout behavior from WaitingForSecondTap → LockedRecording to WaitingForSecondTap → Idle
-- Added mutex handling improvements with explicit lock scoping
-- Implemented working copy of state to minimize lock holding time
-- Added proper cleanup of FIRST_TAP_RELEASE_TIME on all state transitions
-- Unified related state handling in release logic for better maintainability
-- Added more detailed log messages with pre/post timeout state information
-
-### Technical Details:
-- The timeout check now runs at the beginning of each key event callback
-- The primary state variable (current_state) is now updated consistently throughout
-- Reduced lock contention by explicitly dropping mutex guards before event emissions
-- Re-acquiring locks after event emissions to maintain proper state logging
-- Simplified release handler by combining multiple similar states
-
-### Impact:
-- More intuitive user experience - single tap followed by timeout cancels recording
-- Improved code readability with clear, numbered sections
-- Reduced potential for deadlocks by minimizing lock scope
-- Better state transition predictability and debugging
-- Fixed user confusion with unexpected recording state transitions
-
-### Reasoning for WaitingForSecondTap → Idle:
-- Previous behavior (timeout to LockedRecording) was causing user confusion
-- Simplified the interaction model:
-  - Hold/Release performs a single transcription
-  - Double-Tap (two quick taps) enters LockedRecording mode
-  - Single Tap followed by timeout is treated as abandoned/canceled
-- Avoids the complexity of implementing background timers (for now)
-
-### Next Steps:
-- Monitor user feedback on the new interaction model
-- Consider adding a proper background timer mechanism later if needed
-- Add configuration options for TAP_MAX_DURATION_MS and DOUBLE_TAP_WINDOW_MS values
-
-## [2024-07-16] - Improved Frontend Timer Management
-Goal: Enhance timer implementation in RecordingController for better reliability and debugging.
-
-### Changes Made:
-- Improved timer implementation in RecordingController.tsx:
-  - Added detailed logging for timer start/stop events with timestamps
-  - Reduced console log spam by only logging timer updates once per second
-  - Added proper tracking of interval IDs for better cleanup
-  - Added final duration calculation and logging when stopping timers
-  - Ensured consistent nullification of timer references after clearing
-
-### Technical Details:
-- Now storing the interval ID returned by setInterval instead of directly assigning
-- Using ISO timestamps in logs to allow easier correlation with backend events
-- Added logic to calculate and log final recording duration when stopping the timer
-- Added more context to logs by including the interval ID in messages
-- Reduced timer update log frequency to avoid console spam while maintaining visibility
-
-### Impact:
-- More reliable timer management with explicit interval tracking
-- Improved debugging capabilities for timer-related issues
-- Better insight into recording duration calculations
-- Reduced console log noise while maintaining useful information
-- Easier correlation between frontend and backend timing events
-
-### Next Steps:
-- Consider adding elapsed time to the UI for locked recording mode
-- Add visual indicators for long recording sessions
-- Consider implementing a maximum recording duration limit
-
----
-
-## [2024-07-16] - Frontend Architecture Cleanup: Removed HotkeyManager
-Goal: Complete removal of outdated HotkeyManager.ts in favor of Rust backend's rdev implementation.
-
-### Changes Made:
-- Verified and completed removal of HotkeyManager.ts from frontend
-- Cleaned up all references to HotkeyManager in:
-  - main.tsx - removed initialization code
-  - App.tsx - removed initialization and cleanup hooks
-  - RecordingController.tsx - updated to rely solely on Tauri events
-- Ensured proper sharing of RecordingState enum between components:
-  - Created centralized types.ts file with RecordingState enum
-  - Updated all components to import the RecordingState from types.ts
-  - Aligned string values with backend state names for consistency
-
-### Technical Details:
-- HotkeyManager had previously been superseded by the Rust backend's rdev implementation
-- Some initialization code remained in main.tsx and App.tsx
-- RecordingController was still attempting to use the HotkeyManager instance
-- The recording state definitions were duplicated across components
-- Frontend state names are now fully aligned with backend state strings
-
-### Architecture Improvements:
-- Single source of truth for keyboard event handling (backend only)
-- Simplified frontend that only responds to backend events
-- Centralized RecordingState enum shared between components
-- Clear separation of concerns between backend and frontend
-- Removed complexity and potential race conditions in state management
-
-### Impact:
-- Simpler, more maintainable codebase
-- Reduced potential for state synchronization issues between frontend/backend
-- More consistent event handling with clear directionality (backend → frontend)
-- Eliminated redundant code that was attempting to track the same state in two places
-- Fixed potential memory leaks from improper cleanup
-
-### Next Steps:
-- Update README.md to reflect the current architecture
-- Consider adding a visual state diagram to documentation
-- Review other frontend components for similar outdated references
-- Consider adding more type safety for event payloads
-
----
-
-## [2024-07-17] - Fixed Race Condition in Audio Recording State Management
-Goal: Fix race condition where start_backend_recording would erroneously detect an active recording.
-
-### Problem Identified:
-- When a recording was stopped due to a timeout in the RightAlt key handler, a race condition could occur
-- The `is_actively_recording` flag was only being set to false at the end of the `stop_backend_recording` function via a defer! block
-- This meant the flag remained true during the time-consuming transcription process
-- If a new recording was attempted during transcription, it would be rejected due to the stale flag value
-
-### Changes Made:
-- Modified `stop_backend_recording` in audio_manager_rs.rs to set `is_actively_recording = false` earlier in the function
-- Moved the flag setting from the defer! block to immediately after stopping and joining the recording thread
-- Ensured this happens while still holding the state lock, before starting transcription
-- Added more detailed logging around the recording thread shutdown process
-- Improved error handling for the recording thread join process
-
-### Technical Details:
-- The key issue was that `is_actively_recording` was only set to false in the defer! block which executes at the end of the function
-- Since transcription can take several seconds, the flag stayed true during this time
-- By setting the flag earlier (after the recording is actually stopped), the state is now accurate
-- The mutex lock ensures this happens atomically before any new recording can be started
-
-### Impact:
-- Fixes a frustrating issue where users couldn't start a new recording during transcription
-- Improves state handling accuracy - the flag now reflects the actual recording state
-- Provides better debugging information with enhanced logging
-- Reduces the likelihood of "Already recording" errors when rapidly creating multiple recordings
-
-### Next Steps:
-- Consider adding explicit state diagrams to document the recording lifecycle
-- Monitor for any edge cases in the recording state management
-- Consider adding unit tests for the recording state transitions
-
----
-
-## [2024-07-17] - Enhanced Timeout Handling in Key Events
-Goal: Prevent events from triggering actions when they cause a timeout from WaitingForSecondTap state.
-
-### Problem Identified:
-- When a key event (press or release) detected a timeout in the WaitingForSecondTap state
-- The state was correctly reset to Idle and cleanup events were emitted
-- However, the same key event would then continue to be processed in the main event handling logic
-- This could cause a new recording to start immediately after the timeout reset the state to Idle
-- This created a confusing user experience and potential race conditions
-
-### Changes Made:
-- Added a `timeout_occurred_and_handled` flag to track if a timeout was processed during the event
-- Restructured the callback function to check this flag immediately after the timeout check
-- Added an early return statement that exits the callback if a timeout was handled
-- Renamed variables to better reflect their purpose (state_before_processing vs state_after_timeout_check)
-- Improved logging to show when an event is being consumed due to timeout handling
-
-### Technical Details:
-- The key issue was that events triggering a timeout were "double processed"
-- The solution uses a flag-and-return pattern to exit the callback early
-- This approach maintains the clear separation between timeout checking and regular event processing
-- The proper cleanup still happens (recording stop, UI state update) before the early return
-- The state transition to Idle is fully completed before the function returns
-
-### Impact:
-- Creates a cleaner, more predictable user experience
-- Prevents confusing behavior where a new recording starts immediately after a timeout
-- Resolves subtle race conditions between timeout handling and regular event processing
-- Maintains the existing double-tap and hold/release functionality
-- Improves debugging by explicitly logging when events are consumed
-
-### Next Steps:
-- Consider adding a small UI indicator when a timeout occurs
-- Add configuration option for timeout duration
-- Explore more robust background timer approaches for timeout detection
-
----
-
-## [2024-07-17] - Reverted Early Return in Timeout Handling
-Goal: Allow key events to be processed normally after triggering a timeout.
-
-### Problem Identified:
-- The previous implementation added an early return after timeout handling
-- This prevented the key event that triggered the timeout from being processed further
-- It caused the state machine to reset to Idle due to timeout, but then immediately get stuck
-- Users couldn't immediately start a new recording with the same keypress that detected the timeout
-
-### Changes Made:
-- Removed the early return statement from the timeout handling block
-- Updated comments to indicate that event processing continues after timeout
-- Added clearer logging messages to show state transitions after timeout
-- Maintained proper cleanup (stop_transcribe and UI state update) during timeout
-
-### Technical Details:
-- In the previous implementation, the return statement caused the callback to exit immediately after handling a timeout
-- This meant that a key press that triggered a timeout check was "consumed" without being processed normally
-- Now, if a timeout occurs:
-  1. The state is set to Idle
-  2. The stop/transcribe signals are emitted
-  3. The main event processing logic continues with the current event
-  4. The current event is processed based on the new Idle state (e.g., transitioning Idle → Recording)
-
-### Impact:
-- More responsive user experience - key presses are always processed
-- Smoother state transitions after timeout
-- No "dead" keypresses that don't do anything
-- Better user experience when rapidly creating multiple recordings
-- Maintains the benefit of proper cleanup during timeout while improving usability
-
-### Next Steps:
-- Continue monitoring for edge cases in the state machine
-- Consider adding visual indicators for timeout events to improve user feedback
-- Add detailed telemetry to track common interaction patterns
-
----
-
-## [2023-08-03] - Refactored Callback Function with Action Enum
-Goal: Improve callback function structure by clearly separating state transitions from action execution
-
-- Refactored the callback function to implement an action-based approach using a PostEventAction enum
-- Defined four action types: None, EmitUiState, StartRecordingAndEmitUi, and StopAndTranscribeAndEmitUi
-- Created distinct phases in the callback:
-  1. Timeout check (which may set an action and exit early)
-  2. Main event processing (which determines the appropriate action)
-  3. Action execution (after all locks are released)
-- Benefits:
-  - Cleaner control flow - state logic is now fully separated from event emissions
-  - More explicit action handling - each possible outcome is clearly represented
-  - Safer lock handling - all emissions now happen outside of state locks
-  - Better logging - each step in the process has appropriate logging
-- This refactoring maintains the existing state machine behavior but with improved code organization
-- Fixed a potential issue with final_state_for_logging to ensure accurate post-event state is always displayed
-
-NOTE: This approach helps prevent race conditions by ensuring that all UI updates and recording actions happen outside of lock scopes, making the code more maintainable and robust.
-
----
-
-## [2023-08-03] - Simplified Timeout Handling
-Goal: Fix unnecessary stop/transcribe actions during timeout in WaitingForSecondTap state
-
-### Problem Identified:
-- The previous implementation would call `StopAndTranscribeAndEmitUi` when a timeout occurred in the WaitingForSecondTap state
-- This was unnecessary since no recording had actually been started at this point in the state machine
-- This caused pointless processing and potential confusion in the logs
-
-### Changes Made:
-- Modified the timeout handling in the callback function to only use `EmitUiState("IDLE")` action
-- Removed the `StopAndTranscribeAndEmitUi` case from the timeout handling match block
-- Updated the comments and logging to reflect the simplified approach
-- Kept the early return behavior to ensure the current event is still consumed after timeout
-
-### Technical Details:
-- In the state flow: Idle → PressedWaitingForRelease → WaitingForSecondTap, no recording has actually started
-- Therefore, if a timeout occurs in WaitingForSecondTap, we only need to:
-  1. Reset the state to Idle
-  2. Clear the first tap release time
-  3. Update the UI to show IDLE state
-- No need to stop or transcribe anything since recording hasn't started yet
-
-### Impact:
-- More efficient operation - avoids unnecessary stop/transcribe calls
-- Cleaner logs that accurately reflect the actual system state
-- More logical state machine behavior
-- Reduced chance of race conditions or unexpected behavior
-
-This change complements the previous refactoring of the callback function, further improving the precision and efficiency of the state machine.
-
----
-
-## [2023-08-03] - Fixed Press Time Tracking for Key Transitions
-Goal: Fix issue with missing press time tracking for certain state transitions
-
-### Problem Identified:
-- `PRESS_START_TIME` was not being set during the transitions from:
-  - WaitingForSecondTap -> LockedRecording (second tap of a double-tap)
-  - LockedRecording -> Transcribing (tap-to-stop action)
-- This caused subsequent key release events to generate warnings ("Release event occurred but PRESS_START_TIME was None!")
-- The missing timing information could affect state transitions during key release events
-
-### Changes Made:
-- Added `*PRESS_START_TIME.lock().unwrap() = Some(press_time);` line to the WaitingForSecondTap and LockedRecording case handlers in the KeyPress event processing
-- Ensured all key press events that trigger state transitions properly record their press times
-
-### Technical Details:
-- The press time tracking is important for:
-  1. Detecting hold vs. tap gestures (based on press duration)
-  2. Providing timestamps for debugging and user interaction analysis
-  3. Ensuring the release handler always has a valid press time to reference
-- The fix ensures all key press transitions maintain a consistent pattern of tracking
-
-### Impact:
-- Eliminates "PRESS_START_TIME was None!" warnings in the logs
-- Ensures all key transitions have consistent timing information
-- Improves reliability of the state machine by maintaining complete timing data
-- Makes debugging easier with more comprehensive event timing records
-
-This change complements the previous state machine improvements by ensuring all state transitions properly track their timing information.
-
----
-
-## [2023-08-03] - Enhanced Event Communication Logging
-Goal: Implement diagnostic logging to track event transmission between backend and frontend
-
-### Problem Identified:
-- Occasional UI inconsistencies suggested events might not be properly transmitted from backend to frontend
-- Difficult to trace exactly when and if events were being emitted by the backend and received by the frontend
-- Lack of detailed logs made it challenging to diagnose timing issues or dropped events
-
-### Changes Made:
-- Added detailed logging to Rust event emission helpers:
-  - `emit_state_update`: Now logs each UI state update event before emission
-  - `emit_start_recording`: Now logs recording start commands before emission
-  - `emit_stop_transcribe`: Now logs stop and transcribe commands before emission
-- Enhanced frontend event listener logging in RecordingController.tsx:
-  - Added complete payload logging when events are received
-  - Added specific logging for each state case match
-  - Added pre-state-update logging to confirm state setter is called
-  - Added null state handling to catch any issues with state conversion
-
-### Technical Details:
-- The complete event flow is now traceable through logs:
-  1. Backend identifies state change needed in callback function
-  2. Backend logs about to emit event "[RUST Emit Helper] Emitting..."
-  3. Frontend logs receipt of event "[RecordingController] === Received UI State Update Event ==="
-  4. Frontend logs which case was matched "[RecordingController] Matched state: ..."
-  5. Frontend logs before calling state setter "[RecordingController] Calling setCurrentRecordingState with..."
-- Null checking ensures the frontend state is never updated with an invalid value
-
-### Impact:
-- Makes it possible to identify exactly where communication might be breaking down
-- Easier to diagnose issues between the backend state machine and frontend UI updates
-- Can identify timing problems or race conditions between events
-- Provides a clear trail for debugging complex state transitions
-
-### Next Steps:
-- Analyze logs during testing to identify any communication issues
-- Consider adding unique IDs to events to trace specific transitions end-to-end
-- If issues persist, consider adding acknowledgment events from frontend to backend
-
----
-
-## [2023-08-04] - Fixed Hold Release Behavior
-Goal: Fix issue where releasing while in RecordingHold state fails to transition to Transcribing
-
-### Problem Identified:
-- When transitioning to RecordingHold state, the PRESS_START_TIME is consumed
-- During subsequent key release event, press_start_time_opt is None
-- This prevented the release from correctly transitioning from RecordingHold → Transcribing
-- Users would get stuck in RecordingHold state, unable to complete the transcription
-
-### Changes Made:
-- Restructured the KeyRelease logic in the callback function to properly handle RecordingHold state
-- Added an explicit check for RecordingHold in the fallback case when PRESS_START_TIME is None
-- The key release from RecordingHold now transitions to Transcribing regardless of press time
-- Added improved error messages to help diagnose press time inconsistencies
-
-### Technical Details:
-- When a user transitions into RecordingHold, the press timing is no longer relevant
-- Any release event in RecordingHold should immediately transition to Transcribing
-- Added a safety check to handle the edge case where RecordingHold is active but PRESS_START_TIME is None
-- This prevents users from getting stuck in RecordingHold with no way to exit
-
-### Impact:
-- More reliable hold-to-record functionality
-- Users won't get stuck in RecordingHold state anymore
-- Better error handling and diagnostics for unexpected state combinations
-- More predictable and intuitive behavior for the hold-release gesture
-
-This change further improves the state machine reliability by ensuring that the hold-to-record cycle can be properly completed in all cases.
-
----
-
-## [2023-08-04] - Implemented Finalized State Machine Logic
-Goal: Apply the complete and correct state machine logic with proper timeout handling and event consumption
-
-### Problem Identified:
-- Previous state machine implementations had inconsistencies in timeout handling
-- State transitions weren't properly tracking the post-timeout state
-- Some edge cases could lead to race conditions or unpredictable behavior
-- Lock holding patterns needed optimization to prevent potential deadlocks
-
-### Changes Made:
-- Completely replaced the callback function with the finalized version
-- Added state tracking via state_before_main_logic to ensure consistent state after timeout checks
-- Improved timeout handling:
-  - Added clone of FIRST_TAP_RELEASE_TIME to avoid holding locks during time calculations
-  - Ensured all event emissions happen outside lock scopes
-  - Added early return after timeout to properly consume the triggering event
-- Enhanced error handling and debugging:
-  - Added more detailed comments explaining the logic flow
-  - Improved logging with contextual information about state transitions
-  - Added explicit state tracking at each stage of processing
-
-### Technical Details:
-- The callback function now follows a clear, step-by-step approach:
-  1. First check if a timeout has occurred and handle it, returning early if needed
-  2. Use the post-timeout state for all subsequent logic
-  3. Process key press/release events based on the current state
-  4. Determine the appropriate action without holding locks
-  5. Execute the action after all locks are released
-  6. Log the final state for debugging
-- The timeout check now properly clones the Option<Instant> to minimize lock duration
-- Event emissions are completely isolated from state transitions
-
-### Impact:
-- More reliable and predictable state transitions
-- Reduced chance of race conditions or deadlocks
-- Better handling of edge cases like timeouts during key events
-- Easier to debug and maintain with consistent logging and flow
-- Complete separation between state management and event emissions
-
-This implementation unifies all the previous fixes and improvements into a single, coherent state machine that properly handles all user interaction patterns.
-
----
-
-## [2023-08-04] - Reverted to Simpler State Machine
-Goal: Simplify the state machine to improve reliability at the cost of some efficiency
-
-### Problem Identified:
-- The complex state machine with delayed recording was causing reliability issues
-- The more complex states (PressedWaitingForRelease, RecordingHold) made the logic harder to follow
-- The PostEventAction approach added complexity to the code
-
-### Changes Made:
-- Reverted AppRecordingState enum to simpler version with fewer states:
-  - Idle - No recording in progress
-  - Recording - Single state for active recording (initial or hold)
-  - WaitingForSecondTap - For double-tap detection
-  - LockedRecording - For recording locked by double-tap
-  - Transcribing - For the processing state
-- Updated the RecordingState enum in types.ts to match the backend
-- Completely rewrote the callback function to start recording on initial press
-- Removed the PostEventAction enum entirely
-
-### Technical Details:
-- Recording now starts immediately on press (Idle → Recording)
-- A short release goes to WaitingForSecondTap for double-tap detection
-- A long release goes to Transcribing (standard hold/release gesture)
-- A second tap within the window goes to LockedRecording
-- Timeouts still work correctly, cleaning up orphaned recordings
-- Event emissions happen outside lock scopes to prevent deadlocks
-
-### Impact:
-- More reliable and predictable state transitions
-- Fewer edge cases to handle
-- Less complex code that's easier to maintain
-- Slight inefficiency - abandoned single taps will start recording and need to be transcribed
-- Better user experience by prioritizing reliability over efficiency
-
-This simplified approach should be more robust while still supporting all the core features (hold/release recording, double-tap for locked recording).
-
----
-
-## [2023-08-04] - Comprehensive Code Cleanup
-Goal: Clean up unused code, fix warnings, and delete unused files to improve maintainability
-
-### Rust Backend Cleanup:
-- Fixed unused variable warnings in audio_manager_rs.rs by prefixing with underscores
-- Removed unused functions from transcription.rs:
-  - get_transcription_status
-  - get_transcription_result
-  - save_audio_buffer
-  - verify_file_exists
-  - transcribe_audio (and associated TranscriptionOptions)
-  - load_audio_data
-- Updated main.rs to remove the corresponding command registrations
-- Fixed unused import warnings in transcription.rs
-- Prefixed unused struct fields with underscores
-
-### Frontend Cleanup:
-- Deleted unused component files:
-  - TranscriptionControls.tsx and .css
-  - Recorder.tsx (unused page)
-- Deleted unused utility files:
-  - LocalTranscriptionManager.ts
-  - TranscriptionService.ts
-  - audioUtils.ts
-  - clipboardUtils.ts
-- Deleted unused type definition:
-  - audiobuffer-to-wav.d.ts
-
-### Impact:
-- Reduced codebase size by removing ~50KB of unused code
-- Eliminated all Rust compiler warnings
-- Improved maintainability by focusing on the core functionality
-- Made the codebase easier to understand for future development
-- Reduced risk of confusion from stale/unused code
-
-### Technical Notes:
-The cleanup revealed that the application architecture has been significantly simplified over time:
-- Original architecture had separate utilities for recording, transcription, and clipboard operations
-- Current architecture uses backend Rust functions for all these operations
-- Frontend now primarily serves as a UI layer that responds to backend events
-- State management is primarily handled by the backend with frontend responding to events
-
----
-
-## [2024-07-27] – Code Cleanup (Round 15)
-Goal: Clean up unused Rust variables/imports/functions and delete unused frontend files.
-
-- Ran `cargo fix` in `src-tauri` to automatically fix unused imports/variables. Confirmed remaining variables were intentionally prefixed with `_`.
-- Verified that unused Rust functions (`get_transcription_status`, etc.) and their command registrations in `main.rs` were already removed previously.
-- Deleted unused frontend component `src/components/TranscriptionFallback.tsx`.
-- Removed import and usage of `TranscriptionFallback` from `src/App.tsx`.
-- Ran `cargo check` successfully in `src-tauri`.
-- Proposed running frontend check (`npm run dev`) to confirm no build errors (Skipped by user).
-- IMPACT: Reduced codebase size, removed dead code, improved clarity.
-- NOTE: Frontend build should be manually checked.
-
----
+- Test bundling on different platforms to ensure resource paths resolve correctly
+- Consider adding a UI for selecting different model sizes
+- Add support for additional languages beyond English

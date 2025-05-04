@@ -59,13 +59,12 @@
       "deb": {
         "depends": []
       },
-      "externalBin": [],
+      "externalBin": [
+        "vendor/whisper"
+      ],
       "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
+        "icons/icon.ico",
+        "icons/icon.png"
       ],
       "identifier": "com.fethr.app",
       "longDescription": "A lightweight, always-available transcription app.",
@@ -76,7 +75,9 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "vendor/models"
+      ],
       "shortDescription": "Voice transcription app",
       "targets": "all",
       "windows": {
@@ -89,26 +90,40 @@
       "csp": null
     },
     "systemTray": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false
     },
     "updater": {
       "active": false
     },
     "windows": [
       {
-        "fullscreen": false,
-        "height": 400,
-        "resizable": true,
-        "title": "Fethr Debug",
-        "width": 600,
+        "label": "main",
+        "title": "Fethr Settings",
+        "width": 800,
+        "height": 600,
+        "visible": false,
         "decorations": true,
         "transparent": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "label": "pill",
+        "url": "http://localhost:5176/pill",
+        "width": 250,
+        "height": 40,
         "visible": true,
-        "url": "/",
-        "label": "main"
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "x": 1650,
+        "y": 1000
       }
     ]
   }

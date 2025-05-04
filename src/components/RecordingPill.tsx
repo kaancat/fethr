@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import React from 'react';
+// Make sure the path to types is correct, likely '../types' if types.ts is in src/
 import { RecordingState } from '../types';
 
 /**
@@ -8,94 +8,104 @@ import { RecordingState } from '../types';
  * What it does: Provides visual feedback about recording state
  * Why it exists: Users need to know when recording is active and what hotkey to use
  */
+
+// Define the props the component will accept
 interface RecordingPillProps {
-  currentState: RecordingState;
-  recordingDuration: string;
-  transcription: string;
-  error: string | null;
+    currentState: RecordingState;
+    duration: string; // Expecting pre-formatted string "0.0s"
+    transcription?: string; // Optional transcription text
+    error?: string; // Optional error message
 }
 
-function RecordingPill({ 
-  currentState,
-  recordingDuration,
-  transcription,
-  error
-}: RecordingPillProps) {
-  const [registeredHotkey, setRegisteredHotkey] = useState<string>("Alt+Shift+A");
-  const [hotkeyRegistrationFailed, setHotkeyRegistrationFailed] = useState<boolean>(false);
+// Helper to get display text based on state
+const getStateText = (state: RecordingState, error?: string): string => {
+    switch (state) {
+        case RecordingState.IDLE:
+            return "Idle"; // Or maybe "" or "."
+        case RecordingState.RECORDING:
+        case RecordingState.LOCKED_RECORDING:
+            return "Rec";
+        case RecordingState.TRANSCRIBING:
+            return "Proc";
+        case RecordingState.PASTING: // Assuming this state exists
+            return "Paste";
+        case RecordingState.ERROR:
+            // Show truncated error, or just "Error"
+            return error ? `Error: ${error.substring(0,15)}...` : "Error";
+        default:
+            console.warn("RecordingPill: Unknown currentState received:", state);
+            return "???";
+    }
+};
 
-  useEffect(() => {
-    // Listen for hotkey registration
-    const unlistenHotkey = listen('hotkey-registered', (event) => {
-      const { hotkey } = event.payload as { hotkey: string };
-      setRegisteredHotkey(hotkey);
-      setHotkeyRegistrationFailed(false);
-    });
-
-    // Listen for hotkey registration failures
-    const unlistenFailure = listen('hotkey-registration-failed', () => {
-      setHotkeyRegistrationFailed(true);
-    });
-
-    return () => {
-      // Clean up listeners
-      unlistenHotkey.then(fn => fn());
-      unlistenFailure.then(fn => fn());
-    };
-  }, []);
-
-  // Determine the appropriate classes based on state
-  let pillClass = "fixed bottom-4 right-4 px-4 py-2 rounded-full transition-all duration-300 pointer-events-auto";
-  let pillContent = "";
-
-  switch (currentState) {
-    case RecordingState.RECORDING:
-      pillClass += " bg-red-500 text-white animate-pulse";
-      pillContent = `Recording... ${recordingDuration} • Release to stop`;
-      break;
-    case RecordingState.LOCKED_RECORDING:
-      pillClass += " bg-red-600 text-white";
-      pillContent = `Recording ${recordingDuration} • Press hotkey to stop`;
-      break;
-    case RecordingState.TRANSCRIBING:
-      pillClass += " bg-blue-500 text-white";
-      pillContent = "Transcribing...";
-      break;
-    default: // IDLE
-      pillClass += " bg-gray-100 text-gray-800";
-      if (hotkeyRegistrationFailed) {
-        pillContent = "❌ No hotkeys available - manual recording only";
-      } else {
-        pillContent = `Press ${registeredHotkey} to record`;
-      }
-      break;
-  }
-
-  // Show error message if exists
-  const errorDisplay = error ? (
-    <div className="text-red-500 text-sm mt-1">{error}</div>
-  ) : null;
-
-  // Show transcription if exists
-  const transcriptionDisplay = transcription ? (
-    <div className="text-gray-700 text-sm mt-1 max-w-md truncate">{transcription}</div>
-  ) : null;
-
-  return (
-    <div className={pillClass}>
-      <div className="flex items-center space-x-2">
-        {currentState === RecordingState.RECORDING && (
-          <div className="w-3 h-3 bg-red-700 rounded-full animate-ping" />
-        )}
-        {currentState === RecordingState.LOCKED_RECORDING && (
-          <div className="w-3 h-3 bg-red-700 rounded-full" />
-        )}
-        <span>{pillContent}</span>
-      </div>
-      {errorDisplay}
-      {transcriptionDisplay}
-    </div>
-  );
+// Helper to get background color based on state
+const getBackgroundColor = (state: RecordingState): string => {
+    switch (state) {
+        case RecordingState.IDLE:
+            return "bg-slate-600 hover:bg-slate-500";
+        case RecordingState.RECORDING:
+        case RecordingState.LOCKED_RECORDING:
+            return "bg-red-600 hover:bg-red-500";
+        case RecordingState.TRANSCRIBING:
+        case RecordingState.PASTING:
+            return "bg-blue-600 hover:bg-blue-500";
+        case RecordingState.ERROR:
+            return "bg-orange-700 hover:bg-orange-600";
+        default:
+            return "bg-gray-700";
+    }
 }
+
+const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error }) => {
+    const statusText = getStateText(currentState, error);
+    const bgColor = getBackgroundColor(currentState);
+    const showTimer = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
+    // Show transcription ONLY if state is IDLE and transcription prop is present and no error
+    const showTranscription = currentState === RecordingState.IDLE && transcription && !error;
+
+    // Log the props received by this component render
+    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}`);
+
+    return (
+        // Main pill container: rounded, background, padding, layout, transition, font
+        <div className={`min-w-[70px] h-[32px] ${bgColor} text-white rounded-full px-3 py-1 flex items-center justify-center shadow-md transition-colors duration-200 ease-in-out text-sm font-mono`}>
+            {/* --- Conditional Rendering Logic --- */}
+
+            {/* Priority 1: Show Error */}
+            {currentState === RecordingState.ERROR && (
+                 <span className="truncate max-w-[200px] text-xs" title={error || 'Unknown Error'}>
+                    {statusText} {/* Shows "Error: ..." */}
+                 </span>
+            )}
+
+            {/* Priority 2: Show Transcription Result (only when back to Idle, no error) */}
+            {showTranscription && ( // currentState is implicitly IDLE here
+                <span className="truncate max-w-[200px] text-xs" title={transcription}>
+                     {transcription}
+                </span>
+            )}
+
+             {/* Priority 3: Show Recording Status and Timer */}
+            {(currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING) && (
+                <div className="flex items-center space-x-1.5">
+                     {/* Optional: Add a recording icon/dot here */}
+                     <span className="font-bold">{statusText}</span>
+                    {showTimer && <span>{duration}</span>}
+                </div>
+            )}
+
+            {/* Priority 4: Show Processing/Pasting Status (if not error/idle/recording) */}
+             {(currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING) && (
+                <span className="font-bold">{statusText}</span>
+             )}
+
+            {/* Priority 5: Show Idle Status (only if Idle and not showing transcription/error) */}
+             {currentState === RecordingState.IDLE && !showTranscription && !error && (
+                 <span className="font-bold">{statusText}</span>
+             )}
+
+        </div>
+    );
+};
 
 export default RecordingPill; 

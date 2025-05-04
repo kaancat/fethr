@@ -3,12 +3,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
- // <<< ADD Stdio import
 use tauri::{AppHandle, Manager};
-// Removed unused imports: Duration, Enigo, KeyboardControllable, NamedTempFile, Resampler, Read
+use tauri::api::path::resource_dir;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
 use uuid::Uuid;
+use crate::config; // Make sure this line is present
+use crate::config::SETTINGS; // Import the global settings
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -23,6 +24,13 @@ pub enum TranscriptionStatus {
     Complete { text: String }, // Keep this one
 }
 
+// Add Default implementation for TranscriptionStatus
+impl Default for TranscriptionStatus {
+    fn default() -> Self {
+        TranscriptionStatus::Idle
+    }
+}
+
 // Transcription results (simplified, maybe not needed if state holds last text)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResult {
@@ -30,72 +38,21 @@ pub struct TranscriptionResult {
     pub model_used: String,
 }
 
-// Transcription state to store as app state
-#[derive(Debug, Clone)]
+// Transcription state to store as app state - Simplified without paths
+#[derive(Debug, Clone, Default)]
 pub struct TranscriptionState {
     pub _status: TranscriptionStatus,
     pub _result: Option<TranscriptionResult>, // Store last successful result maybe?
-    pub whisper_directory: PathBuf,
-    pub whisper_binary_path: PathBuf,
-    pub whisper_model_directory: PathBuf,
-    pub current_model: String, // Keep track of the model being used
-}
-
-impl Default for TranscriptionState {
-    fn default() -> Self {
-        Self {
-            _status: TranscriptionStatus::Idle,
-            _result: None,
-            whisper_directory: PathBuf::new(),
-            whisper_binary_path: PathBuf::new(),
-            whisper_model_directory: PathBuf::new(),
-            current_model: "tiny.en".to_string(), // Default to tiny.en
-        }
-    }
-}
-
-// Initialize the transcription state
-pub fn init_transcription(app_handle: &AppHandle) -> Result<TranscriptionState, String> {
-    let whisper_directory = PathBuf::from("C:\\Users\\kaan\\.fethr"); // Use specific path
-    let whisper_model_directory = whisper_directory.join("models");
-    let whisper_binary_path = whisper_directory.join("whisper.exe");
-    
-    println!("Using whisper binary at: {}", whisper_binary_path.display());
-    println!("Using whisper models directory at: {}", whisper_model_directory.display());
-    
-    fs::create_dir_all(&whisper_model_directory)
-        .map_err(|e| format!("Failed to create whisper models directory: {}", e))?;
-    
-    let mut state = TranscriptionState::default(); // Use default model ("tiny.en")
-    state.whisper_directory = whisper_directory;
-    state.whisper_binary_path = whisper_binary_path;
-    state.whisper_model_directory = whisper_model_directory;
-    println!("[RUST INIT] Initializing with model: {}", state.current_model);
-    
-    if !check_whisper_binary(&state) {
-        let error_msg = format!("Whisper binary not found at {}", state.whisper_binary_path.display());
-        // Consider emitting error state here if needed by frontend
-        return Err(error_msg);
-    }
-    println!("Whisper binary found at: {}", state.whisper_binary_path.display());
-    
-    if !check_model_exists(&state.whisper_model_directory, &state.current_model) {
-        let error_msg = format!("Model '{}' not found in {}", state.current_model, state.whisper_model_directory.display());
-        // Consider emitting error state
-        return Err(error_msg);
-    }
-     println!("Model found at: {}", state.whisper_model_directory.join(format!("ggml-{}.bin", state.current_model)).display());
-     let _ = app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Ready); // Use snake_case event name
-    
-    Ok(state)
 }
 
 // Check if Whisper binary is available
-pub fn check_whisper_binary(state: &TranscriptionState) -> bool {
-    Path::new(&state.whisper_binary_path).exists()
+#[allow(dead_code)] // Not used directly but kept for potential future use
+pub fn check_whisper_binary(whisper_binary_path: &PathBuf) -> bool {
+    whisper_binary_path.exists()
 }
 
 // Check if a specific model exists
+#[allow(dead_code)] // Not used directly but kept for potential future use
 pub fn check_model_exists(model_directory: &PathBuf, model_name: &str) -> bool {
     model_directory.join(format!("ggml-{}.bin", model_name)).exists()
 }
@@ -155,12 +112,8 @@ pub async fn transcribe_audio_file(
     app_handle: AppHandle,
     state: tauri::State<'_, TranscriptionState>,
     audio_path: String,
-    auto_paste: bool // Keep flag if needed elsewhere, but not used in transcribe_local_audio_impl now
+    auto_paste: bool // Keep flag as override parameter
 ) -> Result<String, String> {
-    // --- ADD LOGGING ---
-    println!("[RUST DEBUG transcribe_audio_file] Received State: {:?}", *state);
-    // --- END LOGGING ---
-
     println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
     println!("[RUST DEBUG] Input audio path: {}", audio_path);
     println!("[RUST DEBUG] Auto paste flag (passed): {}", auto_paste);
@@ -168,171 +121,252 @@ pub async fn transcribe_audio_file(
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         println!("[RUST DEBUG] Another transcription is already in progress, skipping this request");
-        // Don't emit error here, just return Err to the caller (stop_backend_recording)
         return Err("Another transcription is already in progress".to_string());
     }
 
-    // --- Correct scopeguard usage HERE --- Ensure lock is released even on panic
-    scopeguard::defer!({ // <<< REMOVE `let _guard = `
+    // Ensure lock is released even on panic
+    scopeguard::defer!({
         TRANSCRIPTION_IN_PROGRESS.store(false, Ordering::SeqCst);
         println!("[RUST DEBUG] Transcription lock released via scopeguard");
     });
-    // --- End scopeguard call ---
 
-    // Call the implementation (pass auto_paste along, even if _impl ignores it now)
-    // The guard will run automatically when this function returns or panics
-    let result = transcribe_local_audio_impl(app_handle, state, audio_path, auto_paste).await; // Pass auto_paste
+    // Get auto_paste setting from config if not provided
+    let effective_auto_paste = {
+        if !auto_paste {
+            // If auto_paste is false in the command, use that
+            false
+        } else {
+            // Otherwise, check the config setting
+            let settings_guard = SETTINGS.lock().unwrap();
+            settings_guard.auto_paste
+        }
+    };
+    
+    // Call the implementation with appropriate auto_paste
+    let result = transcribe_local_audio_impl(audio_path, effective_auto_paste, app_handle).await;
     println!("[RUST DEBUG] transcribe_local_audio_impl completed. Success? {}", result.is_ok());
     
-    // Guard runs automatically after this point
     result
 }
 
 // The main implementation function - now returns only the transcription text
 pub async fn transcribe_local_audio_impl(
-    app_handle: AppHandle, // Marked unused now, consider removing later if truly not needed
-    state: tauri::State<'_, TranscriptionState>,
-    audio_path: String,
-    _auto_paste: bool, // Mark unused now
+    wav_path_in: String,
+    auto_paste: bool, // Renamed parameter to match command
+    app_handle: AppHandle, // Keep app handle for emits
 ) -> Result<String, String> {
-    // --- ADD LOGGING ---
-    println!("[RUST DEBUG transcribe_local_audio_impl] Received State: {:?}", *state);
-    // --- END LOGGING ---
+    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<");
+    println!("[RUST DEBUG] Received initial WAV path: {}", wav_path_in);
+    println!("[RUST DEBUG] Auto-paste enabled: {}", auto_paste);
 
-    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<"); // Removed AutoPaste log
-    println!("[RUST DEBUG] Received initial WAV path: {}", audio_path);
+    // --- Get settings from global config (model name, language only now) ---
+    let (model_name_string, language_string) = {
+        let settings_guard = config::SETTINGS.lock().unwrap();
+        (settings_guard.model_name.clone(), settings_guard.language.clone())
+    };
+    println!("[RUST DEBUG transcription.rs] Using Model: '{}', Language: '{}'", model_name_string, language_string);
 
-    let input_wav_path = Path::new(&audio_path);
-    let mut converted_wav_path_opt: Option<PathBuf> = None; // <<< UNCOMMENT this line
+    // --- Resolve Paths (Debug vs Release) ---
 
-    // --- RE-ENABLE FFMPEG BLOCK ---
+    let whisper_binary_path: PathBuf;
+    let model_path: PathBuf;
+    let whisper_working_dir: PathBuf;
+
+    if cfg!(debug_assertions) {
+        // DEBUG MODE: Point to the source vendor directory using CARGO_MANIFEST_DIR
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // Path to src-tauri
+        let vendor_dir = manifest_dir.join("vendor");
+
+        println!("[RUST DEBUG transcription.rs] Detected DEBUG build. Using source vendor path: {}", vendor_dir.display());
+
+        // --- Construct platform-specific binary name for DEBUG ---
+        // This needs to match the actual file name required by the build script
+        let binary_name = if cfg!(target_os = "windows") {
+            // Assuming x86_64 MSVC build target, adjust if different
+             "whisper-x86_64-pc-windows-msvc.exe"
+        } else if cfg!(target_os = "macos") {
+             // Assuming x86_64 or aarch64, adjust target triple as needed
+             if cfg!(target_arch = "aarch64") {
+                 "whisper-aarch64-apple-darwin"
+             } else {
+                 "whisper-x86_64-apple-darwin"
+             }
+        } else if cfg!(target_os = "linux") {
+             // Assuming x86_64 GNU target, adjust target triple as needed
+             "whisper-x86_64-unknown-linux-gnu"
+        } else {
+            // Fallback or error for unsupported OS during debug build
+             panic!("Unsupported OS for debug build path construction");
+        };
+
+        whisper_binary_path = vendor_dir.join(binary_name);
+        model_path = vendor_dir.join("models").join(&model_name_string);
+        whisper_working_dir = vendor_dir.clone(); // Use vendor dir as CWD
+
+        println!("[RUST DEBUG transcription.rs] DEBUG PATHS:");
+        println!("  -> Binary: {}", whisper_binary_path.display());
+        println!("  -> Model: {}", model_path.display());
+        println!("  -> CWD: {}", whisper_working_dir.display());
+
+    } else {
+        // RELEASE MODE: Use Tauri's resource resolver
+        // This part remains tricky and might need testing in a real release build.
+        // We'll try resolving the external binary name relative to the resource dir.
+        println!("[RUST DEBUG transcription.rs] Detected RELEASE build.");
+        let resource_path = resource_dir(app_handle.package_info(), &app_handle.env())
+            .ok_or_else(|| "Failed to resolve resource directory".to_string())?;
+        println!("[RUST DEBUG transcription.rs] Resource Dir: {}", resource_path.display());
+
+        // Construct the expected release binary name based on externalBin entry and target
+        // Note: Tauri usually places externalBin next to the main executable,
+        // NOT necessarily in the resource dir like resources.
+        // Let's try getting the *executable's directory* instead.
+        let exe_dir = std::env::current_exe()
+             .ok().and_then(|p| p.parent().map(|p| p.to_path_buf()))
+             .ok_or_else(|| "Could not determine executable directory in release build".to_string())?;
+
+        println!("[RUST DEBUG transcription.rs] Executable Dir: {}", exe_dir.display());
+
+        // Assume whisper binary is in the same directory as the main app executable in release
+        let binary_name_release = if cfg!(target_os = "windows") {
+            "whisper.exe" // In release, it should have the simple name next to app exe
+        } else {
+            "whisper" // No extension on Linux/macOS
+        };
+
+        whisper_binary_path = exe_dir.join(binary_name_release);
+        // Models are still in the resource directory
+        model_path = resource_path.join(format!("vendor/models/{}", model_name_string));
+        whisper_working_dir = exe_dir.clone(); // Use exe dir as CWD? Or resource dir? Try exe dir.
+
+        println!("[RUST DEBUG transcription.rs] RELEASE PATHS (Attempted):");
+        println!("  -> Binary: {}", whisper_binary_path.display());
+        println!("  -> Model: {}", model_path.display());
+        println!("  -> CWD: {}", whisper_working_dir.display());
+    }
+    // --- End Path Resolution ---
+
+    // --- Check if paths/files exist ---
+    if !whisper_binary_path.exists() {
+        let err_msg = format!("Bundled Whisper binary not found at: {}", whisper_binary_path.display());
+        eprintln!("[RUST ERROR] {}", err_msg);
+        let _ = app_handle.emit_all("fethr-transcription-error", &err_msg);
+        return Err(err_msg);
+    }
+     if !model_path.exists() {
+        let err_msg = format!("Bundled Whisper model not found at: {}", model_path.display());
+        eprintln!("[RUST ERROR] {}", err_msg);
+         let _ = app_handle.emit_all("fethr-transcription-error", &err_msg);
+        return Err(err_msg);
+    }
+    // --- End Resource Path Resolution ---
+
+    let input_wav_path = Path::new(&wav_path_in);
+    let mut converted_wav_path_opt: Option<PathBuf> = None;
+
+    // --- FFMPEG resampling logic ---
     let unique_id = Uuid::new_v4().to_string();
     let temp_dir = std::env::temp_dir();
     let converted_wav_path = temp_dir.join(format!("fethr_converted_{}.wav", unique_id));
     println!("[RUST DEBUG] Attempting FFmpeg resampling to: {}", converted_wav_path.display());
 
-    match convert_to_wav_predictable(&audio_path, converted_wav_path.to_str().unwrap()) {
+    match convert_to_wav_predictable(&wav_path_in, converted_wav_path.to_str().unwrap()) {
         Ok(_) => {
             println!("[RUST DEBUG] FFmpeg resampling successful.");
             converted_wav_path_opt = Some(converted_wav_path.clone());
         },
         Err(e) => {
             println!("[RUST DEBUG ERROR] FFmpeg resampling failed: {}. Proceeding with original.", e);
-             // Fall through to use original audio_path - whisper_input_path_str will handle this
         }
     }
-    // --- END OF RE-ENABLED FFMPEG BLOCK ---
 
-    // --- DETERMINE WHISPER INPUT PATH (Use converted if successful, else original) ---
+    // --- Determine which path to use ---
     let whisper_input_path_str = converted_wav_path_opt
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| {
-            println!("[RUST WARNING] Using original (non-resampled) WAV for Whisper: {}", audio_path);
-            audio_path.clone()
+            println!("[RUST WARNING] Using original (non-resampled) WAV for Whisper: {}", wav_path_in);
+            wav_path_in.clone()
         });
-    // --- END OF DETERMINING PATH --- 
 
     let whisper_input_path = Path::new(&whisper_input_path_str);
 
     if !whisper_input_path.exists() {
         let error_msg = format!("Whisper input file does not exist: {}", whisper_input_path.display());
-         println!("[RUST ERROR] {}", error_msg);
-         // Cleanup only original if converted doesn't exist or failed
-         cleanup_files(input_wav_path, None); // Pass None for converted
-         return Err(error_msg);
+        println!("[RUST ERROR] {}", error_msg);
+        cleanup_files(input_wav_path, None::<&Path>);
+        return Err(error_msg);
     }
-     println!("[RUST DEBUG] Whisper will use input file: {}", whisper_input_path.display());
+    println!("[RUST DEBUG] Whisper will use input file: {}", whisper_input_path.display());
 
-    // --- Prepare Whisper ---
-    let model_path_str = state.whisper_model_directory
-        .join(format!("ggml-{}.bin", state.current_model)) // Uses state.current_model
-        .to_str().ok_or("Invalid UTF-8 in model path")?.to_string();
-    
-    // Use whisper_directory directly from state instead of trying to get parent of binary path
-    let whisper_dir = &state.whisper_directory;
-
-    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND ... ==========");
-    println!("    Executable: {}", state.whisper_binary_path.display());
-    println!("    Model: {}", model_path_str);
+    // --- Prepare Whisper command ---
+    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND (Bundled) ... ==========");
+    println!("    Executable: {}", whisper_binary_path.display());
+    println!("    Model: {}", model_path.display());
     println!("    Input WAV: {}", whisper_input_path.display());
-    println!("    CWD: {}", whisper_dir.display());
-    println!("    Language: en");
-    println!("    Flags: -nt (No Timestamps)"); // Correct flag
+    println!("    CWD: {}", whisper_working_dir.display());
+    println!("    Language: {}", language_string);
+    println!("    Flags: -nt"); // Assuming no timestamps needed
     println!("=========================================================================================");
 
-    let _ = app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Processing); // Use snake_case
+    // --- Setup Whisper command ---
+    let mut command = std::process::Command::new(&whisper_binary_path);
+    command.current_dir(&whisper_working_dir) // Set CWD
+           .arg("-m").arg(&model_path) // Pass model path
+           .arg("-l").arg(&language_string) // Pass language
+           .arg("-nt") // No timestamps flag
+           .arg(&whisper_input_path); // Pass input audio AFTER flags
 
-    // --- Run Whisper ---
-    let mut command_builder = std::process::Command::new(&state.whisper_binary_path);
-    command_builder.current_dir(whisper_dir)
-                   .arg("--model") // Use long form for clarity
-                   .arg(&model_path_str)
-                   .arg("--file")
-                   .arg(&whisper_input_path_str)
-                   .arg("--language")
-                   .arg("en")
-                   .arg("-nt"); // Correct flag for no timestamps
-                   // REMOVED: .stdout(Stdio::piped())
-                   // REMOVED: .stderr(Stdio::piped())
-
-    println!("[RUST DEBUG] Executing Whisper command...");
-    let start_time = std::time::Instant::now();
-    let output_result = command_builder.output(); // Capture combined output
-    let duration = start_time.elapsed();
-    println!("[RUST DEBUG] Whisper command finished in {:.2?}s", duration.as_secs_f32());
-
-    // --- Process Whisper Output ---
-    let final_transcription_result = match output_result { // Rename variable to avoid conflict later
-        Ok(output) => {
-            let stderr_text = String::from_utf8_lossy(&output.stderr).to_string();
-            if !stderr_text.is_empty() {
-                 println!("[RUST DEBUG] Whisper STDERR (Info/Timings/Errors):\n{}", stderr_text);
-            }
-            // Check exit status FIRST
-            if output.status.success() {
-                let stdout_text = String::from_utf8_lossy(&output.stdout).to_string();
-                 println!("[RUST DEBUG] Whisper STDOUT Length: {}", stdout_text.len());
-                 if stdout_text.len() > 100 {println!("[RUST DEBUG] Whisper STDOUT Preview: '{}'...", stdout_text.chars().take(100).collect::<String>());} else {println!("[RUST DEBUG] Whisper STDOUT: '{}'", stdout_text);}
-            
-                let transcription_text = stdout_text.trim();
-
-                if transcription_text.is_empty() {
-                     // Check stderr for specific errors like "failed to read"
-                     if stderr_text.contains("failed to read") || stderr_text.contains("error:") {
-                         println!("[RUST WARNING] Whisper failed to read audio (check STDERR).");
-                         Err(format!("Whisper failed to read audio: {}", stderr_text.lines().filter(|l| l.starts_with("error:")).collect::<Vec<_>>().join(" ")))
-                     } else {
-                         println!("[RUST WARNING] Whisper produced empty output.");
-                         Err("Whisper produced no text output".to_string()) // Treat empty as error for now
-                     }
-                } else {
-                    println!("[RUST] Transcription successful: '{}'", transcription_text.chars().take(50).collect::<String>());
-                    // REMOVED copy/paste logic from here
-                    Ok(transcription_text.to_string())
-                }
-            } else {
-                 // Non-zero exit code
-                let stdout_text_on_error = String::from_utf8_lossy(&output.stdout).to_string();
-                let error_msg = format!( "Whisper command failed with status: {}. Stderr: {}. Stdout: {}", output.status, stderr_text.trim(), stdout_text_on_error.trim());
-                println!("[RUST ERROR] {}", error_msg);
-                Err(error_msg)
-            }
-        }
+    // --- Run Whisper command and read output ---
+    println!("[RUST DEBUG] Running Whisper with these args: {:?}", command.get_args().collect::<Vec<_>>());
+    let output = match command.output() {
+        Ok(output) => output,
         Err(e) => {
-            let error_msg = format!("Failed to execute Whisper command: {}", e);
-            println!("[RUST ERROR] {}", error_msg);
-            Err(error_msg)
+            let err_msg = format!("Failed to execute Whisper: {}", e);
+            eprintln!("[RUST ERROR] {}", err_msg);
+            cleanup_files(input_wav_path, converted_wav_path_opt.as_ref().map(|v| &**v));
+            let _ = app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Failed(err_msg.clone())); // Use snake_case
+            return Err(err_msg);
         }
     };
 
-    // --- Cleanup ---
-    println!("[RUST DEBUG] Cleaning up temporary files..."); // <<< UNCOMMENT log
-    cleanup_files(input_wav_path, converted_wav_path_opt.as_deref()); // <<< UNCOMMENT this call
-    println!("[RUST DEBUG] Temporary files cleanup attempted."); // <<< UNCOMMENT log
+    let exit_status = output.status;
+    let stdout_bytes = output.stdout;
+    let stderr_bytes = output.stderr;
+    let stdout_text = String::from_utf8_lossy(&stdout_bytes).to_string();
+    let stderr_text = String::from_utf8_lossy(&stderr_bytes).to_string();
 
-    // Return the final result
-    final_transcription_result
+    println!("[RUST DEBUG] Whisper exit status: {}", exit_status);
+    println!("[RUST DEBUG] Whisper stdout: {}", stdout_text);
+    println!("[RUST DEBUG] Whisper stderr: {}", stderr_text);
+
+    // Clean up temporary files
+    cleanup_files(input_wav_path, converted_wav_path_opt.as_ref().map(|v| &**v));
+
+    // Process the result
+    if exit_status.success() {
+        // Process the output
+        let trimmed_output = whisper_output_trim(&stdout_text);
+        println!("[RUST DEBUG] Transcription successful. Result: {}", trimmed_output);
+        let success_status = TranscriptionStatus::Complete { text: trimmed_output.clone() };
+        let _ = app_handle.emit_all("transcription_status_changed", success_status); // Use snake_case event name
+
+        // Note: Auto-paste is now handled in audio_manager_rs.rs
+        if auto_paste {
+            println!("[RUST DEBUG] Auto-paste is enabled but will be handled by the calling function.");
+        } else {
+            println!("[RUST DEBUG] Auto-paste is disabled.");
+        }
+
+        // Return the text
+        Ok(trimmed_output)
+    } else {
+        // Non-zero exit code
+        let error_msg = format!("Whisper command failed with status: {}. Stderr: {}. Stdout: {}", 
+                              output.status, stderr_text.trim(), stdout_text.trim());
+        println!("[RUST ERROR] {}", error_msg);
+        Err(error_msg)
+    }
 }
 
 // Cleanup helper - Restore body
@@ -359,4 +393,15 @@ fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
     } else {
         println!("[RUST CLEANUP] Original backend temp file does not exist, skipping removal: {}", original_temp_wav.display());
     }
+}
+
+// Helper to clean up the output from Whisper
+fn whisper_output_trim(output: &str) -> String {
+    // Trim leading/trailing whitespace, remove any [?] markers Whisper sometimes adds
+    output.trim()
+        .replace("[BLANK_AUDIO]", "")
+        .replace("[SPEAKER]", "")
+        .replace("[NOISE]", "")
+        .trim()
+        .to_string()
 }

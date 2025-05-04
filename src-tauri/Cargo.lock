@@ -1136,6 +1136,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1403,6 +1412,7 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "device_query",
+ "directories",
  "dirs",
  "enigo",
  "env_logger",
@@ -1411,6 +1421,7 @@ dependencies = [
  "lazy_static",
  "log",
  "mpsc",
+ "once_cell",
  "rdev",
  "reqwest",
  "rubato",
@@ -1422,6 +1433,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "toml 0.8.20",
  "uuid",
  "zip",
 ]

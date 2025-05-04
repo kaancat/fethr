@@ -1,10 +1,12 @@
 export enum RecordingState {
   IDLE = 0,
-  RECORDING = 1,           // Represents initial recording OR hold recording
-  // WAITING_FOR_SECOND_TAP - No distinct UI state
-  LOCKED_RECORDING = 3,   // Keep distinct locked state
-  TRANSCRIBING = 2,       // Keep distinct transcribing state
-  // Adjust numeric values if needed for consistency
+  RECORDING = 1,         // For RecordingHold
+  LOCKED_RECORDING = 3, // For LockedRecording
+  TRANSCRIBING = 2,     // Keep distinct transcribing state
+  ERROR = 4,           // Add error state
+  PASTING = 5,         // Add pasting state
+  // Intermediate backend states don't need direct UI representation
+  // CANCELLING might map to IDLE visually
 }
 
 // You can add other shared interfaces or types here later if needed

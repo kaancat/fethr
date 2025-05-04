@@ -4,7 +4,7 @@
 )]
 
 // Core Tauri imports
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent};
 
 // Standard library imports
 use std::path::PathBuf;
@@ -13,10 +13,14 @@ use std::io::BufWriter;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
+use std::thread::JoinHandle; // Import JoinHandle
 use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool}; // Keep Atomics for signalling thread
+use std::error::Error;
 
 // Crates
 use arboard;
+use crossbeam_channel::{unbounded, Sender, Receiver}; // Import channel types
 use enigo::{Enigo, Key, Settings, Direction, Keyboard}; // <<< Use Keyboard trait
 use rdev::{Event, EventType, Key as RdevKey};
 use lazy_static::lazy_static;
@@ -24,37 +28,118 @@ use lazy_static::lazy_static;
 // Import our modules
 mod transcription;
 mod audio_manager_rs;
+mod config; // Add config module
+
+// Export modules for cross-file references
+pub use config::SETTINGS; // Export SETTINGS for use by other modules
+pub use config::AppSettings; // Export AppSettings for use by other modules
 
 // Import necessary types from submodules
 use crate::transcription::TranscriptionState; // Make sure TranscriptionState is pub in transcription.rs
 
 // --- State Definitions ---
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppRecordingState { // Public enum
+// --- Frontend State Enum for serialization to match TypeScript ---
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)] // Must derive Serialize
+#[serde(rename_all = "UPPERCASE")] // Ensure serialization matches frontend if needed
+pub enum FrontendRecordingState {
     Idle,
-    Recording,           // Single state for active recording (hold or pre-lock)
-    WaitingForSecondTap, // For double-tap detection
+    Recording,
+    LockedRecording,
+    Transcribing,
+    Error,
+    Pasting, // Add any other states defined in TypeScript
+}
+
+// Implement Default trait for FrontendRecordingState
+impl Default for FrontendRecordingState {
+    fn default() -> Self {
+        FrontendRecordingState::Idle // Default state is Idle
+    }
+}
+
+// --- Structured payload for UI state updates ---
+#[derive(Clone, Debug, serde::Serialize, Default)]
+struct StateUpdatePayload {
+    state: FrontendRecordingState, // Use the frontend enum type
+    duration_ms: u128,
+    transcription_result: Option<String>,
+    error_message: Option<String>,
+}
+
+// --- ADD Lifecycle Enum ---
+#[derive(Debug, Clone)] // Removed PartialEq, Eq
+pub enum RecordingLifecycle {
+    Idle,
+    Recording(Arc<AtomicBool>), // Store the session's active flag
+    Stopping,                   // Intermediate state during cleanup
+}
+
+// Add manual implementation for equality checks, ignoring the Arc<AtomicBool> value
+impl PartialEq for RecordingLifecycle {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (RecordingLifecycle::Idle, RecordingLifecycle::Idle) => true,
+            (RecordingLifecycle::Stopping, RecordingLifecycle::Stopping) => true,
+            (RecordingLifecycle::Recording(_), RecordingLifecycle::Recording(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RecordingLifecycle {}
+// --- END Enum ---
+
+// --- ADD Lifecycle State ---
+lazy_static! {
+    pub static ref RECORDING_LIFECYCLE: Mutex<RecordingLifecycle> = Mutex::new(RecordingLifecycle::Idle);
+}
+// --- END State ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppRecordingState { // Use simpler enum
+    Idle,
+    Recording,
     LockedRecording,
     Transcribing,
 }
 
-lazy_static! {
-    static ref RDEV_APP_STATE: Mutex<AppRecordingState> = Mutex::new(AppRecordingState::Idle);
-    static ref HOTKEY_DOWN: Mutex<bool> = Mutex::new(false); // Physical key state
-    static ref PRESS_START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
-    static ref FIRST_TAP_RELEASE_TIME: Mutex<Option<Instant>> = Mutex::new(None); // Time of the first tap's release
+// Enum for events sent over the channel
+#[derive(Debug, Clone)]
+enum HotkeyEvent {
+    Press(Instant),
+    Release(Instant),
 }
-const DOUBLE_TAP_WINDOW_MS: u128 = 350; // Time window for second tap (adjust as needed)
-const TAP_MAX_DURATION_MS: u128 = 300; // Max duration for a press to be considered a 'tap' for locking
+
+// Shared application state
+#[derive(Clone, Debug)]
+struct AppState {
+    recording_state: AppRecordingState,
+    press_start_time: Option<Instant>,
+    hotkey_down_physically: bool, // Track physical key state separately if needed
+}
+
+lazy_static! {
+    // The state managed by the dedicated processing thread
+    static ref HOTKEY_STATE: Mutex<AppState> = Mutex::new(AppState {
+        recording_state: AppRecordingState::Idle,
+        press_start_time: None,
+        hotkey_down_physically: false,
+    });
+
+    // The channel for communication
+    static ref EVENT_CHANNEL: (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) = unbounded();
+    static ref EVENT_SENDER: Sender<HotkeyEvent> = EVENT_CHANNEL.0.clone();
+    static ref EVENT_RECEIVER: Receiver<HotkeyEvent> = EVENT_CHANNEL.1.clone();
+}
+
+const TAP_MAX_DURATION_MS: u128 = 300;
 
 #[derive(Default)]
 pub struct AudioRecordingState {
     pub stop_signal_sender: Option<mpsc::Sender<()>>,
-    pub recording_thread_handle: Option<thread::JoinHandle<()>>,
+    pub recording_thread_handle: Option<JoinHandle<()>>,
     pub temp_wav_path: Option<PathBuf>,
-    pub is_actively_recording: bool,
-    // Correct type: Option contains the Arc/Mutex/Option<WavWriter>
     pub writer: Option<Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>>,
 }
 pub type SharedRecordingState = Arc<Mutex<AudioRecordingState>>;
@@ -110,47 +195,280 @@ async fn write_to_clipboard_command(text_to_copy: String) -> Result<(), String> 
     write_to_clipboard_internal(text_to_copy) // Call sync helper
 }
 
-#[tauri::command]
-fn reset_rdev_state() {
-    println!("[RUST CMD] reset_rdev_state called (via frontend signal).");
-    let mut state_guard = RDEV_APP_STATE.lock().unwrap();
-    *state_guard = AppRecordingState::Idle;
-    let mut hotkey_down_guard = HOTKEY_DOWN.lock().unwrap();
-    *hotkey_down_guard = false;
-    // Reset press times
-    *PRESS_START_TIME.lock().unwrap() = None;
-    *FIRST_TAP_RELEASE_TIME.lock().unwrap() = None; // Also clear the first tap release time
-    println!("[RUST CMD] Rdev state forced to IDLE, hotkey down flag cleared, all press times cleared.");
+// Re-introduce PostEventAction enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PostEventAction {
+    None,
+    StartRecordingAndEmitUi,
+    StopAndTranscribeAndEmitUi,
+    UpdateUiOnly, // For entering LockedRecording
+}
+
+// Simplified process_hotkey_event function
+fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
+    let mut action_to_take = PostEventAction::None;
+    {
+        let mut state = HOTKEY_STATE.lock().unwrap();
+        let current_state = state.recording_state;
+        println!("[State Processor (Simplified V2)] Received event: {:?}. Current state: {:?}", event, current_state);
+
+        match event {
+            HotkeyEvent::Press(press_time) => {
+                if !state.hotkey_down_physically {
+                    state.hotkey_down_physically = true;
+                    state.press_start_time = Some(press_time);
+                    match current_state {
+                        AppRecordingState::Idle => {
+                            println!("[State Processor (Simplified V2)] State Transition: Idle -> Recording");
+                            state.recording_state = AppRecordingState::Recording;
+                            action_to_take = PostEventAction::StartRecordingAndEmitUi;
+                        }
+                        AppRecordingState::LockedRecording => {
+                            println!("[State Processor (Simplified V2)] State Transition: LockedRecording -> Transcribing (Tap)");
+                            state.recording_state = AppRecordingState::Transcribing;
+                            action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                        }
+                        _ => println!("[State Processor (Simplified V2)] Ignoring Press in state: {:?}", current_state),
+                    }
+                } else { println!("[State Processor (Simplified V2)] Ignoring Repeat Press event."); }
+            }
+            HotkeyEvent::Release(release_time) => {
+                 if state.hotkey_down_physically {
+                    state.hotkey_down_physically = false;
+                    let press_start = state.press_start_time.take();
+                    if let Some(start) = press_start {
+                        let duration_ms = release_time.duration_since(start).as_millis();
+                        println!("[State Processor (Simplified V2)] Release duration: {} ms", duration_ms);
+                        match current_state {
+                            AppRecordingState::Recording => {
+                                if duration_ms <= TAP_MAX_DURATION_MS {
+                                    println!("[State Processor (Simplified V2)] State Transition: Recording -> LockedRecording (Tap)");
+                                    state.recording_state = AppRecordingState::LockedRecording;
+                                    action_to_take = PostEventAction::UpdateUiOnly; // Action to emit LockedRecording state
+                                } else {
+                                    println!("[State Processor (Simplified V2)] State Transition: Recording -> Transcribing (Hold)");
+                                    state.recording_state = AppRecordingState::Transcribing;
+                                    action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                                }
+                            }
+                            _ => println!("[State Processor (Simplified V2)] Ignoring Release in state: {:?}", current_state),
+                        }
+                    } else { println!("[State Processor (Simplified V2) WARN] Release without matching press_start_time! (State: {:?})", current_state); }
+                 } else { println!("[State Processor (Simplified V2) WARN] Ignoring spurious Release event."); }
+            }
+        }
+        println!("[State Processor (Simplified V2)] New State determined: {:?}. Action: {:?}", state.recording_state, action_to_take);
+    } // State lock released
+
+    // Perform Action outside lock
+    println!("[State Processor (Simplified V2)] Performing Action: {:?}", action_to_take);
+    match action_to_take {
+         PostEventAction::StartRecordingAndEmitUi => {
+             let payload = StateUpdatePayload { state: FrontendRecordingState::Recording, ..Default::default() };
+             emit_state_update(app_handle, payload);
+             emit_start_recording(app_handle);
+         }
+         PostEventAction::StopAndTranscribeAndEmitUi => {
+             let payload = StateUpdatePayload { state: FrontendRecordingState::Transcribing, ..Default::default() };
+             emit_state_update(app_handle, payload);
+             emit_stop_transcribe(app_handle);
+         }
+         PostEventAction::UpdateUiOnly => { // LockedRecording
+             let payload = StateUpdatePayload { state: FrontendRecordingState::LockedRecording, ..Default::default() };
+             emit_state_update(app_handle, payload);
+         }
+         PostEventAction::None => { println!("[State Processor (Simplified V2)] No action needed."); }
+     }
+    println!("[State Processor (Simplified V2)] Finished processing event.");
 }
 
 #[tauri::command]
-fn signal_reset_complete() {
-    println!("[RUST CMD] signal_reset_complete received from frontend.");
-    reset_rdev_state(); // Ensure it calls the updated reset function
+fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
+    println!("[RUST CMD] signal_reset_complete received. Performing state reset...");
+
+    // --- Moved Reset Logic Here ---
+    let lifecycle = RECORDING_LIFECYCLE.lock().unwrap();
+    if *lifecycle == RecordingLifecycle::Idle {
+        println!("[RUST CMD] RecordingLifecycle is Idle, proceeding with hotkey state reset.");
+        drop(lifecycle); // Drop lock before acquiring next
+
+        // Reset hotkey state
+        { // Scope for HOTKEY_STATE lock
+            let mut state = HOTKEY_STATE.lock().unwrap();
+            state.recording_state = AppRecordingState::Idle;
+            state.press_start_time = None;
+            state.hotkey_down_physically = false;
+            println!("[RUST CMD] Hotkey state forced to IDLE, flags/times cleared.");
+        } // HOTKEY_STATE lock released
+
+        // --- Emit Final IDLE State Update ---
+        println!("[RUST CMD] Emitting final IDLE state update to frontend.");
+        let final_payload = StateUpdatePayload {
+            state: FrontendRecordingState::Idle,
+            duration_ms: 0,
+            transcription_result: None, // Let frontend manage showing last result
+            error_message: None,
+        };
+        // Use the app_handle passed into this command
+        emit_state_update(&app_handle, final_payload);
+        // --- End Emit ---
+
+    } else {
+        // This case might indicate a race condition, log it
+        println!("[RUST CMD WARNING] signal_reset_complete called, but RecordingLifecycle was {:?}. Not resetting hotkey state or emitting Idle.", *lifecycle);
+        // We might want to force emit Idle anyway? Or investigate why this happens.
+        // For now, just log. If lifecycle isn't Idle, the hotkey state shouldn't be reset.
+    }
+    // --- End Moved Reset Logic ---
 }
 
 // --- Main Setup ---
 fn main() {
     println!("Fethr startup - v{}", env!("CARGO_PKG_VERSION"));
 
+    // --- Define the System Tray ---
+    // We define it here, but the icon is set in tauri.conf.json
+    // We can add menu items here later if needed.
+    let system_tray = SystemTray::new(); // Basic tray with no menu for now
+
     tauri::Builder::default()
         // Initialize transcription state properly using init_transcription
-        .setup(|app| {
-            // Initialize TranscriptionState with proper paths
-            match transcription::init_transcription(&app.handle()) {
-                Ok(transcription_state) => {
-                    println!("[RUST SETUP] Successfully initialized TranscriptionState: {:?}", transcription_state);
-                    app.manage(transcription_state);
-                },
-                Err(e) => {
-                    println!("[RUST SETUP ERROR] Failed to initialize TranscriptionState: {}", e);
-                    // Fall back to default if initialization fails
-                    app.manage(TranscriptionState::default());
-                }
-            }
+        .setup(|app| -> Result<(), Box<dyn Error>> {
+            // --- Ensure Config is Loaded ---
+            println!("[RUST SETUP] Initializing configuration...");
+            drop(config::SETTINGS.lock().unwrap()); // Access Lazy static to trigger loading
+            println!("[RUST SETUP] Configuration initialized.");
+            // --- End Config Init ---
+
+            // Initialize TranscriptionState (now much simpler)
+            println!("[RUST SETUP] Initializing TranscriptionState...");
+            let transcription_state = TranscriptionState::default();
+            app.manage(transcription_state);
+            println!("[RUST SETUP] TranscriptionState initialized.");
 
             // Manage audio recording state
             app.manage(Arc::new(Mutex::new(AudioRecordingState::default())));
+
+            // --- Debug Window Handles (Final Correction) ---
+            println!("[RUST SETUP DEBUG] Checking window handles for URL/Title...");
+            match app.get_window("main") {
+                Some(window) => {
+                    // Handle title() Result and url() Url
+                    let url_string = window.url().to_string(); // Convert tauri::Url to String
+                    let title_string = window.title() // This returns Result<String, Error>
+                        .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
+                    println!("[RUST SETUP DEBUG] Found window handle 'main'. Title: \"{}\", URL: \"{}\"", title_string, url_string);
+                },
+                None => println!("[RUST SETUP DEBUG ERROR] Could NOT find window handle 'main' during debug check."),
+            }
+            match app.get_window("pill") {
+                Some(window) => {
+                    // Handle title() Result and url() Url
+                    let url_string = window.url().to_string(); // Convert tauri::Url to String
+                    let title_string = window.title() // This returns Result<String, Error>
+                        .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
+                    println!("[RUST SETUP DEBUG] Found window handle 'pill'. Title: \"{}\", URL: \"{}\"", title_string, url_string);
+                },
+                None => println!("[RUST SETUP DEBUG ERROR] Could NOT find window handle 'pill' during debug check."),
+            }
+            println!("[RUST SETUP DEBUG] Proceeding with safe handle retrieval...");
+            // --- End Debug Window Handles (Final Correction) ---
+
+            // --- Get Window Handles Safely ---
+            let main_window = match app.get_window("main") {
+                 Some(win) => {
+                     println!("[RUST SETUP] Got main window handle successfully.");
+                     
+                    // --- Explicitly Navigate to Dev Server URL ---
+                    let dev_server_url = "http://localhost:5176"; // Base URL for main window
+                    println!("[RUST SETUP] Attempting to navigate main window to: {}", dev_server_url);
+                    match win.eval(&format!("window.location.replace('{}')", dev_server_url)) {
+                        Ok(_) => println!("[RUST SETUP] Main window navigation command sent successfully."),
+                        Err(e) => println!("[RUST SETUP ERROR] Failed to send main window navigation command: {}", e),
+                    }
+                    // --- End Explicit Navigation ---
+                    
+                    // --- Explicitly Hide Main Window ---
+                    println!("[RUST SETUP] Explicitly hiding main window after navigation attempt.");
+                    if let Err(e) = win.hide() {
+                        println!("[RUST SETUP WARNING] Failed to explicitly hide main window: {}", e);
+                    }
+                    // --- End Explicit Hide ---
+                     
+                     win
+                 },
+                 None => {
+                     println!("[RUST SETUP FATAL] Could not get main window handle! Exiting setup.");
+                     // Use Box<dyn Error> for the return type
+                     return Err(Box::from("Failed to get main window handle"));
+                 }
+             };
+            let pill_window = match app.get_window("pill") {
+                Some(win) => {
+                    println!("[RUST SETUP] Got pill window handle successfully.");
+                    
+                    // --- Explicitly Navigate Pill Window ---
+                    let pill_url = "http://localhost:5176/pill"; // Full URL for pill window
+                    println!("[RUST SETUP] Attempting to navigate pill window to: {}", pill_url);
+                    match win.eval(&format!("window.location.replace('{}')", pill_url)) {
+                        Ok(_) => println!("[RUST SETUP] Pill window navigation command sent successfully."),
+                        Err(e) => println!("[RUST SETUP ERROR] Failed to send pill window navigation command: {}", e),
+                    }
+                    // --- End Explicit Navigation ---
+                    
+                    win
+                },
+                None => {
+                    println!("[RUST SETUP FATAL] Could not get pill window handle! Exiting setup.");
+                    return Err(Box::from("Failed to get pill window handle"));
+                }
+            };
+            // --- End Safe Window Handle Logic ---
+
+            // --- Verify Initial Visibility (Optional but good for debugging) ---
+            match main_window.is_visible() {
+                Ok(visible) => {
+                    if visible {
+                        println!("[RUST SETUP WARN] Main window was unexpectedly visible on start! Hiding.");
+                        let _ = main_window.hide(); // Attempt to hide if wrongly visible
+                    } else {
+                         println!("[RUST SETUP] Main window correctly hidden on start.");
+                    }
+                },
+                Err(e) => println!("[RUST SETUP ERROR] Failed to check main window visibility: {}", e),
+            }
+            match pill_window.is_visible() {
+                Ok(visible) => {
+                    if !visible {
+                        println!("[RUST SETUP WARN] Pill window was unexpectedly hidden on start! Showing.");
+                        let _ = pill_window.show(); // Attempt to show if wrongly hidden
+                    } else {
+                         println!("[RUST SETUP] Pill window correctly visible on start.");
+                    }
+                },
+                Err(e) => println!("[RUST SETUP ERROR] Failed to check pill window visibility: {}", e),
+            }
+            // --- End Window Handle Logic ---
+
+            // --- Start State Processing Thread ---
+            let app_handle_for_state = app.handle(); // Clone handle for the new thread
+            thread::spawn(move || {
+                println!("[State Thread] Started (Simplified - No Timeout).");
+                loop {
+                    println!("[State Thread] Waiting for next hotkey event...");
+                    match EVENT_RECEIVER.recv() { // Use blocking recv()
+                        Ok(hotkey_event) => {
+                            println!("[State Thread] Received event via channel: {:?}", hotkey_event);
+                            process_hotkey_event(hotkey_event, &app_handle_for_state);
+                        }
+                        Err(e) => {
+                            println!("[State Thread ERROR] Channel disconnected! Exiting thread. Error: {}", e);
+                            break; // Exit loop
+                        }
+                    }
+                } // End loop
+            }); // End state thread spawn
+            // --- End State Processing Thread ---
 
             // --- Initialize Rdev Listener Thread ---
             let app_handle_for_rdev = app.handle();
@@ -162,21 +480,49 @@ fn main() {
             });
             // --- End Rdev Listener Thread ---
 
-            // --- Remove Old Global Shortcut Registration ---
-            println!("[RUST Setup] Skipping registration of fallback Ctrl+Shift+A hotkey.");
-            // let app_handle_shortcut = app.handle();
-            // let mut shortcut_manager = app.global_shortcut_manager();
-            // shortcut_manager.register("Ctrl+Shift+A", move || { /* ... */ }).ok();
-            // --- End Remove ---
-
-            // Show window
-            if let Some(window) = app.get_window("main") {
-                 println!("Showing main window");
-                 window.show().unwrap();
-                 window.set_focus().unwrap();
-            } else { println!("Main window not found!"); }
-
             Ok(())
+        })
+        .system_tray(system_tray)
+        .on_system_tray_event(|app, event| match event {
+            SystemTrayEvent::LeftClick { position: _, size: _, .. } => {
+                println!("[Tray Event] Left click detected.");
+                if let Some(main_window) = app.get_window("main") {
+                    // Window handle exists, proceed with toggle logic
+                    if let Ok(is_visible) = main_window.is_visible() {
+                        if is_visible {
+                            println!("[Tray Event] Hiding settings window.");
+                            // Optionally, you could unminimize first if you want hide to work after minimize
+                            // main_window.unminimize().unwrap_or_else(|e| eprintln!("Failed to unminimize: {}", e));
+                            main_window.hide().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to hide window: {}", e));
+                        } else {
+                            println!("[Tray Event] Showing settings window.");
+                            main_window.show().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to show window: {}", e));
+                            main_window.set_focus().unwrap_or_else(|e| eprintln!("[Tray Event ERROR] Failed to focus window: {}", e));
+                        }
+                    } else {
+                         eprintln!("[Tray Event ERROR] Failed to check main window visibility.");
+                    }
+                } else {
+                    // Window handle DOES NOT exist
+                    eprintln!("[Tray Event WARNING] Could not get main window handle on tray click. Window might be closed or in an unexpected state.");
+                }
+            }
+            SystemTrayEvent::RightClick { position: _, size: _, .. } => {
+                println!("[Tray Event] Right click detected (No action defined).");
+                // TODO: Implement context menu if needed later
+            }
+            SystemTrayEvent::DoubleClick { position: _, size: _, .. } => {
+                println!("[Tray Event] Double click detected (No action defined).");
+            }
+            // --- Handle Menu Items Later ---
+            // SystemTrayEvent::MenuItemClick { id, .. } => {
+            //   match id.as_str() {
+            //     "quit" => { std::process::exit(0); }
+            //     "show_settings" => { ... show main window ... }
+            //     _ => {}
+            //   }
+            // }
+            _ => {} // Handle other tray events if necessary
         })
         .invoke_handler(tauri::generate_handler![
             // Core Commands:
@@ -186,223 +532,43 @@ fn main() {
             // Utility Commands:
             write_to_clipboard_command,
             paste_text_to_cursor, // Defined in this file now
-            reset_rdev_state,
             signal_reset_complete,
             delete_file
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Fethr application");
-} // <<< ENSURE THIS CLOSING BRACE FOR main() IS PRESENT
+}
 
 
 // --- Rdev Callback Logic ---
-fn callback(event: Event, app_handle: &AppHandle) {
+
+// Replace the entire existing callback function
+fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed here anymore
     let event_time = Instant::now();
 
-    // Filter to only process RightAlt key events
-    let is_relevant_key_event = match event.event_type {
-        EventType::KeyPress(key) if key == RdevKey::AltGr => true,
-        EventType::KeyRelease(key) if key == RdevKey::AltGr => true,
-        _ => false,
-    };
-
-    if is_relevant_key_event {
-        println!("\n[RDEV Event {:?}] Time: {:?}", event.event_type, event_time);
-
-        // Variables for state tracking
-        let state_before_timeout_check: AppRecordingState;
-        let mut timeout_occurred = false;
-        let mut final_action = None;
-
-        // --- 1. Check for timeout first (with minimal lock duration) ---
-        {
-            let state_guard = RDEV_APP_STATE.lock().unwrap();
-            state_before_timeout_check = *state_guard;
-            println!("[RDEV Pre-Timeout State]: {:?}", state_before_timeout_check);
-        }
-        
-        // Handle WaitingForSecondTap timeout (out of lock scope)
-        if state_before_timeout_check == AppRecordingState::WaitingForSecondTap {
-            let first_tap_time_opt = {
-                let guard = FIRST_TAP_RELEASE_TIME.lock().unwrap();
-                *guard // Clone the Option<Instant>
-            };
-            
-            if let Some(first_tap_release_time) = first_tap_time_opt {
-                let elapsed_ms = first_tap_release_time.elapsed().as_millis();
-                if elapsed_ms > DOUBLE_TAP_WINDOW_MS {
-                    println!("[RDEV Timeout] WaitingForSecondTap timed out after {} ms", elapsed_ms);
-                    
-                    // Reset state atomically
-                    {
-                        let mut state_guard = RDEV_APP_STATE.lock().unwrap();
-                        *state_guard = AppRecordingState::Idle;
-                        println!("[RDEV State Change] WaitingForSecondTap -> Idle (Timeout)");
-                    }
-                    {
-                        let mut first_tap_guard = FIRST_TAP_RELEASE_TIME.lock().unwrap();
-                        *first_tap_guard = None;
-                    }
-                    
-                    timeout_occurred = true;
-                    
-                    // Signal UI to update
-                    emit_state_update(app_handle, "IDLE");
-                    emit_stop_transcribe(app_handle);
-                }
+    match event.event_type {
+        EventType::KeyPress(key) if key == RdevKey::AltGr => {
+            println!("[RDEV Callback] Detected AltGr Press. Sending to channel.");
+            if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Press(event_time)) {
+                println!("[RDEV Callback ERROR] Failed to send Press event: {}", e);
             }
         }
-
-        // If timeout occurred, we continue processing the current event with the new state
-        let state_for_event_processing = if timeout_occurred {
-            AppRecordingState::Idle
-        } else {
-            state_before_timeout_check
-        };
-        
-        // --- 2. Process the current event based on the current state ---
-        match event.event_type {
-            EventType::KeyPress(_) => { // RightAlt key pressed
-                let mut hotkey_pressed = false;
-                
-                // Update hotkey state (minimal lock duration)
-                {
-                    let mut hotkey_guard = HOTKEY_DOWN.lock().unwrap();
-                    if !*hotkey_guard {
-                        *hotkey_guard = true;
-                        hotkey_pressed = true;
-                        
-                        // Record press time (minimal lock duration)
-                        let press_time = Instant::now();
-                        *PRESS_START_TIME.lock().unwrap() = Some(press_time);
-                        println!("[RDEV HOTKEY] >>> RightAlt PRESS at {:?} <<<", press_time);
-                    } else {
-                        println!("[RDEV HOTKEY] >>> RightAlt PRESS (duplicate/ignored) <<<");
-                    }
-                }
-                
-                if hotkey_pressed {
-                    // Process key press based on current state
-                    let next_state = match state_for_event_processing {
-                        AppRecordingState::Idle => {
-                            println!("[RDEV State Transition] Idle -> Recording (Press)");
-                            final_action = Some(("RECORDING", true)); // (ui_state, start_recording)
-                            AppRecordingState::Recording
-                        },
-                        AppRecordingState::WaitingForSecondTap => {
-                            println!("[RDEV State Transition] WaitingForSecondTap -> LockedRecording (Second Tap)");
-                            // Clear first tap time
-                            *FIRST_TAP_RELEASE_TIME.lock().unwrap() = None;
-                            final_action = Some(("LOCKED_RECORDING", false)); // UI update only, recording already started
-                            AppRecordingState::LockedRecording
-                        },
-                        AppRecordingState::LockedRecording => {
-                            println!("[RDEV State Transition] LockedRecording -> Transcribing (Stop Press)");
-                            final_action = Some(("TRANSCRIBING", false)); // UI update + stop recording
-                            AppRecordingState::Transcribing
-                        },
-                        _ => {
-                            println!("[RDEV Press Logic] Ignoring press in state: {:?}", state_for_event_processing);
-                            state_for_event_processing // No change
-                        }
-                    };
-                    
-                    // Update state atomically (minimal lock duration)
-                    {
-                        let mut state_guard = RDEV_APP_STATE.lock().unwrap();
-                        *state_guard = next_state;
-                    }
-                }
-            },
-            
-            EventType::KeyRelease(_) => { // RightAlt key released
-                let mut hotkey_released = false;
-                let press_start_time_opt;
-                
-                // Update hotkey state (minimal lock duration)
-                {
-                    let mut hotkey_guard = HOTKEY_DOWN.lock().unwrap();
-                    if *hotkey_guard {
-                        *hotkey_guard = false;
-                        hotkey_released = true;
-                        println!("[RDEV HOTKEY] <<< RightAlt RELEASE at {:?} <<<", Instant::now());
-                    } else {
-                        println!("[RDEV HOTKEY] <<< RightAlt RELEASE (duplicate/ignored) <<<");
-                    }
-                }
-                
-                // Get press start time (minimal lock duration)
-                {
-                    let mut press_time_guard = PRESS_START_TIME.lock().unwrap();
-                    press_start_time_opt = press_time_guard.take();
-                }
-                
-                if hotkey_released {
-                    // Process key release based on current state and press duration
-                    if let Some(press_start) = press_start_time_opt {
-                        let press_duration_ms = event_time.duration_since(press_start).as_millis();
-                        println!("[RDEV Release Logic] Press Duration: {} ms", press_duration_ms);
-                        
-                        let next_state = match state_for_event_processing {
-                            AppRecordingState::Recording => {
-                                if press_duration_ms <= TAP_MAX_DURATION_MS {
-                                    // Quick release (tap) - potential double-tap sequence
-                                    println!("[RDEV State Transition] Recording -> WaitingForSecondTap (Tap)");
-                                    // Record release time for double-tap detection
-                                    *FIRST_TAP_RELEASE_TIME.lock().unwrap() = Some(event_time);
-                                    AppRecordingState::WaitingForSecondTap
-                                } else {
-                                    // Long press (hold-to-record completed)
-                                    println!("[RDEV State Transition] Recording -> Transcribing (Hold Release)");
-                                    final_action = Some(("TRANSCRIBING", false)); // UI update + stop recording
-                                    AppRecordingState::Transcribing
-                                }
-                            },
-                            _ => {
-                                println!("[RDEV Release Logic] Release ignored in state: {:?}", state_for_event_processing);
-                                state_for_event_processing // No change
-                            }
-                        };
-                        
-                        // Update state atomically (minimal lock duration)
-                        {
-                            let mut state_guard = RDEV_APP_STATE.lock().unwrap();
-                            *state_guard = next_state;
-                        }
-                        
-                    } else {
-                        println!("[RDEV WARN] Release event but PRESS_START_TIME was None (State: {:?})", state_for_event_processing);
-                    }
-                }
-            },
-            _ => {} // Unreachable
+        EventType::KeyRelease(key) if key == RdevKey::AltGr => {
+             println!("[RDEV Callback] Detected AltGr Release. Sending to channel.");
+             if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Release(event_time)) {
+                 println!("[RDEV Callback ERROR] Failed to send Release event: {}", e);
+             }
         }
-        
-        // --- 3. Execute final actions outside of any locks ---
-        if let Some((ui_state, start_recording)) = final_action {
-            println!("[RDEV Action] Emitting UI state: {}", ui_state);
-            emit_state_update(app_handle, ui_state);
-            
-            if start_recording {
-                println!("[RDEV Action] Emitting start recording signal");
-                emit_start_recording(app_handle);
-            }
-            
-            if ui_state == "TRANSCRIBING" {
-                println!("[RDEV Action] Emitting stop and transcribe signal");
-                emit_stop_transcribe(app_handle);
-            }
-        }
-        
-        // Log final state for debugging
-        println!("[RDEV Post-Event State]: {:?}", *RDEV_APP_STATE.lock().unwrap());
+        _ => {} // Ignore other events
     }
 }
 
+
 // --- Helper functions to emit events ---
-fn emit_state_update(app_handle: &AppHandle, state_str: &str) {
-    println!("[RUST Emit Helper] Emitting fethr-update-ui-state: {}", state_str);
-    let _ = app_handle.emit_all("fethr-update-ui-state", serde_json::json!({ "state": state_str }));
+fn emit_state_update(app_handle: &AppHandle, payload: StateUpdatePayload) {
+    // Use {:?} debug formatting for the struct log
+    println!("[RUST Emit Helper] Emitting fethr-update-ui-state payload: {:?}", payload);
+    let _ = app_handle.emit_all("fethr-update-ui-state", payload); // Emit the struct
 }
 fn emit_start_recording(app_handle: &AppHandle) {
     println!("[RUST Emit Helper] Emitting fethr-start-recording");
@@ -410,7 +576,12 @@ fn emit_start_recording(app_handle: &AppHandle) {
 }
 fn emit_stop_transcribe(app_handle: &AppHandle) {
     println!("[RUST Emit Helper] Emitting fethr-stop-and-transcribe");
-    let auto_paste_enabled = true; // TODO: Read from config state
+    // Get auto_paste setting from loaded config
+    let auto_paste_enabled = {
+        let settings_guard = SETTINGS.lock().unwrap();
+        settings_guard.auto_paste
+    };
+    println!("[RUST Emit Helper] Auto-paste enabled: {}", auto_paste_enabled);
     let _ = app_handle.emit_all("fethr-stop-and-transcribe", auto_paste_enabled);
 }
 

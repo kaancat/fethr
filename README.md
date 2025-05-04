@@ -4,10 +4,13 @@ Fethr is a desktop application built with Tauri, React, and TypeScript that prov
 
 ## Default Environment
 
-- **OS:** Windows 10+ (platform.system() = Windows)
+- **OS:** Cross-platform (Windows, macOS, Linux)
+  - Windows: 10+ (platform.system() = Windows)
+  - macOS: 10.15+ (platform.system() = Darwin)
+  - Linux: Modern distributions (platform.system() = Linux)
 - **Python:** 3.11.9
-- **Note:** The %OS% environment variable is not set in this shell, but platform.system() is reliable.
-- **Status:** App is developed and tested on Windows 10+ with Python 3.11+.
+- **Note:** App detects OS at runtime using conditional compilation (cfg! macros in Rust)
+- **Status:** App is tested primarily on Windows but supports all major platforms.
 
 ## Features
 
@@ -56,6 +59,19 @@ The app is built using a layered architecture:
 - **Clipboard Manager** - System-level clipboard operations
 
 ## Recent Enhancements
+
+### 2024-09-19: Cross-Platform Resource Bundling
+- **Platform-Agnostic Resource Handling** - Improved resource bundling for cross-platform compatibility
+  - Implemented conditional path resolution based on OS and build environment
+  - Enhanced model and binary discovery across Windows, macOS, and Linux
+  - Added explicit architecture detection for Apple Silicon support
+- **Configuration Improvements** - Simplified settings with automatic resource resolution
+  - Removed hardcoded paths in favor of Tauri resource APIs
+  - Added language configuration option for international support
+  - Improved error handling for missing resources with detailed diagnostics
+- **Clipboard Operation Fixes** - Refined clipboard handling to prevent duplicate paste operations
+  - Moved clipboard operations out of transcription module
+  - Fixed auto-paste logic to ensure consistent behavior
 
 ### 2024-09-05: Audio Conversion Optimization
 - **WebM to WAV Conversion** - Enhanced audio conversion process with robust error handling
@@ -110,13 +126,15 @@ npm run tauri build
 - Audio is recorded in WebM format at 256kbps (upgraded from 128kbps)
 - Recording uses the Web Audio API and MediaRecorder
 - Volume monitoring uses AnalyzerNode for real-time visualization
-- Transcription uses a locally installed whisper.exe with fixed paths:
-  - Executable: `C:\Users\kaan\.fethr\whisper.exe`
-  - Model: `C:\Users\kaan\.fethr\models\ggml-tiny.en.bin`
+- Transcription uses locally bundled Whisper binary with platform-specific resolution:
+  - Debug mode uses vendor directory relative to CARGO_MANIFEST_DIR
+  - Release mode uses Tauri's resource_dir API for bundled resources
+  - Binary name adapts to platform: whisper.exe (Windows), whisper (macOS/Linux)
+  - Architecture-specific binaries are supported (x86_64, aarch64)
 - Whisper parameters are optimized for better speech detection:
-  - `--language en` for English-specific optimization
-  - `--no-timestamps` to simplify output
-  - `--output-stdout` for reliable result capture
+  - `--language <configured-language>` for language-specific optimization
+  - `--no-timestamps` (`-nt`) to simplify output
+  - Model selection via configuration (default: tiny.en)
 
 ## Hotkey System Technical Details
 
@@ -173,11 +191,12 @@ If audio recording is not working properly:
 
 If transcription is not working correctly:
 
-1. Verify whisper.exe is installed at `C:\Users\kaan\.fethr\whisper.exe`
-2. Check that the model file exists at `C:\Users\kaan\.fethr\models\ggml-tiny.en.bin`
-3. Check the console for any error messages from the transcription process
-4. Review `dev_log.md` for known issues and their resolutions
-5. For transcription accuracy issues:
+1. Check for detailed logs in the console showing path resolution attempts
+2. Verify that the application has permission to access bundled resources
+3. For release builds, ensure resources are correctly bundled with the application
+4. For debug builds, check that the vendor directory contains required binaries and models
+5. Review `dev_log.md` for known issues and their platform-specific resolutions
+6. For transcription accuracy issues:
    - Speak clearly and at a normal pace
    - Reduce background noise
    - Consider trying a better microphone
