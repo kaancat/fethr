@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { RecordingState } from '../types';
@@ -40,6 +40,13 @@ const pillContainerVariants = {
     minWidth: "28px",
     borderRadius: "9999px"
   },
+  ready: {
+    width: "auto",
+    height: "32px",
+    padding: "4px 8px",
+    minWidth: "110px",
+    borderRadius: "9999px"
+  },
   recording: {
     width: "auto",
     height: "32px",
@@ -64,10 +71,11 @@ const pillContainerVariants = {
 };
 
 const iconVariant = {
-  idle: { opacity: 1, scale: 1 },
-  recording: { opacity: 1, scale: 0.9 },
-  processing: { opacity: 0.6, scale: 0.8 },
-  error: { opacity: 1, scale: 0.9 }
+  idle: { opacity: 1, scale: 1, x: 0 },
+  ready: { opacity: 0.9, scale: 0.9, x: 0 }, // Keep icon in flow, don't translate
+  recording: { opacity: 0.9, scale: 0.9, x: 0 }, // Keep it in flow
+  processing: { opacity: 0.6, scale: 0.8, x: 0 }, // Centered when processing
+  error: { opacity: 1, scale: 0.9, x: 0 } // Centered on error
 };
 
 const contentVariants = {
@@ -93,15 +101,24 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const isError = currentState === RecordingState.ERROR;
     const showTranscription = isIdle && transcription && !error;
     
-    let containerVariant = "idle";
-    if (isRecording) containerVariant = "recording";
-    else if (isProcessing) containerVariant = "processing";
-    else if (isError) containerVariant = "error";
+    // Track hover state
+    const [isHovered, setIsHovered] = useState(false);
+    
+    // Determine the target variant: idle, ready (on hover), recording, processing, error
+    let targetVariant = "idle";
+    if (isIdle && isHovered) targetVariant = "ready";
+    else if (isRecording) targetVariant = "recording";
+    else if (isProcessing) targetVariant = "processing";
+    else if (isError) targetVariant = "error";
 
     // State classes for non-layout styles
     let stateClasses = "text-white"; // Base text color
-    if (isIdle) {
+    if (isIdle && isHovered) {
+        // Only apply dark background when idle AND hovered
         stateClasses += " bg-gradient-to-br from-[#0A0F1A] to-[#020409] shadow-[0_0_5px_#A6F6FF33] hover:shadow-[0_0_10px_#A6F6FF66] border border-[#A6F6FF]/10";
+    } else if (isIdle && !isHovered) {
+        // No background when idle and not hovered, just minimal styling
+        stateClasses += " shadow-[0_0_5px_#A6F6FF33] hover:shadow-[0_0_10px_#A6F6FF66]";
     } else if (isRecording) {
         stateClasses += " bg-[#020409] border border-[#FF4D6D]/50 shadow-[0_0_8px_#FF4D6D44] hover:shadow-[0_0_12px_#FF4D6D77] text-xs font-mono";
     } else if (isProcessing) {
@@ -111,22 +128,23 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     }
     
     // Log the props received by this component render
-    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}`);
+    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}, Hovered=${isHovered}`);
 
     return (
         <motion.div
             layout // Animate layout: size, position, padding, border-radius
             variants={pillContainerVariants}
-            initial={false}
-            animate={containerVariant}
+            initial="idle"
+            animate={targetVariant} // Animate based on hover OR actual state
+            onHoverStart={() => { if (isIdle) setIsHovered(true); }}
+            onHoverEnd={() => setIsHovered(false)}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className={`flex items-center ${isIdle ? 'justify-center' : 'justify-start'} relative overflow-hidden ${stateClasses} outline outline-1 outline-transparent`}
+            className={`flex items-center ${targetVariant === 'idle' ? 'justify-center' : 'justify-start'} relative overflow-hidden ${stateClasses} outline outline-1 outline-transparent`}
         >
             {/* Icon - always present, part of flex, animates scale/opacity */}
             <motion.div
-                layout="position" // Allow slight position adjustment within flex
                 variants={iconVariant}
-                animate={containerVariant}
+                animate={targetVariant} // Animate based on hover OR actual state
                 transition={{ duration: 0.2 }}
                 className="flex-shrink-0 flex items-center justify-center z-10"
             >
@@ -137,69 +155,25 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                 />
             </motion.div>
 
-            {/* Animated Content Area */}
-            <div className="flex-grow h-full flex items-center overflow-hidden relative">
+            {/* Content Area */}
+            <div className="flex-grow h-full flex items-center overflow-hidden relative min-w-0 ml-2">
                 <AnimatePresence mode="wait" initial={false}>
-                    {/* Recording Content */}
-                    {isRecording && (
+                    {/* Show content ONLY if not idle */}
+                    {(targetVariant !== 'idle') && (
                         <motion.div
-                            key="content-recording"
+                            key="content"
                             variants={contentVariants}
                             initial="hidden"
                             animate="visible"
                             exit="exit"
-                            className="flex items-center justify-between w-full h-full space-x-1.5 pl-1 pr-1"
+                            className="flex items-center justify-end w-full h-full space-x-1.5"
                         >
-                            <div className="flex-grow w-full flex justify-center">
-                                <LiveWaveform />
-                            </div>
-                            <span className="flex-shrink-0 font-mono text-xs">{duration}</span>
-                        </motion.div>
-                    )}
-
-                    {/* Processing Content */}
-                    {isProcessing && (
-                        <motion.div
-                            key="content-processing"
-                            variants={contentVariants}
-                            initial="hidden"
-                            animate="visible"
-                            exit="exit"
-                            className="absolute inset-0 flex items-center justify-center"
-                        >
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                        </motion.div>
-                    )}
-
-                    {/* Error Content */}
-                    {isError && (
-                        <motion.div
-                            key="content-error"
-                            variants={contentVariants}
-                            initial="hidden"
-                            animate="visible"
-                            exit="exit"
-                            className="absolute inset-0 flex items-center justify-center px-1"
-                        >
-                            <span className="truncate text-xs font-mono" title={error}>
-                                ⚠️ {error ? `Error: ${error.substring(0,15)}...` : "Error"}
-                            </span>
-                        </motion.div>
-                    )}
-
-                    {/* Transcription Result */}
-                    {showTranscription && (
-                        <motion.div
-                            key="content-transcription"
-                            variants={contentVariants}
-                            initial="hidden"
-                            animate="visible"
-                            exit="exit"
-                            className="absolute inset-0 flex items-center justify-center px-1"
-                        >
-                            <span className="truncate max-w-[200px] text-xs" title={transcription}>
-                                {transcription}
-                            </span>
+                            {/* Show LiveWaveform during both hover and actual recording */}
+                            {(isRecording || targetVariant === 'ready') && <LiveWaveform />}
+                            {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                            {isError && <span className="truncate text-xs font-mono" title={error}>⚠️ Error</span>}
+                            {isRecording && <span className="flex-shrink-0 font-mono text-xs">{duration}</span>}
+                            {(targetVariant === 'ready' && !isRecording) && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>}
                         </motion.div>
                     )}
                 </AnimatePresence>

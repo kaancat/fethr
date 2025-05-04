@@ -226,10 +226,8 @@ function PillPage() {
 
         setupListeners(); // Call the async setup function
 
-        // --- Drag Logic (Keep As Is) ---
-        const pillContainer = document.getElementById('pill-container-restored');
-        const enableDrag = () => { if (appWindow.label === 'pill') appWindow.startDragging(); };
-        if (pillContainer) pillContainer.addEventListener('mousedown', enableDrag);
+        // --- Remove Drag Logic ---
+        // The drag logic is now handled directly in the RecordingPill component
 
         // Combined cleanup function for BOTH listeners and drag handler
         return () => {
@@ -243,10 +241,7 @@ function PillPage() {
                  console.log("PillPage: Clearing timer interval in cleanup.");
                  clearInterval(timerIntervalRef.current);
              }
-             // Clean up drag listener
-             if (pillContainer) {
-                pillContainer.removeEventListener('mousedown', enableDrag);
-             }
+             // No longer need to clean up drag listener, as it's been moved to RecordingPill
         };
 
     }, []); // Empty dependency array ensures this runs only once on mount

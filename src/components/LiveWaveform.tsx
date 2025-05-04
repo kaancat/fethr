@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const NUM_BARS = 5; // Reduced from 7 to 5 for an even more compact appearance
+const NUM_BARS = 6; // Increased from 5 to 6 for better visualization
 const MIN_BAR_HEIGHT = 5; // Minimum 5% height
 const SMOOTHING_FACTOR = 0.85; // Analyser smoothing
 const FFT_SIZE = 256; // Increase for time domain data
-const SCALE_FACTOR = 700; // Dramatically increased from 350 to 700 for much better visual impact
+const SCALE_FACTOR = 900; // Dramatically increased from 700 to 1100 for even better visual impact
 
 const LiveWaveform: React.FC = () => {
     const [barHeights, setBarHeights] = useState<number[]>(() => new Array(NUM_BARS).fill(MIN_BAR_HEIGHT));
@@ -170,9 +170,9 @@ const LiveWaveform: React.FC = () => {
              {barHeights.map((height, index) => (
                  <span
                      key={index}
-                     className="block w-1.5 bg-white/80 rounded-full" // Changed from w-2 to w-1.5
+                     className="block w-1 bg-white/80 rounded-full" // Changed from w-1.5 to w-1 for thinner bars
                      // Apply dynamic height, ensure min-height via Math.max in calculation
-                     style={{ height: `${height}%`, transition: 'height 0.075s ease-out' }} // Faster transition (0.1s → 0.075s)
+                     style={{ height: `${height}%`, transition: 'height 0.075s ease-out' }}
                  />
              ))}
          </div>
