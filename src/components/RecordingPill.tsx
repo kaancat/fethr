@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { RecordingState } from '../types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
@@ -30,6 +30,7 @@ interface RecordingPillProps {
     duration: string; // Expecting pre-formatted string like "0s"
     transcription?: string; // Optional transcription text
     error?: string; // Optional error message
+    backendError?: string | null; // Optional backend error message from Rust
 }
 
 // --- Animation Variants ---
@@ -95,19 +96,21 @@ const contentVariants = {
   }
 };
 
-const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error }) => {
+const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError }) => {
     const isIdle = currentState === RecordingState.IDLE;
     const isRecording = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessing = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
-    const isError = currentState === RecordingState.ERROR;
-    const showTranscription = isIdle && transcription && !error;
+    const isError = currentState === RecordingState.ERROR || !!backendError;
+    const showTranscription = isIdle && transcription && !error && !backendError;
     
     // Track hover state
     const [isHovered, setIsHovered] = useState(false);
     
     // Determine the target variant: idle, ready (on hover), recording, processing, error
     let targetVariant = "idle";
-    if (isIdle && isHovered) targetVariant = "ready";
+    if (backendError) {
+        targetVariant = "error";
+    } else if (isIdle && isHovered) targetVariant = "ready";
     else if (isRecording) targetVariant = "recording";
     else if (isProcessing) targetVariant = "processing";
     else if (isError) targetVariant = "error";
@@ -156,7 +159,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     }
     
     // Log the props received by this component render
-    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}, Hovered=${isHovered}`);
+    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}, BackendErr=${backendError || 'none'}, Hovered=${isHovered}`);
 
     return (
         <motion.div
@@ -168,40 +171,50 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             onHoverEnd={() => setIsHovered(false)}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className={`flex items-center ${targetVariant === 'idle' ? 'justify-center' : 'justify-start'} relative overflow-hidden ${stateClasses} outline outline-1 outline-transparent`}
+            title={backendError || undefined} // Add tooltip for error message
         >
             {/* Icon - always present, part of flex, animates scale/opacity */}
-            <motion.div
-                layoutId="feather-icon"
-                variants={iconVariant}
-                onClick={handleIconClick}
-                animate={{
-                    ...iconVariant[targetVariant as keyof typeof iconVariant],
-                    rotate: targetVariant === 'ready' ? [0, -10, 10, -5, 5, 0] : 0,
-                    scale: iconVariant[targetVariant as keyof typeof iconVariant].scale,
-                }}
-                transition={{
-                    duration: 0.2,
-                    rotate: targetVariant === 'ready'
-                        ? {
-                            duration: 1.2,
-                            repeat: Infinity,
-                            ease: "easeInOut",
-                          }
-                        : {
-                            duration: 0.2,
-                            ease: "easeOut",
-                          }
-                }}
-                className={`flex-shrink-0 flex items-center justify-center z-10 ${
-                    targetVariant === 'ready' || targetVariant === 'recording' ? 'cursor-pointer' : ''
-                }`}
-            >
-                <img
-                    src="/feather-logo.png"
-                    alt="Fethr"
-                    className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]"
-                />
-            </motion.div>
+            {targetVariant !== 'error' && (
+                <motion.div
+                    layoutId="feather-icon"
+                    variants={iconVariant}
+                    onClick={handleIconClick}
+                    animate={{
+                        ...iconVariant[targetVariant as keyof typeof iconVariant],
+                        rotate: targetVariant === 'ready' ? [0, -10, 10, -5, 5, 0] : 0,
+                        scale: iconVariant[targetVariant as keyof typeof iconVariant].scale,
+                    }}
+                    transition={{
+                        duration: 0.2,
+                        rotate: targetVariant === 'ready'
+                            ? {
+                                duration: 1.2,
+                                repeat: Infinity,
+                                ease: "easeInOut",
+                              }
+                            : {
+                                duration: 0.2,
+                                ease: "easeOut",
+                              }
+                    }}
+                    className={`flex-shrink-0 flex items-center justify-center z-10 ${
+                        targetVariant === 'ready' || targetVariant === 'recording' ? 'cursor-pointer' : ''
+                    }`}
+                >
+                    <img
+                        src="/feather-logo.png"
+                        alt="Fethr"
+                        className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]"
+                    />
+                </motion.div>
+            )}
+
+            {/* Error Icon (NEW conditional) */}
+            {targetVariant === 'error' && (
+                <div className="flex-shrink-0 flex items-center justify-center z-10 ml-3 mr-2">
+                    <AlertTriangle className="w-4 h-4 text-red-400" />
+                </div>
+            )}
 
             {/* Content Area - only render when not in idle state */}
             {targetVariant !== 'idle' && (
@@ -218,11 +231,10 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                                 className="flex items-center justify-end w-full h-full space-x-1.5"
                             >
                                 {/* Show LiveWaveform during both hover and actual recording */}
-                                {(isRecording || targetVariant === 'ready') && <LiveWaveform />}
+                                {(isRecording || (targetVariant === 'ready' && !isError)) && <LiveWaveform />}
                                 {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-                                {isError && <span className="truncate text-xs font-mono" title={error}>⚠️ Error</span>}
                                 {isRecording && <span className="flex-shrink-0 font-mono text-xs">{duration}</span>}
-                                {(targetVariant === 'ready' && !isRecording) && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>}
+                                {(targetVariant === 'ready' && !isRecording && !isError) && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>}
                             </motion.div>
                         )}
                     </AnimatePresence>

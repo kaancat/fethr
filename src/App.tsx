@@ -38,8 +38,10 @@ function PillPage() {
     const [duration, setDuration] = useState<number>(0);
     const [transcription, setTranscription] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const startTimeRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         console.log("PillPage: useEffect running - setting up ALL listeners (Invoke Logic Added)");
@@ -96,9 +98,34 @@ function PillPage() {
         };
         // --- End Handler ---
 
-
         const setupListeners = async () => {
             try {
+                // --- Listener for Error Event ---
+                const handleErrorOccurred = (event: { payload: string }) => {
+                    const errorMsg = event.payload;
+                    console.log(`PillPage: Received fethr-error-occurred: "${errorMsg}"`);
+                    // Ensure any previous timeout is cleared
+                    if (errorTimeoutRef.current) {
+                        clearTimeout(errorTimeoutRef.current);
+                    }
+                    setErrorMessage(errorMsg || "An unknown error occurred."); // Store the error message
+
+                    // Set a timer to clear the error message after a few seconds
+                    errorTimeoutRef.current = setTimeout(() => {
+                        setErrorMessage(null); // Clear the error message
+                        console.log("PillPage: Error display timeout finished.");
+                        // Note: We rely on the backend having already sent signal_reset_complete or an IDLE update
+                        // So we don't need to explicitly call reset here usually.
+                        errorTimeoutRef.current = null; // Clear the ref
+                    }, 4000); // Show error for 4 seconds
+                };
+
+                console.log("PillPage: Setting up Error listener.");
+                const unlistenError = await listen<string>('fethr-error-occurred', handleErrorOccurred);
+                unlisteners.push(unlistenError); // Add to cleanup array
+                console.log("PillPage: Error listener setup.");
+                // --- End Listener for Error Event ---
+
                 // --- State Update Listener ---
                 const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', (event) => {
                     if (!isMounted) return;
@@ -134,6 +161,7 @@ function PillPage() {
                         console.log("PillPage: Clearing transcription/error immediately as IDLE state received.");
                         setTranscription(null);
                         setError(null);
+                        // NOTE: We're NOT clearing errorMessage here, letting the timeout handle it
                     }
                     // --- END Immediate Clear on IDLE ---
 
@@ -143,7 +171,6 @@ function PillPage() {
                     // (avoid clearing them just because the state changed)
                      if (transcription_result !== undefined) setTranscription(transcription_result);
                      if (error_message !== undefined) setError(error_message);
-
 
                     // --- Timer Logic (Revised) ---
                     const shouldBeRunning = newTsState === RecordingState.RECORDING || newTsState === RecordingState.LOCKED_RECORDING;
@@ -241,6 +268,11 @@ function PillPage() {
                  console.log("PillPage: Clearing timer interval in cleanup.");
                  clearInterval(timerIntervalRef.current);
              }
+             // Clean up error timeout
+             if (errorTimeoutRef.current) {
+                 console.log("PillPage: Clearing error timeout on unmount.");
+                 clearTimeout(errorTimeoutRef.current);
+             }
              // No longer need to clean up drag listener, as it's been moved to RecordingPill
         };
 
@@ -263,6 +295,7 @@ function PillPage() {
                 // Use nullish coalescing ?? for undefined fallback
                 transcription={transcription ?? undefined}
                 error={error ?? undefined}
+                backendError={errorMessage}
             />
         </div>
     );

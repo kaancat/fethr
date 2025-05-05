@@ -8,6 +8,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use tauri::{command, AppHandle, Manager, State};
 use uuid::Uuid;
+use log::error;
 use crate::SharedRecordingState; // Import SharedRecordingState from main/lib
 use crate::transcription::{self, TranscriptionState}; // Import transcription state
 use cpal::{SupportedStreamConfig, SampleFormat, SampleRate};
@@ -377,12 +378,32 @@ pub async fn stop_backend_recording(
                 },
                 Err(e) => {
                     eprintln!("[RUST AUDIO ERROR] Transcription failed: {}", e);
+                    
+                    // Emit error event
+                    error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", e);
+                    if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", e.clone()) {
+                        error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+                    }
+                    
+                    // Ensure we signal a reset to get back to IDLE state
+                    let _ = crate::signal_reset_complete(app_handle.clone());
+                    
                     Err(format!("Transcription error: {}", e))
                 }
             }
         },
         Err(e) => {
              eprintln!("[RUST AUDIO STOP ERROR] Failed to get audio path: {}. Cannot transcribe.", e);
+             
+             // Emit error event
+             error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", e);
+             if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", e.clone()) {
+                 error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+             }
+             
+             // Ensure we signal a reset to get back to IDLE state
+             let _ = crate::signal_reset_complete(app_handle.clone());
+             
              Err(e)
         }
     }

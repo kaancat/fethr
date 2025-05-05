@@ -15,6 +15,12 @@ export interface AppSettings {
   auto_paste: boolean;
 }
 
+// History entry for transcription results
+export interface HistoryEntry {
+  timestamp: string; // ISO string format from chrono::DateTime<Utc>
+  text: string;     // The transcribed text
+}
+
 // You can add other shared interfaces or types here later if needed
 // Example:
 // export interface ConfigOptions {

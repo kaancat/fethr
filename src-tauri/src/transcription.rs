@@ -8,14 +8,48 @@ use tauri::api::path::resource_dir;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
 use uuid::Uuid;
+use log::error;
+use log::info;
 use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
 use std::process::{Command, Stdio}; // Add these imports for FFmpeg
+use chrono::{DateTime, Utc}; // For timestamp in history entries
+use directories::ProjectDirs; // For getting config directory
+use std::io::Read; // For reading files
+use std::io::Write; // For writing files
+use serde_json;
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
 // Add a static flag to prevent multiple transcription processes
 static TRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+// Define maximum number of history entries to keep
+const MAX_HISTORY_ENTRIES: usize = 200;
+
+// History entry structure for storing transcription results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub timestamp: DateTime<Utc>,
+    pub text: String,
+}
+
+// Function to get the path to the history file
+pub fn get_history_file_path() -> Result<PathBuf, String> {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "fethr", "fethr") {
+        let config_dir = proj_dirs.config_dir();
+        
+        // Ensure the config directory exists
+        if !config_dir.exists() {
+            fs::create_dir_all(config_dir)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+        
+        Ok(config_dir.join("history.json"))
+    } else {
+        Err("Failed to determine project directories".to_string())
+    }
+}
 
 // Status structure to report transcription progress
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +196,12 @@ pub async fn transcribe_audio_file(
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         println!("[RUST DEBUG] Another transcription is already in progress, skipping this request");
-        return Err("Another transcription is already in progress".to_string());
+        let error_message = "Another transcription is already in progress".to_string();
+        error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", error_message);
+        if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", error_message.clone()) {
+            error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+        }
+        return Err(error_message);
     }
 
     // Ensure lock is released even on panic
@@ -206,6 +245,7 @@ pub async fn transcribe_local_audio_impl(
         (settings_guard.model_name.clone(), settings_guard.language.clone())
     };
     println!("[RUST DEBUG transcription.rs] Using Model: '{}', Language: '{}'", model_name_string, language_string);
+    info!("[RUST WHISPER PREP] Language read from settings: {}", language_string);
 
     // --- Resolve Paths (Debug vs Release) ---
 
@@ -291,13 +331,29 @@ pub async fn transcribe_local_audio_impl(
     if !whisper_binary_path.exists() {
         let err_msg = format!("Bundled Whisper binary not found at: {}", whisper_binary_path.display());
         eprintln!("[RUST ERROR] {}", err_msg);
-        let _ = app_handle.emit_all("fethr-transcription-error", &err_msg);
+        
+        error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", err_msg);
+        if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", err_msg.clone()) {
+            error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+        }
+        
+        // Call signal_reset_complete to ensure UI doesn't get stuck
+        let _ = crate::signal_reset_complete(app_handle.clone());
+        
         return Err(err_msg);
     }
      if !model_path.exists() {
         let err_msg = format!("Bundled Whisper model not found at: {}", model_path.display());
         eprintln!("[RUST ERROR] {}", err_msg);
-         let _ = app_handle.emit_all("fethr-transcription-error", &err_msg);
+        
+        error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", err_msg);
+        if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", err_msg.clone()) {
+            error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+        }
+        
+        // Call signal_reset_complete to ensure UI doesn't get stuck
+        let _ = crate::signal_reset_complete(app_handle.clone());
+        
         return Err(err_msg);
     }
     // --- End Resource Path Resolution ---
@@ -335,7 +391,17 @@ pub async fn transcribe_local_audio_impl(
     if !whisper_input_path.exists() {
         let error_msg = format!("Whisper input file does not exist: {}", whisper_input_path.display());
         println!("[RUST ERROR] {}", error_msg);
+        
+        error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", error_msg);
+        if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", error_msg.clone()) {
+            error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+        }
+        
         cleanup_files(input_wav_path, None::<&Path>);
+        
+        // Call signal_reset_complete to ensure UI doesn't get stuck
+        let _ = crate::signal_reset_complete(app_handle.clone());
+        
         return Err(error_msg);
     }
     println!("[RUST DEBUG] Whisper will use input file: {}", whisper_input_path.display());
@@ -357,13 +423,13 @@ pub async fn transcribe_local_audio_impl(
     
     // --- Conditionally add language argument ---
     if language_string.trim().to_lowercase() == "auto" {
-        println!("[RUST WHISPER] Language set to 'auto', enabling Whisper auto-detection.");
+        info!("[RUST WHISPER PREP] Language is 'auto', not adding -l flag.");
         // Do NOT add the -l argument
     } else if !language_string.trim().is_empty() {
-        println!("[RUST WHISPER] Using specified language: {}", language_string);
+        info!("[RUST WHISPER PREP] Adding language flag: -l {}", language_string);
         command.arg("-l").arg(&language_string); // Pass language only if specified and not "auto"
     } else {
-        println!("[RUST WHISPER] Language setting is empty, defaulting to Whisper auto-detection.");
+        info!("[RUST WHISPER PREP] Language setting is empty, defaulting to Whisper auto-detection.");
         // Do NOT add the -l argument
     }
     // --- End conditional language ---
@@ -378,8 +444,18 @@ pub async fn transcribe_local_audio_impl(
         Err(e) => {
             let err_msg = format!("Failed to execute Whisper: {}", e);
             eprintln!("[RUST ERROR] {}", err_msg);
+            
+            error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", err_msg);
+            if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", err_msg.clone()) {
+                error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+            }
+            
             cleanup_files(input_wav_path, converted_wav_path_opt.as_ref().map(|v| &**v));
             let _ = app_handle.emit_all("transcription_status_changed", TranscriptionStatus::Failed(err_msg.clone())); // Use snake_case
+            
+            // Call signal_reset_complete to ensure UI doesn't get stuck
+            let _ = crate::signal_reset_complete(app_handle.clone());
+            
             return Err(err_msg);
         }
     };
@@ -405,6 +481,79 @@ pub async fn transcribe_local_audio_impl(
         let success_status = TranscriptionStatus::Complete { text: trimmed_output.clone() };
         let _ = app_handle.emit_all("transcription_status_changed", success_status); // Use snake_case event name
 
+        // Save transcription to history
+        if !trimmed_output.is_empty() {
+            info!("[RUST HISTORY] Saving transcription result to history file");
+            
+            // Create new history entry with current timestamp and text
+            let new_entry = HistoryEntry {
+                timestamp: Utc::now(),
+                text: trimmed_output.clone(),
+            };
+            
+            // Get history file path
+            match get_history_file_path() {
+                Ok(history_path) => {
+                    info!("[RUST HISTORY] History file path: {:?}", history_path);
+                    
+                    // Read existing history file or default to empty JSON array
+                    let history_content = match fs::read_to_string(&history_path) {
+                        Ok(content) => {
+                            info!("[RUST HISTORY] Read existing history file");
+                            content
+                        },
+                        Err(e) => {
+                            info!("[RUST HISTORY] Failed to read history file (may not exist yet): {}", e);
+                            "[]".to_string() // Default to empty array
+                        }
+                    };
+                    
+                    // Parse JSON to vector of HistoryEntry
+                    let mut history_vec: Vec<HistoryEntry> = match serde_json::from_str::<Vec<HistoryEntry>>(&history_content) {
+                        Ok(vec) => {
+                            info!("[RUST HISTORY] Successfully parsed history JSON with {} entries", vec.len());
+                            vec
+                        },
+                        Err(e) => {
+                            info!("[RUST HISTORY] Failed to parse history JSON: {}. Starting fresh.", e);
+                            Vec::new() // Default to empty vector
+                        }
+                    };
+                    
+                    // Append new entry
+                    history_vec.push(new_entry);
+                    info!("[RUST HISTORY] Added new entry, history now has {} entries", history_vec.len());
+                    
+                    // Cap history if needed
+                    if history_vec.len() > MAX_HISTORY_ENTRIES {
+                        let removed_count = history_vec.len() - MAX_HISTORY_ENTRIES;
+                        history_vec.drain(0..removed_count);
+                        info!("[RUST HISTORY] Capped history by removing {} oldest entries, now at {} entries", 
+                             removed_count, history_vec.len());
+                    }
+                    
+                    // Serialize back to JSON
+                    match serde_json::to_string_pretty(&history_vec) {
+                        Ok(json) => {
+                            // Write to file
+                            match fs::write(&history_path, json) {
+                                Ok(_) => {
+                                    info!("[RUST HISTORY] Successfully wrote history to file");
+                                    info!("[RUST HISTORY] Successfully wrote updated history. Emitting update event.");
+                                    app_handle.emit_all("fethr-history-updated", ()).unwrap_or_else(|e| {
+                                        error!("[RUST HISTORY] Failed to emit history update event: {}", e);
+                                    });
+                                },
+                                Err(e) => error!("[RUST HISTORY] Failed to write history to file: {}", e)
+                            }
+                        },
+                        Err(e) => error!("[RUST HISTORY] Failed to serialize history to JSON: {}", e)
+                    }
+                },
+                Err(e) => error!("[RUST HISTORY] Failed to get history file path: {}", e)
+            }
+        }
+
         // Note: Auto-paste is now handled in audio_manager_rs.rs
         if auto_paste {
             println!("[RUST DEBUG] Auto-paste is enabled but will be handled by the calling function.");
@@ -419,6 +568,15 @@ pub async fn transcribe_local_audio_impl(
         let error_msg = format!("Whisper command failed with status: {}. Stderr: {}. Stdout: {}", 
                               output.status, stderr_text.trim(), stdout_text.trim());
         println!("[RUST ERROR] {}", error_msg);
+        
+        error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", error_msg);
+        if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", error_msg.clone()) {
+            error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
+        }
+        
+        // Call signal_reset_complete to ensure UI doesn't get stuck
+        let _ = crate::signal_reset_complete(app_handle.clone());
+        
         Err(error_msg)
     }
 }
@@ -458,4 +616,44 @@ fn whisper_output_trim(output: &str) -> String {
         .replace("[NOISE]", "")
         .trim()
         .to_string()
+}
+
+// Command to retrieve transcription history
+#[tauri::command]
+pub async fn get_history(_app_handle: AppHandle) -> Result<Vec<HistoryEntry>, String> {
+    info!("[RUST HISTORY] Fetching transcription history...");
+    
+    // Get history file path
+    let path = get_history_file_path()?;
+    info!("[RUST HISTORY] Looking for history file at: {:?}", path);
+    
+    // Read file content
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            // Parse JSON content
+            match serde_json::from_str::<Vec<HistoryEntry>>(&content) {
+                Ok(mut history_vec) => {
+                    info!("[RUST HISTORY] Successfully read and parsed {} history entries", history_vec.len());
+                    
+                    // Sort newest first based on timestamp
+                    history_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                    info!("[RUST HISTORY] Sorted history entries newest-first");
+                    
+                    Ok(history_vec)
+                },
+                Err(e) => {
+                    error!("[RUST HISTORY] Failed to parse history file {:?}: {}. Returning empty history.", path, e);
+                    Ok(Vec::new()) // Return empty history on parse error
+                }
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!("[RUST HISTORY] History file {:?} not found. Returning empty history.", path);
+            Ok(Vec::new()) // Return empty history if file doesn't exist
+        },
+        Err(e) => {
+            error!("[RUST HISTORY] Failed to read history file {:?}: {}", path, e);
+            Err(format!("Failed to read history file: {}", e))
+        }
+    }
 }

@@ -552,6 +552,7 @@ fn main() {
             audio_manager_rs::start_backend_recording,
             audio_manager_rs::stop_backend_recording,
             transcription::transcribe_audio_file,
+            transcription::get_history, // History command
             // Utility Commands:
             write_to_clipboard_command,
             paste_text_to_cursor, // Defined in this file now
