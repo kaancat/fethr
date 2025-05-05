@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { RecordingState } from '../types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
+import { invoke } from '@tauri-apps/api/tauri';
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -111,6 +112,33 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isProcessing) targetVariant = "processing";
     else if (isError) targetVariant = "error";
 
+    // Click handler for the feather icon
+    const handleIconClick = async () => {
+        console.log(`Icon clicked in state: ${targetVariant}`); // Keep overall log
+
+        if (targetVariant === 'ready') {
+            try {
+                // Start recording by simulating a press
+                console.log('Invoking trigger_press_event via UI click...');
+                await invoke('trigger_press_event');
+                console.log('trigger_press_event invoked successfully.');
+            } catch (error) {
+                console.error('Error invoking trigger_press_event:', error);
+            }
+        } else if (targetVariant === 'recording') {
+            try {
+                // Stop recording by simulating a release
+                console.log('Invoking trigger_release_event (to stop) via UI click...'); // Log updated
+                await invoke('trigger_release_event'); // USE RELEASE HERE
+                console.log('trigger_release_event (to stop) invoked successfully.'); // Log updated
+            } catch (error) {
+                console.error('Error invoking trigger_release_event (to stop):', error); // Log updated
+            }
+        } else {
+            console.log('Icon click ignored in current state.'); // Keep this part
+        }
+    };
+
     // State classes for non-layout styles
     let stateClasses = "text-white"; // Base text color
     if (isIdle && isHovered) {
@@ -143,10 +171,30 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         >
             {/* Icon - always present, part of flex, animates scale/opacity */}
             <motion.div
+                layoutId="feather-icon"
                 variants={iconVariant}
-                animate={targetVariant} // Animate based on hover OR actual state
-                transition={{ duration: 0.2 }}
-                className="flex-shrink-0 flex items-center justify-center z-10"
+                onClick={handleIconClick}
+                animate={{
+                    ...iconVariant[targetVariant as keyof typeof iconVariant],
+                    rotate: targetVariant === 'ready' ? [0, -10, 10, -5, 5, 0] : 0,
+                    scale: iconVariant[targetVariant as keyof typeof iconVariant].scale,
+                }}
+                transition={{
+                    duration: 0.2,
+                    rotate: targetVariant === 'ready'
+                        ? {
+                            duration: 1.2,
+                            repeat: Infinity,
+                            ease: "easeInOut",
+                          }
+                        : {
+                            duration: 0.2,
+                            ease: "easeOut",
+                          }
+                }}
+                className={`flex-shrink-0 flex items-center justify-center z-10 ${
+                    targetVariant === 'ready' || targetVariant === 'recording' ? 'cursor-pointer' : ''
+                }`}
             >
                 <img
                     src="/feather-logo.png"

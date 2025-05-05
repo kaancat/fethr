@@ -557,6 +557,9 @@ fn main() {
             paste_text_to_cursor, // Defined in this file now
             signal_reset_complete,
             delete_file,
+            // UI-triggered hotkey events:
+            trigger_press_event,
+            trigger_release_event,
             // Settings Commands:
             get_settings,
             save_settings,
@@ -697,4 +700,22 @@ async fn get_available_models(_app_handle: AppHandle) -> Result<Vec<String>, Str
     
     info!("[Settings] Found models: {:?}", model_files);
     Ok(model_files)
+}
+
+#[tauri::command]
+fn trigger_press_event() {
+    println!("[RUST CMD] trigger_press_event received from UI.");
+    let event = HotkeyEvent::Press(Instant::now());
+    if let Err(e) = EVENT_SENDER.send(event) {
+        error!("[RUST CMD ERROR] Failed to send Press event via channel: {}", e);
+    }
+}
+
+#[tauri::command]
+fn trigger_release_event() {
+    println!("[RUST CMD] trigger_release_event received from UI.");
+    let event = HotkeyEvent::Release(Instant::now());
+    if let Err(e) = EVENT_SENDER.send(event) {
+        error!("[RUST CMD ERROR] Failed to send Release event via channel: {}", e);
+    }
 }
