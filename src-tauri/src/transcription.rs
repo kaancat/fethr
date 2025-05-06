@@ -14,8 +14,6 @@ use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
 use std::process::{Command, Stdio}; // Add these imports for FFmpeg
 use chrono::{DateTime, Utc}; // For timestamp in history entries
-use std::io::Read; // For reading files
-use std::io::Write; // For writing files
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
 
@@ -76,7 +74,7 @@ pub fn check_model_exists(model_directory: &PathBuf, model_name: &str) -> bool {
 }
 
 // Helper function to convert to WAV with predictable output path & error checking
-async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, app_handle: &AppHandle) -> Result<(), String> {
+async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handle: &AppHandle) -> Result<(), String> {
     println!("[RUST FFMPEG] Converting {} to 16kHz WAV at {}", input_path.display(), output_path.display());
 
     // --- Resolve FFmpeg Path (Debug vs Release) ---
@@ -168,7 +166,7 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, app_handle
 #[tauri::command]
 pub async fn transcribe_audio_file(
     app_handle: AppHandle,
-    state: tauri::State<'_, TranscriptionState>,
+    _state: tauri::State<'_, TranscriptionState>,
     audio_path: String,
     auto_paste: bool // Keep flag as override parameter
 ) -> Result<String, String> {

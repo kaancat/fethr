@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import type { AppSettings, HistoryEntry } from '../types';
-import { toast } from 'react-hot-toast';
+import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -13,6 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Loader2, Copy, Trash2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import HistoryItemEditor from '../components/HistoryItemEditor';
+import TextareaAutosize from 'react-textarea-autosize';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -38,6 +40,7 @@ languageOptions.sort((a, b) => {
 });
 
 function SettingsPage() {
+    const { toast } = useToast();
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -50,7 +53,19 @@ function SettingsPage() {
     const [historyError, setHistoryError] = useState<string | null>(null);
     
     // Section state
-    const [activeSection, setActiveSection] = useState<'general' | 'history'>('general'); // Default to 'general'
+    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions'>('general'); // Added 'ai_actions'
+    const [apiKey, setApiKey] = useState<string>('');
+    const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
+
+    // State for viewing AI action prompts
+    const [viewingPromptForActionId, setViewingPromptForActionId] = useState<string | null>(null);
+    const [currentPromptText, setCurrentPromptText] = useState<string | null>(null);
+    const [editedPromptText, setEditedPromptText] = useState<string | null>(null);
+    const [isLoadingPrompt, setIsLoadingPrompt] = useState<boolean>(false);
+
+    // State for User API Key
+    const [userApiKey, setUserApiKey] = useState<string>('');
+    const [apiKeyInput, setApiKeyInput] = useState<string>(''); // For the input field buffer
 
     // Placeholder for About content - Define outside component or fetch if needed
     const aboutContent = {
@@ -91,7 +106,11 @@ function SettingsPage() {
                 console.error('Error loading settings:', err);
                 const errorMsg = err instanceof Error ? err.message : String(err);
                 setError(`Failed to load settings: ${errorMsg}`);
-                toast.error(`Settings load failed: ${errorMsg.substring(0, 50)}${errorMsg.length > 50 ? '...' : ''}`);
+                toast({
+                    variant: "destructive",
+                    title: "Settings Load Failed",
+                    description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
+                });
                 
                 // Set default empty models array if fetch failed
                 setAvailableModels([]);
@@ -101,6 +120,16 @@ function SettingsPage() {
         }
 
         loadData();
+    }, [toast]);
+
+    // useEffect to Load API Key from Local Storage on Mount
+    useEffect(() => {
+        const storedUserApiKey = localStorage.getItem('fethr_user_openrouter_api_key');
+        if (storedUserApiKey) {
+            setUserApiKey(storedUserApiKey);
+            setApiKeyInput(storedUserApiKey); // Pre-fill input if key exists
+            console.log("[Settings AI] Loaded user API key from local storage.");
+        }
     }, []);
 
     // Define loadHistory function with useCallback
@@ -116,11 +145,15 @@ function SettingsPage() {
             console.error('[History] Error loading history:', err);
             const errorMsg = err instanceof Error ? err.message : String(err);
             setHistoryError(`Failed to load history: ${errorMsg}`);
-            toast.error(`History load failed: ${errorMsg.substring(0, 50)}${errorMsg.length > 50 ? '...' : ''}`);
+            toast({
+                variant: "destructive",
+                title: "History Load Failed",
+                description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
+            });
         } finally {
             setHistoryLoading(false);
         }
-    }, []); // Empty dependency array for useCallback
+    }, [toast]); // Empty dependency array for useCallback
 
     // Fetch history entries and set up update listener
     useEffect(() => {
@@ -149,13 +182,20 @@ function SettingsPage() {
     const copyHistoryItem = useCallback((text: string) => {
         navigator.clipboard.writeText(text)
             .then(() => {
-                toast.success("Copied to clipboard!");
+                toast({
+                    title: "Copied!",
+                    description: "Text copied to clipboard.",
+                });
             })
             .catch(err => {
                 console.error("Failed to copy history text:", err);
-                toast.error("Failed to copy text.");
+                toast({
+                    variant: "destructive",
+                    title: "Copy Failed",
+                    description: "Could not copy text to clipboard.",
+                });
             });
-    }, []);
+    }, [toast]);
 
     const handleSettingChange = (key: keyof AppSettings, value: string | boolean) => {
         console.log(`Updating setting: ${key} = ${value}`);
@@ -164,7 +204,11 @@ function SettingsPage() {
 
     const handleSave = async () => {
         if (!settings) {
-            toast.error("No settings to save");
+            toast({
+                variant: "destructive",
+                title: "Save Error",
+                description: "No settings to save.",
+            });
             return;
         }
         
@@ -175,12 +219,19 @@ function SettingsPage() {
         try {
             await invoke('save_settings', { settings });
             console.log("Settings saved successfully");
-            toast.success("Settings saved successfully");
+            toast({
+                title: "Settings Saved",
+                description: "Your settings have been saved successfully.",
+            });
         } catch (err) {
             console.error('Error saving settings:', err);
             const errorMsg = err instanceof Error ? err.message : String(err);
             setError(`Failed to save settings: ${errorMsg}`);
-            toast.error(`Save failed: ${errorMsg.substring(0, 50)}${errorMsg.length > 50 ? '...' : ''}`);
+            toast({
+                variant: "destructive",
+                title: "Save Failed",
+                description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
+            });
         } finally {
             setIsSaving(false);
         }
@@ -189,39 +240,22 @@ function SettingsPage() {
     const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
 
     // --- ADD HANDLERS for Edit --- 
-    const handleCancelEdit = () => {
-        console.log("Canceling edit...");
-        setEditingEntry(null);
-    };
+    const handleCancelEdit = () => setEditingEntry(null);
 
     // --- REPLACE handleSaveEdit with Debug Version ---
     const handleSaveEdit = async (timestamp: string, newText: string) => {
-        console.log(`[SaveDebug] handleSaveEdit called for timestamp: ${timestamp}`); // Log function entry
         if (!newText.trim()) {
-            console.warn("[SaveDebug] Save cancelled: Text cannot be empty.");
-            toast.error("Transcription text cannot be empty.");
+            toast({ variant: "destructive", title: "Save Error", description: "Transcription text cannot be empty." });
             return;
         }
-
-        console.log(`[SaveDebug] Attempting invoke 'update_history_entry' with:`, { timestamp, newText }); // Log before invoke
-
+        // Removed toast.loading() call here
         try {
-            await invoke('update_history_entry', {
-                timestamp: timestamp,
-                newText: newText
-            });
-            console.log(`[SaveDebug] Successfully invoked update_history_entry for ${timestamp}`);
-            toast.success("History entry updated.");
-            // Backend should emit 'fethr-history-updated' now.
-            // The listener below should handle the refresh.
-
+            await invoke('update_history_entry', { timestamp, newText });
+            toast({ title: "History Updated", description: "The history entry has been updated." });
         } catch (error) {
-            console.error("[SaveDebug] Error invoking update_history_entry:", error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            toast.error(`Failed to save update: ${errorMsg}`);
+            toast({ variant: "destructive", title: "Update Failed", description: `Failed to save update: ${errorMsg}` });
         } finally {
-            console.log("[SaveDebug] Resetting editing entry state."); // Log before resetting state
-            // Always reset the editing state
             setEditingEntry(null);
         }
     };
@@ -259,7 +293,11 @@ function SettingsPage() {
                  console.error("[SettingsPage] Error during immediate edit handling (fetching/finding entry):", error);
                  setActiveSection('history'); // Still switch tab on error
                  setEditingEntry(null);
-                 toast.error("Failed to load entry for editing."); // User feedback
+                 toast({
+                    variant: "destructive",
+                    title: "Load Error",
+                    description: "Failed to load entry for editing.",
+                 });
             }
         });
 
@@ -271,6 +309,94 @@ function SettingsPage() {
 
     }, [setActiveSection, setEditingEntry]); // Update dependencies - we don't directly use historyEntries state *within* the listener logic anymore for finding the item, but loadHistory might be needed if it does more than just fetch. Let's keep it minimal for now.
     // --- END REFINED useEffect --- 
+
+    // Define DEFAULT_AI_ACTIONS
+    const DEFAULT_AI_ACTIONS = [
+        { id: 'written_form', name: 'Written Form', description: 'Converts spoken text to clean, written text while preserving tone.' },
+        { id: 'summarize', name: 'Summarize', description: 'Provides a concise summary highlighting key points.' },
+        { id: 'email', name: 'Email Mode', description: 'Formats text as a professional email body.' },
+        { id: 'promptify', name: 'Promptify', description: 'Refines spoken ideas into effective AI prompts.' }
+    ];
+
+    const handleViewPrompt = async (actionId: string) => {
+        if (viewingPromptForActionId === actionId && !isLoadingPrompt) {
+            setViewingPromptForActionId(null);
+            // Consider if editedPromptText should be cleared or preserved on toggle
+            // setEditedPromptText(currentPromptText); // Option: reset edits on hide
+            return;
+        }
+        setIsLoadingPrompt(true);
+        setViewingPromptForActionId(actionId);
+        setCurrentPromptText(null);
+        setEditedPromptText(null);
+
+        try {
+            let promptToDisplay: string | null = null;
+            // Try to get custom prompt first
+            console.log(`[Settings AI] Attempting to fetch custom prompt for: ${actionId}`);
+            const customPrompt = await invoke<string | null>('get_custom_prompt', { actionId });
+
+            if (customPrompt) {
+                console.log(`[Settings AI] Found custom prompt for ${actionId}`);
+                promptToDisplay = customPrompt;
+            } else {
+                console.log(`[Settings AI] No custom prompt found for ${actionId}, fetching default.`);
+                promptToDisplay = await invoke<string>('get_default_prompt_for_action', { actionId });
+            }
+            setCurrentPromptText(promptToDisplay);
+            setEditedPromptText(promptToDisplay);
+
+        } catch (error) {
+            console.error(`[Settings AI] Error loading prompt for ${actionId}:`, error);
+            const errorMsg = `Failed to load prompt for ${actionId}.`;
+            toast({
+                variant: "destructive",
+                title: "Load Error",
+                description: errorMsg,
+            });
+            setCurrentPromptText(errorMsg);
+            setEditedPromptText(errorMsg);
+        } finally {
+            setIsLoadingPrompt(false);
+        }
+    };
+
+    const handleSaveUserApiKey = () => {
+        const trimmedKey = apiKeyInput.trim();
+
+        if (!trimmedKey) {
+            // If input is empty, clear any existing saved key
+            handleClearUserApiKey();
+            return;
+        }
+
+        // Basic format check for OpenRouter keys
+        if (trimmedKey.startsWith('sk-or-v1-') && trimmedKey.length > 15) { // Check prefix and a reasonable minimum length
+            localStorage.setItem('fethr_user_openrouter_api_key', trimmedKey);
+            setUserApiKey(trimmedKey);
+            toast({ 
+                title: "Success!",
+                description: "API Key saved!",
+            });
+            console.log("[Settings AI] User API Key saved to local storage.");
+        } else {
+            toast({ 
+                variant: "destructive",
+                title: "Invalid API Key",
+                description: "OpenRouter keys typically start with 'sk-or-v1-'. Please check your key.",
+            });
+            console.log("[Settings AI] AFTER shadcn toast for invalid format was called."); 
+            console.warn("[Settings AI] Invalid API Key format entered by user:", apiKeyInput);
+        }
+    };
+
+    const handleClearUserApiKey = () => {
+        localStorage.removeItem('fethr_user_openrouter_api_key');
+        setUserApiKey('');
+        setApiKeyInput('');
+        toast({ title: "API Key Cleared" }); 
+        console.log("[Settings AI] User API Key cleared from local storage.");
+    };
 
     // --- Render Logic ---
     if (isLoading) {
@@ -328,18 +454,17 @@ function SettingsPage() {
                     >
                         History
                     </Button>
-
-                    {/* Placeholder: AI Actions */}
                     <Button
                         variant="ghost"
-                        disabled // Make it non-interactive for now
-                        className="w-full justify-start text-left px-3 py-2 rounded text-gray-600 cursor-not-allowed" // Dimmed text, no hover effect
-                        title="Coming soon"
+                        onClick={() => setActiveSection('ai_actions')}
+                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
+                            activeSection === 'ai_actions'
+                                ? 'bg-[#A6F6FF]/10 text-white'
+                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
+                        }`}
                     >
                         AI Actions
                     </Button>
-
-                    {/* Placeholder: Dictionary */}
                     <Button
                         variant="ghost"
                         disabled
@@ -348,8 +473,6 @@ function SettingsPage() {
                     >
                         Dictionary
                     </Button>
-
-                    {/* Placeholder: Account */}
                     <Button
                         variant="ghost"
                         disabled
@@ -447,7 +570,7 @@ function SettingsPage() {
                                 <Button 
                                     variant="ghost"
                                     className="w-auto justify-start text-left px-3 py-2 rounded bg-[#8B9EFF]/10 text-[#ADC2FF] hover:bg-[#8B9EFF]/20 hover:text-white focus-visible:ring-[#8B9EFF]"
-                                    onClick={() => toast.success("About Fethr\nVersion " + aboutContent.version)}
+                                    onClick={() => toast({title: "About Fethr", description: "Version " + aboutContent.version})}
                                     disabled={isSaving}
                                 >
                                     About fethr
@@ -540,6 +663,179 @@ function SettingsPage() {
                                     </>
                                 )}
                             </div>
+                        </div>
+                    )}
+
+                    {/* AI Actions Section */}
+                    {activeSection === 'ai_actions' && (
+                        <div className="flex flex-col h-full">
+                            <h2 className="text-lg font-semibold mb-2 text-white">
+                                Configure AI Actions
+                            </h2>
+
+                            {/* --- API Key Configuration Section --- */}
+                            <div className="mb-8 p-4 bg-gray-800/30 border border-gray-700/50 rounded-md">
+                                <h3 className="text-md font-semibold text-white mb-3">Your OpenRouter API Key (Optional)</h3>
+                                <p className="text-xs text-gray-400 mb-1">
+                                    Provide your own OpenRouter API key to use your personal account for AI actions.
+                                    If left blank, Fethr will use a default shared key (usage may be limited).
+                                </p>
+                                <p className="text-xs text-gray-500 mb-3">
+                                    Your key is stored locally on this computer and is not sent to Fethr servers.
+                                </p>
+                                <div className="flex items-center space-x-2">
+                                    <Input
+                                        type="password" // Use password type to mask the key
+                                        placeholder="sk-or-v1-..."
+                                        value={apiKeyInput}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKeyInput(e.target.value)}
+                                        className="flex-grow bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#A6F6FF]/50 focus:ring-offset-1"
+                                    />
+                                    <Button onClick={handleSaveUserApiKey} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                                        Save Key
+                                    </Button>
+                                    {userApiKey && ( // Only show Clear button if a key is currently set/saved
+                                        <Button onClick={handleClearUserApiKey} variant="destructive" size="sm">
+                                            Clear Key
+                                        </Button>
+                                    )}
+                                </div>
+                                 {userApiKey && (
+                                    <p className="text-xs text-green-400 mt-2">An API key is currently saved.</p>
+                                )}
+                            </div>
+                            {/* --- End API Key Configuration Section --- */}
+
+                            <p className="text-sm text-gray-400 mb-1">Predefined AI Actions:</p>
+                            <p className="text-xs text-gray-500 mb-4">
+                                View and customize the prompts for predefined AI actions. These actions will use your API key if provided.
+                            </p>
+
+                            <ScrollArea className="h-full max-h-[calc(100vh-450px)] flex-grow pr-4"> {/* Adjust max-h due to new section */}
+                                <div className="space-y-4">
+                                    {DEFAULT_AI_ACTIONS.map((action) => (
+                                        <div key={action.id} className="p-4 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 space-y-3">
+                                            <div>
+                                                <h3 className="text-md font-semibold text-[#A6F6FF] mb-1">{action.name}</h3>
+                                                <p className="text-xs text-gray-300">{action.description}</p>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-xs px-2 py-1 h-auto border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF]"
+                                                onClick={() => handleViewPrompt(action.id)}
+                                                disabled={isLoadingPrompt && viewingPromptForActionId === action.id}
+                                                title="View/Customize Prompt"
+                                            >
+                                                {viewingPromptForActionId === action.id ? (isLoadingPrompt ? 'Loading...' : 'Hide Prompt') : 'Customize Prompt'}
+                                            </Button>
+                                
+                                            {/* Conditionally render Textarea for viewing the prompt */}
+                                            {viewingPromptForActionId === action.id && !isLoadingPrompt && currentPromptText !== null && (
+                                              <>
+                                                <div className="mt-2 p-3 bg-black/20 rounded">
+                                                    <Label htmlFor={`prompt-textarea-${action.id}`} className="text-xs text-gray-400 mb-1 block">
+                                                        Default Prompt Template (uses "${'{text}'}" as placeholder for your transcription):
+                                                    </Label>
+                                                    <ScrollArea className="max-h-[20rem] w-full rounded-md border border-gray-700 bg-[#020409]"> 
+                                                        <TextareaAutosize
+                                                            id={`prompt-textarea-${action.id}`}
+                                                            value={editedPromptText || ''}
+                                                            onChange={(e) => setEditedPromptText(e.target.value)}
+                                                            minRows={5} 
+                                                            className="w-full text-xs p-2 bg-transparent text-gray-300 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-none shadow-none ring-0 overflow-hidden focus-visible:border-none focus-visible:shadow-none focus:ring-0"
+                                                        />
+                                                    </ScrollArea>
+                                                </div>
+                                                <div className="mt-3 flex justify-between items-center"> {/* Use justify-between */}
+                                                    {/* Revert to Default on the left */}
+                                                    <Button
+                                                        variant="link" // Subtle link-style button
+                                                        size="sm"
+                                                        className="text-xs text-amber-500 hover:text-amber-400 p-0 h-auto"
+                                                        onClick={async () => { // Make onClick async
+                                                            if (!viewingPromptForActionId) return;
+                                
+                                                            const actionIdToRevert = viewingPromptForActionId;
+                                                            console.log(`[Settings AI] Attempting to REVERT TO DEFAULT for ${actionIdToRevert}`);
+                                                            setIsLoadingPrompt(true); // Show loading for the whole operation
+                                
+                                                            try {
+                                                                // Step 1: Delete the custom prompt from backend
+                                                                await invoke('delete_custom_prompt', { actionId: actionIdToRevert });
+                                                                console.log(`[Settings AI] Custom prompt for ${actionIdToRevert} deleted from backend.`);
+                                
+                                                                // Step 2: Fetch the default prompt again to display it
+                                                                const defaultPrompt = await invoke<string>('get_default_prompt_for_action', { actionId: actionIdToRevert });
+                                                                setCurrentPromptText(defaultPrompt);
+                                                                setEditedPromptText(defaultPrompt);
+                                                                toast({ title: "Reverted to Default", description: "Prompt has been reverted to its default setting." });
+                                                            } catch (error) {
+                                                                console.error(`[Settings AI] Error reverting ${actionIdToRevert} to default:`, error);
+                                                                toast({ variant: "destructive", title: "Revert Failed", description: "Could not revert prompt to its default setting." });
+                                                                // Optionally try to re-fetch current/default even on error to reset view
+                                                                const fallbackPrompt = await invoke<string>('get_default_prompt_for_action', { actionId: actionIdToRevert }).catch(() => "Error reloading prompt.");
+                                                                setCurrentPromptText(fallbackPrompt);
+                                                                setEditedPromptText(fallbackPrompt);
+                                                            } finally {
+                                                                setIsLoadingPrompt(false);
+                                                            }
+                                                        }}
+                                                        disabled={isLoadingPrompt}
+                                                    >
+                                                        {isLoadingPrompt && viewingPromptForActionId === action.id ? 'Working...' : 'Revert to Default'}
+                                                    </Button>
+                                
+                                                    {/* Cancel and Save on the right */}
+                                                    <div className="flex space-x-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setEditedPromptText(currentPromptText); // Revert to original fetched/saved prompt
+                                                                toast({ title: "Changes Discarded"});
+                                                            }}
+                                                            disabled={editedPromptText === currentPromptText || isLoadingPrompt}
+                                                        >
+                                                            Cancel
+                                                        </Button>
+                                                        <Button
+                                                            variant="default"
+                                                            size="sm"
+                                                            className="bg-green-600 hover:bg-green-700 text-white"
+                                                            onClick={async () => { // Make onClick async
+                                                                if (!editedPromptText || !editedPromptText.trim() || !viewingPromptForActionId) return;
+                                    
+                                                                const actionIdToSave = viewingPromptForActionId;
+                                                                const promptToSave = editedPromptText;
+                                                                console.log(`[Settings AI] Attempting to SAVE CUSTOM PROMPT for ${actionIdToSave}`);
+                                                                try {
+                                                                    await invoke('save_custom_prompt', {
+                                                                        actionId: actionIdToSave,
+                                                                        customPrompt: promptToSave
+                                                                    });
+                                                                    setCurrentPromptText(promptToSave); // Update our "source of truth" for this view
+                                                                    toast({ title: "Prompt Saved", description: "Custom prompt saved successfully!" });
+                                                                } catch (error) {
+                                                                    const errorMsg = error instanceof Error ? error.message : String(error);
+                                                                    toast({ variant: "destructive", title: "Save Failed", description: `Failed to save prompt: ${errorMsg}` });
+                                                                }
+                                                            }}
+                                                            disabled={editedPromptText === currentPromptText || !editedPromptText || !editedPromptText.trim() || isLoadingPrompt}
+                                                        >
+                                                            Save Prompt
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                              </>
+                                            )}
+                                            {viewingPromptForActionId === action.id && isLoadingPrompt && (
+                                                 <p className="text-xs text-gray-400 mt-2">Loading prompt...</p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
                         </div>
                     )}
                 </div>

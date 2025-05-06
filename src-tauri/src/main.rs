@@ -31,6 +31,7 @@ use serde::{Serialize, Deserialize}; // <-- Add serde import
 mod transcription;
 mod audio_manager_rs;
 mod config; // Add config module
+mod custom_prompts; // <-- ADDED THIS LINE
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -46,6 +47,17 @@ pub struct HistoryEntry {
     text: String,
 }
 // --- END HistoryEntry Struct ---
+
+// --- ADD AI Action Structs ---
+#[derive(Deserialize, Debug)] // For receiving from Vercel
+struct AiActionResponse {
+    result: Option<String>, // Make it optional to handle potential nulls/errors
+    error: Option<String>,
+}
+
+// --- ADD Vercel Proxy URL Constant ---
+const VERCEL_PROXY_URL: &str = "https://fethr-ai-proxy.vercel.app/api/ai-proxy";
+// --- END Constant ---
 
 // --- State Definitions ---
 
@@ -166,6 +178,104 @@ pub fn get_history_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
     Ok(config_dir.join("history.json"))
 }
 // --- END History Path Helper ---
+
+// --- Helper Functions ---
+#[tauri::command] // Make it a Tauri command
+fn get_default_prompt_for_action(action_id: String) -> Result<String, String> {
+    println!("[RUST HELPER] get_default_prompt_for_action called for: {}", action_id);
+    let common_output_constraint = "\n\nIMPORTANT: Your entire response must consist ONLY of the processed text. Do not include any introductory phrases, explanations, apologies, self-references, or surrounding quotation marks unless the quotation marks were explicitly part of the original spoken content being transformed.";
+
+    match action_id.to_lowercase().as_str() {
+        "written_form" => Ok(
+            format!(
+                r#"Directly reformat the following verbatim spoken transcription into polished, grammatically correct written text.
+Focus ONLY on the following transformations:
+1. Correct grammar and punctuation.
+2. Remove verbal disfluencies (e.g., "um", "uh", "you know", "like", "so", "actually", "basically", "right?").
+3. Rephrase awkward, run-on, or overly conversational sentences for clarity and conciseness suitable for written text.
+4. Ensure sentence structure is complete and flows well.
+Maintain the original speaker's core meaning, intent, and tone.
+Do NOT interpret the content, add new information, summarize, or change the core message.
+{}
+
+Spoken Transcription:
+"${{text}}"
+
+Refined Written Text:"#,
+                common_output_constraint
+            )
+        ),
+        "summarize" => Ok(
+            format!(
+                r#"Provide a concise, neutral summary of the key information and main conclusions from the following text.
+Aim for a few sentences or a short paragraph, depending on the original length.
+The summary should be objective and easy to understand.
+{}
+
+Original Text:
+"${{text}}"
+
+Summary:"#,
+                common_output_constraint
+            )
+        ),
+        "email" => Ok(
+            format!(
+                r#"Transform the following text into a well-structured, professional email body suitable for standard business communication.
+Ensure it is polite, clear, and maintains a natural yet professional tone.
+Do not include a subject line, salutation (like "Dear..."), closing (like "Sincerely..."), or any other elements outside the main body content.
+{}
+
+Original Text for Email Body:
+"${{text}}"
+
+Email Body Content:"#,
+                common_output_constraint
+            )
+        ),
+        "promptify" => Ok(
+            format!(
+                r#"A user has provided the following spoken idea for a prompt they intend to give to an AI.
+Your task is to meticulously refine this idea into a highly effective, clear, and concise prompt, suitable for a large language model.
+Apply prompt engineering best practices:
+- Be extremely specific about the desired output format if implied by the user's idea.
+- Clearly and unambiguously define the task, question, or desired outcome.
+- Suggest a specific role or persona for the target AI only if it clearly enhances the prompt's effectiveness for the user's stated goal.
+- If the user mentions constraints, specific details, a particular style, or examples, ensure these are precisely and clearly incorporated in the refined prompt.
+- Structure the refined prompt for optimal clarity and to guide the AI effectively.
+{}
+
+User's Spoken Idea for a Prompt:
+"${{text}}"
+
+Refined Prompt:"#,
+                common_output_constraint
+            )
+        ),
+        _ => {
+            let err_msg = format!("[RUST HELPER ERROR] Unknown action_id for default prompt: {}", action_id);
+            eprintln!("{}", err_msg);
+            // Defaulting to a generic Written Form prompt template as a fallback
+            Ok(format!(
+                r#"Directly reformat the following verbatim spoken transcription into polished, grammatically correct written text.
+Focus ONLY on the following transformations:
+1. Correct grammar and punctuation.
+2. Remove verbal disfluencies (e.g., "um", "uh", "you know", "like", "so", "actually", "basically", "right?").
+3. Rephrase awkward, run-on, or overly conversational sentences for clarity and conciseness suitable for written text.
+4. Ensure sentence structure is complete and flows well.
+Maintain the original speaker's core meaning, intent, and tone.
+Do NOT interpret the content, add new information, summarize, or change the core message.
+{}
+
+Spoken Transcription:
+"${{text}}"
+
+Refined Written Text:"#,
+                common_output_constraint
+            ))
+        }
+    }
+}
 
 // --- Commands ---
 
@@ -353,9 +463,12 @@ fn main() {
     // We can add menu items here later if needed.
     let system_tray = SystemTray::new(); // Basic tray with no menu for now
 
+    let context = tauri::generate_context!(); // Regenerate context
+
+    // Create the app builder
     tauri::Builder::default()
         // Initialize transcription state properly using init_transcription
-        .setup(|app| -> Result<(), Box<dyn Error>> {
+        .setup(move |app| -> Result<(), Box<dyn Error>> {
             // --- Ensure Config is Loaded ---
             println!("[RUST SETUP] Initializing configuration...");
             drop(config::SETTINGS.lock().unwrap()); // Access Lazy static to trigger loading
@@ -518,15 +631,27 @@ fn main() {
         })
         // Add window event handler to intercept close requests for main window
         .on_window_event(|event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
-                if event.window().label() == "main" {
-                    // Intercept close request for settings window
-                    info!("Intercepted close request for main window. Hiding instead of closing.");
-                    if let Err(e) = event.window().hide() {
-                        error!("Failed to hide main window: {}", e);
+            match event.event() {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let window = event.window(); // No need to clone here, we use it directly
+                    api.prevent_close(); // Prevent default close
+                    
+                    if window.label() == "main" {
+                        info!("Intercepted close request for main window. Hiding instead of closing.");
+                        if let Err(e) = window.hide() {
+                            error!("Failed to hide main window: {}", e);
+                        }
+                    } else {
+                        // For other windows, maybe allow close or handle differently
+                        println!("Close requested for window: {}", window.label());
+                        // If you want to allow other windows to close, you would call:
+                        // if let Err(e) = window.close() {
+                        //     eprintln!("Failed to close window {}: {}", window.label(), e);
+                        // }
                     }
-                    api.prevent_close();
                 }
+                // Add any other specific WindowEvent cases you want to handle here
+                _ => {} // Add this wildcard arm to handle all other unlisted events
             }
         })
         .system_tray(system_tray)
@@ -576,6 +701,11 @@ fn main() {
             transcription::get_history, // History command
             update_history_entry, // <-- REGISTER THE NEW COMMAND
             show_settings_window_and_focus, // <-- REGISTER THE NEW COMMAND
+            perform_ai_action, // <-- REGISTER THE NEW COMMAND
+            get_default_prompt_for_action, // <--- ADDED THIS LINE
+            custom_prompts::save_custom_prompt,   // <-- New
+            custom_prompts::get_custom_prompt,    // <-- New
+            custom_prompts::delete_custom_prompt, // <-- New
             // Utility Commands:
             write_to_clipboard_command,
             paste_text_to_cursor, // Defined in this file now
@@ -589,7 +719,7 @@ fn main() {
             save_settings,
             get_available_models
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("Error while running Fethr application");
 }
 
@@ -800,28 +930,22 @@ async fn update_history_entry(app_handle: AppHandle, timestamp: String, new_text
 
 // --- ADD Command to Show/Focus Settings Window ---
 #[tauri::command]
-async fn show_settings_window_and_focus(app_handle: AppHandle) -> Result<(), String> {
-    // Use "main" as the default window label for settings, adjust if yours is different
-    let window_label = "main";
-
+async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let window_label = "main"; // Assuming "main" is your settings window
     match app_handle.get_window(window_label) {
         Some(window) => {
             println!("[RUST CMD] Found settings window ('{}'). Attempting show/focus...", window_label);
-            // Make sure it's visible
             if let Err(e) = window.show() {
                 let err_msg = format!("Failed to show window '{}': {}", window_label, e);
                 eprintln!("[RUST CMD ERROR] {}", err_msg);
                 return Err(err_msg);
             }
-            // Try to unminimize (important on some platforms)
             if let Err(e) = window.unminimize() {
-               // Log this but don't necessarily fail the command, focus might still work
                 println!("[RUST CMD WARN] Failed to unminimize window '{}': {}", window_label, e);
             }
-            // Bring it to the front and give it focus
             if let Err(e) = window.set_focus() {
                 let err_msg = format!("Failed to set focus on window '{}': {}", window_label, e);
-                 eprintln!("[RUST CMD ERROR] {}", err_msg);
+                eprintln!("[RUST CMD ERROR] {}", err_msg);
                 return Err(err_msg);
             }
             println!("[RUST CMD] Successfully showed and focused window '{}'.", window_label);
@@ -835,3 +959,106 @@ async fn show_settings_window_and_focus(app_handle: AppHandle) -> Result<(), Str
     }
 }
 // --- END Command ---
+
+// --- ADD Perform AI Action Command ---
+#[tauri::command]
+fn perform_ai_action(
+    _app_handle: tauri::AppHandle, // Keep _app_handle if not used directly for now
+    action: String,
+    text: String,
+    user_api_key: Option<String> // <-- New optional parameter
+) -> Result<String, String> { 
+    println!("[RUST CMD] perform_ai_action called with action: '{}', user_text length: {}", action, text.len());
+
+    // 1. Try to get a custom prompt for this action
+    let prompt_template = match custom_prompts::get_custom_prompt(_app_handle.clone(), action.clone()) { // Pass AppHandle
+        Ok(Some(custom_prompt)) => {
+            println!("[RUST CMD] Using custom prompt for action '{}'", action);
+            custom_prompt
+        }
+        Ok(None) => {
+            println!("[RUST CMD] No custom prompt for action '{}', using default.", action);
+            match get_default_prompt_for_action(action.clone()) { // Ensure get_default_prompt_for_action is in scope
+                Ok(default_template) => default_template,
+                Err(e) => {
+                    return Err(format!("Internal error: Could not find default prompt template. Details: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[RUST CMD] Error fetching custom prompt for action '{}': {}. Falling back to default.", action, e);
+            // Fallback to default if there's an error reading custom prompts
+            match get_default_prompt_for_action(action.clone()) { // Ensure get_default_prompt_for_action is in scope
+                Ok(default_template) => default_template,
+                Err(e_default) => {
+                    return Err(format!("Internal error: Could not find any prompt template. Details: {}", e_default));
+                }
+            }
+        }
+    };
+
+    // 2. Replace the placeholder in the template with the actual user text
+    let final_prompt = prompt_template.replace("${text}", &text);
+    println!("[RUST CMD] Assembled final prompt (first 100 chars): {}", final_prompt.chars().take(100).collect::<String>());
+
+    // Log whether a user API key is being used
+    if user_api_key.is_some() && user_api_key.as_ref().map_or(false, |k| !k.trim().is_empty()) {
+        println!("[RUST CMD] Using user-provided API key for this request.");
+    } else {
+        println!("[RUST CMD] No user-provided API key, proxy will use fallback app key.");
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    #[derive(serde::Serialize)]
+    struct VercelProxyPayload<'a> {
+        prompt: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "apiKey")] // Output as "apiKey" in JSON
+        api_key: Option<&'a str>, // Use snake_case in Rust
+    }
+
+    let request_payload = VercelProxyPayload {
+        prompt: &final_prompt,
+        api_key: user_api_key.as_ref().map(|s| s.as_str()).filter(|s| !s.trim().is_empty()), // use api_key here
+    };
+
+    match client.post(VERCEL_PROXY_URL) // Assuming VERCEL_PROXY_URL is in scope
+        .json(&request_payload)
+        .send()
+    {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                match response.json::<AiActionResponse>() {
+                    Ok(ai_response) => {
+                        if let Some(result_text) = ai_response.result { Ok(result_text) }
+                        else if let Some(err_msg) = ai_response.error { Err(format!("AI service error: {}", err_msg)) }
+                        else { Err("Invalid response structure from AI service.".to_string()) }
+                    }
+                    Err(e) => Err(format!("Failed to parse AI service response: {}", e))
+                }
+            } else {
+                let error_text = response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+                Err(format!("AI service request failed with status {}: {}", status, error_text))
+            }
+        }
+        Err(e) => Err(format!("Network error calling AI service: {}", e))
+    }
+}
+
+// ... existing code ...
+// Ensure all functions invoked by main are defined or imported.
+// fn main() {
+// ...
+// .invoke_handler(tauri::generate_handler![
+// ... existing commands ...
+// perform_ai_action, // Add this
+// get_default_prompt_for_action, // And this if it's a command
+// ...
+// ])
+// ...
+// }
+// ... existing code ...
