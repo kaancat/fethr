@@ -374,7 +374,12 @@ pub async fn stop_backend_recording(
                         println!("[RUST AUDIO] Auto-paste is disabled. Text copied to clipboard only.");
                     }
                     
-                    Ok(text) // Return the transcription text regardless of paste success
+                    // --- ADD: Trigger Backend State Reset --- 
+                    println!("[RUST AUDIO STOP] Transcription success. Triggering backend state reset...");
+                    let _ = crate::signal_reset_complete(app_handle.clone()); // Call reset internally
+                    // --- END ADD ---
+                    
+                    Ok(text) // Return the transcription text
                 },
                 Err(e) => {
                     eprintln!("[RUST AUDIO ERROR] Transcription failed: {}", e);
@@ -385,8 +390,9 @@ pub async fn stop_backend_recording(
                         error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
                     }
                     
-                    // Ensure we signal a reset to get back to IDLE state
-                    let _ = crate::signal_reset_complete(app_handle.clone());
+                    // Ensure we signal a reset to get back to IDLE state even on error
+                    println!("[RUST AUDIO STOP] Transcription failed. Triggering backend state reset...");
+                    let _ = crate::signal_reset_complete(app_handle.clone()); // Also reset on error path
                     
                     Err(format!("Transcription error: {}", e))
                 }
@@ -401,8 +407,9 @@ pub async fn stop_backend_recording(
                  error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
              }
              
-             // Ensure we signal a reset to get back to IDLE state
-             let _ = crate::signal_reset_complete(app_handle.clone());
+             // Ensure we signal a reset to get back to IDLE state on path error
+             println!("[RUST AUDIO STOP] Path error. Triggering backend state reset...");
+             let _ = crate::signal_reset_complete(app_handle.clone()); // Reset here too
              
              Err(e)
         }

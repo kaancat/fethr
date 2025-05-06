@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
-import { AppSettings, HistoryEntry } from '../types';
+import type { AppSettings, HistoryEntry } from '../types';
 import { toast } from 'react-hot-toast';
+import { format } from 'date-fns';
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Loader2, Copy } from 'lucide-react';
+import { Loader2, Copy, Trash2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
+import HistoryItemEditor from '../components/HistoryItemEditor';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -129,7 +131,7 @@ function SettingsPage() {
             // Set up listener for history updates
             console.log("[History] Setting up history update listener.");
             const unlistenHistoryUpdate = await listen<void>('fethr-history-updated', () => {
-                console.log("[History] Received fethr-history-updated event. Re-fetching history.");
+                console.log('[SaveDebug] Received fethr-history-updated event. Fetching history...');
                 loadHistory(); // Call the existing load function
             });
             console.log("[History] History update listener setup.");
@@ -183,6 +185,92 @@ function SettingsPage() {
             setIsSaving(false);
         }
     };
+
+    const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
+
+    // --- ADD HANDLERS for Edit --- 
+    const handleCancelEdit = () => {
+        console.log("Canceling edit...");
+        setEditingEntry(null);
+    };
+
+    // --- REPLACE handleSaveEdit with Debug Version ---
+    const handleSaveEdit = async (timestamp: string, newText: string) => {
+        console.log(`[SaveDebug] handleSaveEdit called for timestamp: ${timestamp}`); // Log function entry
+        if (!newText.trim()) {
+            console.warn("[SaveDebug] Save cancelled: Text cannot be empty.");
+            toast.error("Transcription text cannot be empty.");
+            return;
+        }
+
+        console.log(`[SaveDebug] Attempting invoke 'update_history_entry' with:`, { timestamp, newText }); // Log before invoke
+
+        try {
+            await invoke('update_history_entry', {
+                timestamp: timestamp,
+                newText: newText
+            });
+            console.log(`[SaveDebug] Successfully invoked update_history_entry for ${timestamp}`);
+            toast.success("History entry updated.");
+            // Backend should emit 'fethr-history-updated' now.
+            // The listener below should handle the refresh.
+
+        } catch (error) {
+            console.error("[SaveDebug] Error invoking update_history_entry:", error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            toast.error(`Failed to save update: ${errorMsg}`);
+        } finally {
+            console.log("[SaveDebug] Resetting editing entry state."); // Log before resetting state
+            // Always reset the editing state
+            setEditingEntry(null);
+        }
+    };
+    // --- END REPLACE ---
+
+    // --- Refined useEffect for Edit Latest Event --- 
+    useEffect(() => {
+        console.log("[SettingsPage] Setting up listener for fethr-edit-latest-history.");
+
+        // Make the callback async
+        const unlistenEditLatest = listen<void>('fethr-edit-latest-history', async (event) => {
+            console.log("[SettingsPage] Received fethr-edit-latest-history event!", event);
+
+            try {
+                // --- Fetch latest history DIRECTLY --- 
+                console.log("[SettingsPage] Event received. Fetching latest history BEFORE editing...");
+                // Invoke get_history directly for guaranteed freshness *within this callback scope*
+                const freshHistory = await invoke<HistoryEntry[]>('get_history');
+                console.log(`[SettingsPage] Fresh history fetched (${freshHistory.length} entries). Now finding latest...`);
+
+                // --- Now find the first entry (assuming newest first) --- 
+                if (freshHistory && freshHistory.length > 0) {
+                    const latestEntry = freshHistory[0]; // Get the newest entry
+                    console.log("[SettingsPage] Found latest entry to edit:", latestEntry.timestamp);
+                    setActiveSection('history'); // Switch to history tab
+                    setEditingEntry(latestEntry); // Set the SPECIFIC entry to edit
+                } else {
+                    console.warn("[SettingsPage] Received edit latest event, but FRESH history list is empty.");
+                    // Fallback: Just switch to history tab
+                    setActiveSection('history');
+                    setEditingEntry(null); // Ensure no previous edit state persists
+                }
+
+            } catch (error) {
+                 console.error("[SettingsPage] Error during immediate edit handling (fetching/finding entry):", error);
+                 setActiveSection('history'); // Still switch tab on error
+                 setEditingEntry(null);
+                 toast.error("Failed to load entry for editing."); // User feedback
+            }
+        });
+
+        // Cleanup function
+        return () => {
+             console.log("[SettingsPage] Cleaning up fethr-edit-latest-history listener.");
+             unlistenEditLatest.then(f => f());
+        };
+
+    }, [setActiveSection, setEditingEntry]); // Update dependencies - we don't directly use historyEntries state *within* the listener logic anymore for finding the item, but loadHistory might be needed if it does more than just fetch. Let's keep it minimal for now.
+    // --- END REFINED useEffect --- 
 
     // --- Render Logic ---
     if (isLoading) {
@@ -383,7 +471,6 @@ function SettingsPage() {
                         <div className="flex flex-col h-full">
                             <h2 className="text-lg font-semibold mb-4 text-white flex-shrink-0">Transcription History</h2>
                             
-                            {/* History Content */}
                             <div className="space-y-4 flex-grow">
                                 {historyLoading && (
                                     <div className="flex items-center justify-center text-gray-400 py-8">
@@ -393,35 +480,64 @@ function SettingsPage() {
                                 {historyError && (
                                     <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-2 rounded border border-[#FF4D6D]/30">{historyError}</p>
                                 )}
-                                {!historyLoading && !historyError && historyEntries.length === 0 && (
-                                    <p className="text-center text-gray-400 py-8">No transcription history yet.</p>
-                                )}
-                                {!historyLoading && !historyError && historyEntries.length > 0 && (
-                                    <ScrollArea className="h-full max-h-[calc(100vh-250px)] flex-grow pr-4">
-                                        <div className="space-y-4">
-                                            {historyEntries.map((entry, index) => (
-                                                <div key={index} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-xs text-gray-400 font-mono">
-                                                            {new Date(entry.timestamp).toLocaleString()}
-                                                        </span>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
-                                                            onClick={() => copyHistoryItem(entry.text)}
-                                                            title="Copy Transcription"
-                                                        >
-                                                            <Copy className="w-3 h-3" />
-                                                        </Button>
-                                                    </div>
-                                                    <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
-                                                        {entry.text}
-                                                    </p>
+                                
+                                {!historyLoading && !historyError && (
+                                    <>
+                                      {editingEntry ? (
+                                        // --- Show the Editor --- 
+                                        <HistoryItemEditor
+                                            key={editingEntry.timestamp}
+                                            entry={editingEntry}
+                                            onSave={handleSaveEdit}
+                                            onCancel={handleCancelEdit}
+                                        />
+                                      ) : (
+                                        // --- History List (Scroll handled by div below) --- 
+                                        historyEntries.length > 0 ? (
+                                            <ScrollArea className="h-full max-h-[calc(100vh-250px)] flex-grow pr-4">
+                                                <div className="space-y-4">
+                                                    {historyEntries.map((entry) => (
+                                                        <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
+                                                            <div className="flex justify-between items-center">
+                                                                <span className="text-xs text-gray-400 font-mono">
+                                                                    {format(new Date(entry.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+                                                                </span>
+                                                                <div className="flex space-x-1 flex-shrink-0">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="w-6 h-6 text-gray-400 hover:text-green-400 hover:bg-green-900/30"
+                                                                        onClick={() => {
+                                                                            console.log("Setting entry to edit:", entry.timestamp);
+                                                                            setEditingEntry(entry);
+                                                                        }}
+                                                                        title="Edit Transcription"
+                                                                    >
+                                                                        <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
+                                                                        onClick={() => copyHistoryItem(entry.text)}
+                                                                        title="Copy Transcription"
+                                                                    >
+                                                                        <Copy className="w-3 h-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
+                                                                {entry.text}
+                                                            </p>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </ScrollArea>
+                                            </ScrollArea>
+                                        ) : (
+                                            <p className="text-center text-gray-400 py-8">No transcription history yet.</p>
+                                        )
+                                      )}
+                                    </>
                                 )}
                             </div>
                         </div>

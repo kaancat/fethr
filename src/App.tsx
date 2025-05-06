@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window';
 import { RecordingState } from './types';
@@ -33,7 +33,7 @@ interface StateUpdatePayload {
 }
 
 function PillPage() {
-    console.log("PillPage: Component rendering (Corrected Listener)"); // Log component render
+    console.log("PillPage: Component rendering (Adding SUCCESS_EDIT_PENDING)");
     const [currentState, setCurrentState] = useState<RecordingState>(RecordingState.IDLE);
     const [duration, setDuration] = useState<number>(0);
     const [transcription, setTranscription] = useState<string | null>(null);
@@ -42,91 +42,114 @@ function PillPage() {
     const startTimeRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const editPendingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handleTranscriptionResult = useCallback((resultPromise: Promise<string>) => {
+        console.log("PillPage: Entering handleTranscriptionResult...");
+        setError(null);
+
+        if (editPendingTimeoutRef.current) {
+            clearTimeout(editPendingTimeoutRef.current);
+            editPendingTimeoutRef.current = null;
+        }
+
+        resultPromise
+            .then(resultText => {
+                console.log("PillPage: stop_backend_recording promise resolved:", resultText);
+                if (!resultText || resultText.trim() === '') {
+                    console.warn("PillPage: Backend returned empty result");
+                    setError('Transcription empty');
+                    setTranscription(null);
+                    setCurrentState(RecordingState.ERROR);
+                } else {
+                    console.log("PillPage: Setting transcription result, length:", resultText.length);
+                    setTranscription(resultText);
+                    setError(null);
+                    
+                    console.log(`%c[PillPage STATE] Setting state to: SUCCESS_EDIT_PENDING`, "color: cyan;");
+                    setCurrentState(RecordingState.SUCCESS_EDIT_PENDING);
+
+                    editPendingTimeoutRef.current = setTimeout(() => {
+                        console.log("PillPage: Edit Pending timeout finished. Resetting...");
+                        setCurrentState(prevStatus =>
+                            prevStatus === RecordingState.SUCCESS_EDIT_PENDING ? RecordingState.IDLE : prevStatus
+                        );
+                        setTranscription(null);
+                        editPendingTimeoutRef.current = null;
+                    }, 7000);
+                }
+            })
+            .catch(error => {
+                console.error("PillPage: stop_backend_recording promise rejected:", error);
+                const errorMsg = `Transcription error: ${error instanceof Error ? error.message : String(error)}`;
+                setError(errorMsg);
+                toast.error(errorMsg.substring(0, 100));
+                setTranscription(null);
+            })
+            .finally(() => {
+                console.log("PillPage: Transcription attempt complete (finally block).");
+            });
+    }, []);
+
+    const handleImmediateEditClick = useCallback(() => {
+        console.log("[PillPage] Immediate Edit clicked!");
+
+        // Clear the timeout
+        if (editPendingTimeoutRef.current) {
+            clearTimeout(editPendingTimeoutRef.current);
+            editPendingTimeoutRef.current = null;
+            console.log("[PillPage] Cleared edit pending timeout.");
+        }
+
+        // --- Emit event BEFORE showing window --- 
+        console.log("[PillPage] Emitting fethr-edit-latest-history...");
+        emit('fethr-edit-latest-history')
+             .then(() => console.log('[PillPage] Emitted fethr-edit-latest-history event.'))
+             .catch(err => console.error('[PillPage] Failed to emit fethr-edit-latest-history:', err));
+        // ----------------------------------------
+        
+        // Call the backend command to show the window 
+        console.log("[PillPage] Invoking show_settings_window_and_focus...");
+        invoke('show_settings_window_and_focus')
+            .then(() => console.log("[PillPage] Successfully invoked show_settings_window_and_focus."))
+            .catch(err => {
+                 console.error("[PillPage] Failed to show/focus settings:", err);
+                 toast.error(`Could not open settings: ${err}`);
+             });
+
+        // Reset state to IDLE after click
+        setCurrentState(RecordingState.IDLE);
+        setTranscription(null);
+
+    }, []);
 
     useEffect(() => {
-        console.log("PillPage: useEffect running - setting up ALL listeners (Invoke Logic Added)");
-
+        console.log("PillPage: useEffect running - setting up ALL listeners (Edit Pending Added)");
         let isMounted = true;
-        const unlisteners: Array<() => void> = []; // Array to store unlisten functions
-
-        // --- Handler for transcription result ---
-        const handleTranscriptionResult = (resultPromise: Promise<string>) => {
-            console.log("PillPage: Entering handleTranscriptionResult...");
-            setError(null); // Clear previous error
-
-            resultPromise
-                .then(resultText => {
-                    if (!isMounted) return;
-                    console.log("PillPage: stop_backend_recording promise resolved:", resultText);
-                    if (!resultText || resultText.trim() === '') {
-                        console.warn("PillPage: Backend returned empty result");
-                        setError('Transcription empty');
-                        // toast('Transcription empty or no speech detected.', { icon: '🔇' }); // Optional toast
-                        setTranscription(null);
-                    } else {
-                        console.log("PillPage: Setting transcription result, length:", resultText.length);
-                        setTranscription(resultText); // Keep result
-                        setError(null);
-                        // We can rely on the timeout in the state listener to clear this later
-                    }
-                })
-                .catch(error => {
-                    if (!isMounted) return;
-                    console.error("PillPage: stop_backend_recording promise rejected:", error);
-                    const errorMsg = `Transcription error: ${error instanceof Error ? error.message : String(error)}`;
-                    setError(errorMsg);
-                    toast.error(errorMsg.substring(0, 100)); // Show toast on error
-                    setTranscription(null);
-                    // Don't force state to IDLE here, let the reset signal handle it
-                })
-                .finally(() => {
-                    if (!isMounted) return;
-                    console.log("PillPage: Transcription attempt complete (finally block).");
-
-                    // --- ADD BACK EXPLICIT FRONTEND RESET ---
-                    console.log("PillPage: Explicitly setting frontend state to IDLE in finally block.");
-                    setCurrentState(RecordingState.IDLE);
-                    setDuration(0);
-                    // Keep transcription visible; timeout in state listener will clear it.
-                    // --- END ADD BACK ---
-
-                    console.log("PillPage: Signaling backend reset...");
-                    invoke('signal_reset_complete')
-                         .then(() => console.log("PillPage: signal_reset_complete invoked successfully."))
-                         .catch(err => console.error("PillPage: Failed to invoke signal_reset_complete:", err));
-                });
-        };
-        // --- End Handler ---
+        const unlisteners: Array<() => void> = [];
 
         const setupListeners = async () => {
             try {
-                // --- Listener for Error Event ---
                 const handleErrorOccurred = (event: { payload: string }) => {
                     const errorMsg = event.payload;
                     console.log(`PillPage: Received fethr-error-occurred: "${errorMsg}"`);
-                    // Ensure any previous timeout is cleared
                     if (errorTimeoutRef.current) {
                         clearTimeout(errorTimeoutRef.current);
                     }
-                    setErrorMessage(errorMsg || "An unknown error occurred."); // Store the error message
+                    setErrorMessage(errorMsg || "An unknown error occurred.");
 
-                    // Set a timer to clear the error message after a few seconds
                     errorTimeoutRef.current = setTimeout(() => {
-                        setErrorMessage(null); // Clear the error message
+                        setErrorMessage(null);
                         console.log("PillPage: Error display timeout finished.");
-                        // Note: We rely on the backend having already sent signal_reset_complete or an IDLE update
-                        // So we don't need to explicitly call reset here usually.
-                        errorTimeoutRef.current = null; // Clear the ref
-                    }, 4000); // Show error for 4 seconds
+                        errorTimeoutRef.current = null;
+                    }, 4000);
                 };
 
                 console.log("PillPage: Setting up Error listener.");
                 const unlistenError = await listen<string>('fethr-error-occurred', handleErrorOccurred);
-                unlisteners.push(unlistenError); // Add to cleanup array
+                unlisteners.push(unlistenError);
                 console.log("PillPage: Error listener setup.");
-                // --- End Listener for Error Event ---
 
-                // --- State Update Listener ---
                 const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', (event) => {
                     if (!isMounted) return;
                     console.log('PillPage: Received fethr-update-ui-state:', event.payload);
@@ -135,7 +158,7 @@ function PillPage() {
 
                     const { state: receivedState, duration_ms, transcription_result, error_message } = event.payload;
 
-                    let newTsState: RecordingState = RecordingState.IDLE; // Default
+                    let newTsState: RecordingState = RecordingState.IDLE;
                     if (typeof receivedState === 'string') {
                         const stateUppercase = receivedState.toUpperCase();
                          switch (stateUppercase) {
@@ -156,65 +179,56 @@ function PillPage() {
                     }
                     console.log(`PillPage: Mapped received state "${receivedState}" to TS Enum value: ${RecordingState[newTsState]} (${newTsState})`);
 
-                    // --- ADD Immediate Clear on IDLE ---
                     if (newTsState === RecordingState.IDLE) {
                         console.log("PillPage: Clearing transcription/error immediately as IDLE state received.");
                         setTranscription(null);
                         setError(null);
-                        // NOTE: We're NOT clearing errorMessage here, letting the timeout handle it
                     }
-                    // --- END Immediate Clear on IDLE ---
 
-                    setCurrentState(newTsState); // Set the correct TS enum value
+                    setCurrentState(newTsState);
 
-                    // Update transcription/error based on payload ONLY if they are explicitly provided
-                    // (avoid clearing them just because the state changed)
-                     if (transcription_result !== undefined) setTranscription(transcription_result);
-                     if (error_message !== undefined) setError(error_message);
+                    if (transcription_result !== undefined) setTranscription(transcription_result);
+                    if (error_message !== undefined) setError(error_message);
 
-                    // --- Timer Logic (Revised) ---
                     const shouldBeRunning = newTsState === RecordingState.RECORDING || newTsState === RecordingState.LOCKED_RECORDING;
                     const isRunning = timerIntervalRef.current !== null;
 
                     if (shouldBeRunning && !isRunning) {
-                        // Start Timer
                         console.log("PillPage: Starting timer");
                         startTimeRef.current = Date.now();
-                        setDuration(0); // Reset duration ONLY when starting fresh
+                        setDuration(0);
                         timerIntervalRef.current = setInterval(() => {
                             if (startTimeRef.current) {
                                 setDuration(Date.now() - startTimeRef.current);
                             } else {
-                                // Safety clear if startTime became null unexpectedly
                                 if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-                                timerIntervalRef.current = null; // Ensure ref is cleared
+                                timerIntervalRef.current = null;
                             }
-                        }, 100); // Update duration every 100ms
+                        }, 100);
 
                     } else if (!shouldBeRunning && isRunning) {
-                        // Stop Timer
                         console.log("PillPage: Stopping timer");
                         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
                         timerIntervalRef.current = null;
                         startTimeRef.current = null;
 
-                        // Reset duration display ONLY if the new state is truly Idle or Error
                         if (newTsState === RecordingState.IDLE || newTsState === RecordingState.ERROR) {
                              console.log(`PillPage: Resetting duration display for state: ${RecordingState[newTsState]}`);
                              setDuration(0);
                         }
-                        // Otherwise (e.g., Transcribing), keep the last duration displayed
                     }
-                    // --- End Timer Logic (Revised) ---
                 });
-                unlisteners.push(unlistenState); // Add to cleanup array
+                unlisteners.push(unlistenState);
                 console.log("PillPage: State Update listener setup.");
 
-                // --- Start Recording Listener ---
                 const unlistenStart = await listen<void>("fethr-start-recording", () => {
                     if (!isMounted) return;
                     console.log("PillPage: Received fethr-start-recording. Invoking backend...");
-                    // Clear previous results/errors when starting
+                    if (editPendingTimeoutRef.current) {
+                        clearTimeout(editPendingTimeoutRef.current);
+                        editPendingTimeoutRef.current = null;
+                        console.log("[PillPage] Cleared edit pending timeout due to new recording start.");
+                    }
                     setTranscription(null);
                     setError(null);
                     invoke('start_backend_recording')
@@ -223,23 +237,20 @@ function PillPage() {
                             console.error("PillPage: Error invoking start_backend_recording:", err);
                             setError(`Start Error: ${err}`);
                             toast.error(`Start Error: ${err}`);
-                            setCurrentState(RecordingState.IDLE); // Force idle on start error
-                            invoke('signal_reset_complete').catch(e=>console.error(e)); // Also reset backend
+                            setCurrentState(RecordingState.IDLE);
                         });
                 });
-                unlisteners.push(unlistenStart); // Add to cleanup array
+                unlisteners.push(unlistenStart);
                 console.log("PillPage: Start Recording listener setup.");
 
-                // --- Stop and Transcribe Listener ---
                 const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", (event) => {
                     if (!isMounted) return;
-                    const autoPaste = event.payload; // Backend sends boolean flag
+                    const autoPaste = event.payload;
                     console.log(`PillPage: Received fethr-stop-and-transcribe (autoPaste: ${autoPaste}). Invoking backend...`);
-                    // Call stop backend (which returns promise with transcription string) and handle result
-                    const stopPromise = invoke<string>('stop_backend_recording', { autoPaste }); // Pass autoPaste flag
-                    handleTranscriptionResult(stopPromise); // Handle the promise chain
+                    const stopPromise = invoke<string>('stop_backend_recording', { autoPaste });
+                    handleTranscriptionResult(stopPromise);
                 });
-                unlisteners.push(unlistenStop); // Add to cleanup array
+                unlisteners.push(unlistenStop);
                 console.log("PillPage: Stop/Transcribe listener setup.");
 
                 console.log("PillPage: All listeners setup successful.");
@@ -251,34 +262,29 @@ function PillPage() {
             }
         };
 
-        setupListeners(); // Call the async setup function
+        setupListeners();
 
-        // --- Remove Drag Logic ---
-        // The drag logic is now handled directly in the RecordingPill component
-
-        // Combined cleanup function for BOTH listeners and drag handler
         return () => {
              console.log("PillPage: Main useEffect cleanup function running (Invoke Logic Added)");
              isMounted = false;
-             // Clean up all listeners
              console.log(`PillPage: Cleaning up ${unlisteners.length} listeners...`);
              unlisteners.forEach(unlisten => unlisten());
-             // Clean up timer
              if (timerIntervalRef.current) {
                  console.log("PillPage: Clearing timer interval in cleanup.");
                  clearInterval(timerIntervalRef.current);
              }
-             // Clean up error timeout
              if (errorTimeoutRef.current) {
                  console.log("PillPage: Clearing error timeout on unmount.");
                  clearTimeout(errorTimeoutRef.current);
              }
-             // No longer need to clean up drag listener, as it's been moved to RecordingPill
+             if (editPendingTimeoutRef.current) {
+                 clearTimeout(editPendingTimeoutRef.current);
+                 console.log("[PillPage] Cleared edit pending timeout on unmount.");
+             }
         };
 
-    }, []); // Empty dependency array ensures this runs only once on mount
+    }, [handleTranscriptionResult, handleImmediateEditClick]);
 
-    // Format duration
     const formatDuration = (ms: number): string => {
         if (ms <= 0) return "0s";
         return Math.floor(ms / 1000).toString() + "s";
@@ -286,36 +292,29 @@ function PillPage() {
 
     console.log("PillPage: Rendering with State:", RecordingState[currentState], "Duration:", duration);
 
-    // Render container and RecordingPill
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
              <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
-                // Use nullish coalescing ?? for undefined fallback
                 transcription={transcription ?? undefined}
                 error={error ?? undefined}
                 backendError={errorMessage}
+                onEditClick={handleImmediateEditClick}
             />
         </div>
     );
 }
 
-// Main App component
 function App() {
-  // Get the current pathname when the component mounts
-  // This should be '/' for the main window and '/pill' for the pill window
-  // after our explicit Rust navigation commands.
   const initialPathname = window.location.pathname;
   console.log(`[App] Rendering. Initial Pathname detected: ${initialPathname}`);
 
   return (
     <TooltipProvider>
-      {/* Pass the detected pathname as the initial route */}
       <MemoryRouter initialEntries={[initialPathname]}>
         <Routes>
           <Route path="/" element={<SettingsPage />} />
-          {/* Ensure PillPage component (the simplified green/red one) is rendered here */}
           <Route path="/pill" element={<PillPage />} />
         </Routes>
       </MemoryRouter>

@@ -5,6 +5,9 @@ export enum RecordingState {
   TRANSCRIBING = 2,     // Keep distinct transcribing state
   ERROR = 4,           // Add error state
   PASTING = 5,         // Add pasting state
+  SUCCESS = 6,
+  IDLE_EDIT_READY = 7, // Keep this if still used by SettingsPage
+  SUCCESS_EDIT_PENDING = 8 // <-- Add new state for immediate edit
   // Intermediate backend states don't need direct UI representation
   // CANCELLING might map to IDLE visually
 }

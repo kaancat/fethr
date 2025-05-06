@@ -14,10 +14,10 @@ use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
 use std::process::{Command, Stdio}; // Add these imports for FFmpeg
 use chrono::{DateTime, Utc}; // For timestamp in history entries
-use directories::ProjectDirs; // For getting config directory
 use std::io::Read; // For reading files
 use std::io::Write; // For writing files
 use serde_json;
+use crate::get_history_path; // <-- IMPORT the helper from main.rs
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -32,23 +32,6 @@ const MAX_HISTORY_ENTRIES: usize = 200;
 pub struct HistoryEntry {
     pub timestamp: DateTime<Utc>,
     pub text: String,
-}
-
-// Function to get the path to the history file
-pub fn get_history_file_path() -> Result<PathBuf, String> {
-    if let Some(proj_dirs) = ProjectDirs::from("com", "fethr", "fethr") {
-        let config_dir = proj_dirs.config_dir();
-        
-        // Ensure the config directory exists
-        if !config_dir.exists() {
-            fs::create_dir_all(config_dir)
-                .map_err(|e| format!("Failed to create config directory: {}", e))?;
-        }
-        
-        Ok(config_dir.join("history.json"))
-    } else {
-        Err("Failed to determine project directories".to_string())
-    }
 }
 
 // Status structure to report transcription progress
@@ -485,16 +468,14 @@ pub async fn transcribe_local_audio_impl(
         if !trimmed_output.is_empty() {
             info!("[RUST HISTORY] Saving transcription result to history file");
             
-            // Create new history entry with current timestamp and text
             let new_entry = HistoryEntry {
                 timestamp: Utc::now(),
                 text: trimmed_output.clone(),
             };
             
-            // Get history file path
-            match get_history_file_path() {
+            match get_history_path(&app_handle) {
                 Ok(history_path) => {
-                    info!("[RUST HISTORY] History file path: {:?}", history_path);
+                    info!("[RUST HISTORY] History file path (via helper): {:?}", history_path);
                     
                     // Read existing history file or default to empty JSON array
                     let history_content = match fs::read_to_string(&history_path) {
@@ -550,7 +531,7 @@ pub async fn transcribe_local_audio_impl(
                         Err(e) => error!("[RUST HISTORY] Failed to serialize history to JSON: {}", e)
                     }
                 },
-                Err(e) => error!("[RUST HISTORY] Failed to get history file path: {}", e)
+                Err(e) => error!("[RUST HISTORY] Failed to get history file path via helper: {}", e)
             }
         }
 
@@ -620,22 +601,18 @@ fn whisper_output_trim(output: &str) -> String {
 
 // Command to retrieve transcription history
 #[tauri::command]
-pub async fn get_history(_app_handle: AppHandle) -> Result<Vec<HistoryEntry>, String> {
+pub async fn get_history(app_handle: AppHandle) -> Result<Vec<HistoryEntry>, String> {
     info!("[RUST HISTORY] Fetching transcription history...");
     
-    // Get history file path
-    let path = get_history_file_path()?;
-    info!("[RUST HISTORY] Looking for history file at: {:?}", path);
+    let path = get_history_path(&app_handle)?;
+    info!("[RUST HISTORY] Looking for history file at (via helper): {:?}", path);
     
-    // Read file content
     match fs::read_to_string(&path) {
         Ok(content) => {
-            // Parse JSON content
             match serde_json::from_str::<Vec<HistoryEntry>>(&content) {
                 Ok(mut history_vec) => {
                     info!("[RUST HISTORY] Successfully read and parsed {} history entries", history_vec.len());
                     
-                    // Sort newest first based on timestamp
                     history_vec.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
                     info!("[RUST HISTORY] Sorted history entries newest-first");
                     
@@ -643,13 +620,13 @@ pub async fn get_history(_app_handle: AppHandle) -> Result<Vec<HistoryEntry>, St
                 },
                 Err(e) => {
                     error!("[RUST HISTORY] Failed to parse history file {:?}: {}. Returning empty history.", path, e);
-                    Ok(Vec::new()) // Return empty history on parse error
+                    Ok(Vec::new())
                 }
             }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             info!("[RUST HISTORY] History file {:?} not found. Returning empty history.", path);
-            Ok(Vec::new()) // Return empty history if file doesn't exist
+            Ok(Vec::new())
         },
         Err(e) => {
             error!("[RUST HISTORY] Failed to read history file {:?}: {}", path, e);

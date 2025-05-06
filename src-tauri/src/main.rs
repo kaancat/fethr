@@ -25,6 +25,7 @@ use enigo::{Enigo, Key, Settings, Direction, Keyboard}; // <<< Use Keyboard trai
 use rdev::{Event, EventType, Key as RdevKey};
 use lazy_static::lazy_static;
 use log::{info, error}; // Use log crate for messages
+use serde::{Serialize, Deserialize}; // <-- Add serde import
 
 // Import our modules
 mod transcription;
@@ -37,6 +38,14 @@ pub use config::AppSettings; // Export AppSettings for use by other modules
 
 // Import necessary types from submodules
 use crate::transcription::TranscriptionState; // Make sure TranscriptionState is pub in transcription.rs
+
+// --- ADD HistoryEntry Struct ---
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HistoryEntry {
+    timestamp: String,
+    text: String,
+}
+// --- END HistoryEntry Struct ---
 
 // --- State Definitions ---
 
@@ -145,6 +154,18 @@ pub struct AudioRecordingState {
 }
 pub type SharedRecordingState = Arc<Mutex<AudioRecordingState>>;
 
+// --- ADD History Path Helper ---
+// Helper function to get the path to history.json
+pub fn get_history_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app_handle.path_resolver().app_config_dir()
+        .ok_or_else(|| "Failed to get app config directory".to_string())?;
+    if !config_dir.exists() {
+        std::fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+    Ok(config_dir.join("history.json"))
+}
+// --- END History Path Helper ---
 
 // --- Commands ---
 
@@ -553,6 +574,8 @@ fn main() {
             audio_manager_rs::stop_backend_recording,
             transcription::transcribe_audio_file,
             transcription::get_history, // History command
+            update_history_entry, // <-- REGISTER THE NEW COMMAND
+            show_settings_window_and_focus, // <-- REGISTER THE NEW COMMAND
             // Utility Commands:
             write_to_clipboard_command,
             paste_text_to_cursor, // Defined in this file now
@@ -720,3 +743,95 @@ fn trigger_release_event() {
         error!("[RUST CMD ERROR] Failed to send Release event via channel: {}", e);
     }
 }
+
+// --- ADD Update History Command ---
+#[tauri::command]
+async fn update_history_entry(app_handle: AppHandle, timestamp: String, new_text: String) -> Result<(), String> {
+    println!("Backend: Received update request for timestamp: {}", timestamp); // Add logging
+
+    let history_path = get_history_path(&app_handle)?;
+
+    // Read the existing history
+    let history_json = fs::read_to_string(&history_path)
+        // If file doesn't exist or error reading, return error or empty history?
+        // For update, we expect it to exist. Let's error out.
+        .map_err(|e| format!("Failed to read history file: {}", e))?;
+
+    // Deserialize into a Vec<HistoryEntry>
+    let mut history: Vec<HistoryEntry> = serde_json::from_str(&history_json)
+        .map_err(|e| format!("Failed to parse history JSON: {}", e))?;
+
+    // Find the entry and update it
+    let mut found = false;
+    for entry in history.iter_mut() {
+        if entry.timestamp == timestamp {
+            println!("Backend: Found entry, updating text."); // Add logging
+            entry.text = new_text.clone(); // Update the text
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+         eprintln!("Backend: History entry with timestamp {} not found.", timestamp); // Use eprintln for errors
+         return Err(format!("History entry with timestamp {} not found", timestamp));
+    }
+
+    // Serialize the updated history back to JSON
+    let updated_history_json = serde_json::to_string_pretty(&history) // Use pretty for readability
+        .map_err(|e| format!("Failed to serialize updated history: {}", e))?;
+
+    // Write the updated JSON back to the file
+    fs::write(&history_path, updated_history_json)
+        .map_err(|e| format!("Failed to write updated history file: {}", e))?;
+
+    println!("Backend: History file updated successfully."); // Add logging
+
+    // Emit event to notify frontend of the update
+    if let Err(e) = app_handle.emit_all("fethr-history-updated", ()) {
+         eprintln!("Backend: Failed to emit fethr-history-updated event: {}", e); // Log event emission errors
+    } else {
+         println!("Backend: Emitted fethr-history-updated event."); // Log event emission success
+    }
+
+    Ok(()) // Return success
+}
+// --- END Update History Command ---
+
+// --- ADD Command to Show/Focus Settings Window ---
+#[tauri::command]
+async fn show_settings_window_and_focus(app_handle: AppHandle) -> Result<(), String> {
+    // Use "main" as the default window label for settings, adjust if yours is different
+    let window_label = "main";
+
+    match app_handle.get_window(window_label) {
+        Some(window) => {
+            println!("[RUST CMD] Found settings window ('{}'). Attempting show/focus...", window_label);
+            // Make sure it's visible
+            if let Err(e) = window.show() {
+                let err_msg = format!("Failed to show window '{}': {}", window_label, e);
+                eprintln!("[RUST CMD ERROR] {}", err_msg);
+                return Err(err_msg);
+            }
+            // Try to unminimize (important on some platforms)
+            if let Err(e) = window.unminimize() {
+               // Log this but don't necessarily fail the command, focus might still work
+                println!("[RUST CMD WARN] Failed to unminimize window '{}': {}", window_label, e);
+            }
+            // Bring it to the front and give it focus
+            if let Err(e) = window.set_focus() {
+                let err_msg = format!("Failed to set focus on window '{}': {}", window_label, e);
+                 eprintln!("[RUST CMD ERROR] {}", err_msg);
+                return Err(err_msg);
+            }
+            println!("[RUST CMD] Successfully showed and focused window '{}'.", window_label);
+            Ok(())
+        }
+        None => {
+            let err_msg = format!("Could not find settings window with label '{}'.", window_label);
+            eprintln!("[RUST CMD ERROR] {}", err_msg);
+            Err(err_msg)
+        }
+    }
+}
+// --- END Command ---
