@@ -107,7 +107,7 @@
         "decorations": true,
         "transparent": false,
         "alwaysOnTop": false,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "resizable": true,
         "fullscreen": false
       },

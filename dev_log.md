@@ -920,3 +920,313 @@ TODO:
 - Document the exact command-line interface supported by each bundled binary version
 - Consider adding a translation mode option in the future using the correct flags
 - Test with various languages to ensure correct mode is being used
+
+## [2024-09-22] - Verified .env in .gitignore
+Goal: Ensure the `.env` file containing sensitive Supabase credentials is not tracked by Git.
+
+### Action Taken:
+- Attempted to add `.env` to the `.gitignore` file.
+- **Verification:** Read the existing `.gitignore` file and confirmed that `.env` was already listed under the `# Environment variables` section.
+
+### Impact:
+- Confirmed that the `.env` file is correctly ignored by Git, preventing accidental commitment of sensitive Supabase credentials to the version control repository.
+- No changes were needed in `.gitignore`.
+
+### Next Steps:
+- Proceed with modifying `src/lib/supabaseClient.ts` to use the environment variables defined in the (manually created) `.env` file.
+
+## [2024-09-22] - Added Supabase Client Library
+Goal: Add the Supabase JavaScript client library to the project dependencies.
+
+### Changes Made:
+- Executed `npm install @supabase/supabase-js`.
+- This adds the Supabase library to `node_modules` and updates `package.json` and `package-lock.json`.
+
+### Impact:
+- Enables the frontend to interact with Supabase services (e.g., database, authentication).
+
+### Next Steps:
+- Configure Supabase client in the frontend.
+- Implement features using Supabase (e.g., saving history, user accounts).
+
+## [2024-09-22] - Created Supabase Client Utility
+Goal: Create a reusable utility module to initialize the Supabase client.
+
+### Changes Made:
+- Created directory `src/lib`.
+- Created file `src/lib/supabaseClient.ts`.
+- Added code to initialize the Supabase client using `createClient` from `@supabase/supabase-js`.
+- Included placeholder variables for Supabase URL and Anon Key.
+- Added basic validation to check if placeholders are still present.
+- Configured Supabase client for session persistence using `localStorage`.
+- Added console logs for initialization confirmation and validation errors.
+
+### Impact:
+- Provides a single, reusable instance of the Supabase client for the entire frontend.
+- Simplifies Supabase integration in different components.
+
+### TODO:
+- **CRITICAL:** Replace placeholder URL and Anon Key with actual project credentials.
+- Move Supabase URL and Anon Key to environment variables for security before production builds.
+
+## [2024-09-22] - Initialized Supabase Client on App Load
+Goal: Ensure the Supabase client initialization code runs when the application starts.
+
+### Changes Made:
+- Imported the `supabase` client instance from `@/lib/supabaseClient` into `src/App.tsx`.
+- Added a `console.log` statement immediately after the import in `App.tsx` to verify that the module was loaded and the `supabase` instance exists.
+
+### Impact:
+- Importing the module at the top level of `App.tsx` guarantees that the client initialization logic within `supabaseClient.ts` is executed early in the application lifecycle.
+- Makes the initialized `supabase` client readily available for use in other parts of the application that might be imported or rendered by `App.tsx`.
+
+### Next Steps:
+- Utilize the imported `supabase` client for authentication and data operations.
+
+## [2024-09-22] - Implemented Supabase Auth State Management
+Goal: Listen to Supabase authentication state changes and display user status in the settings.
+
+### Changes Made:
+
+**`src/App.tsx`:**
+- Imported `useState`, `useEffect`, `Session`, `User` from React and Supabase.
+- Added state variables (`session`, `user`, `loadingAuth`) to track authentication status.
+- Implemented a `useEffect` hook:
+    - Fetches the initial session using `supabase.auth.getSession()`.
+    - Subscribes to authentication state changes using `supabase.auth.onAuthStateChange()`.
+    - Updates the `session`, `user`, and `loadingAuth` state based on the listener events.
+    - Includes a cleanup function to unsubscribe the listener on component unmount.
+- Passed `user` and `loadingAuth` state as props to the `SettingsPage` component route.
+
+**`src/pages/SettingsPage.tsx`:**
+- Imported the `User` type from Supabase and the `supabase` client.
+- Updated the component props (`SettingsPageProps`) to accept `user` and `loadingAuth`.
+- Updated the component function signature to receive the new props.
+- Implemented conditional rendering for the "Account" section:
+    - Displays a loading message while `loadingAuth` is true.
+    - If `user` exists, displays the user's email and a "Log Out" button.
+    - The "Log Out" button calls `supabase.auth.signOut()`.
+    - If `user` is null, displays a message and a placeholder "Login / Sign Up" button.
+- Added necessary imports (`Button`, `useToast`) for the new UI elements.
+
+### Impact:
+- The application now dynamically tracks the user's Supabase authentication state.
+- The Settings page displays the current login status (loading, logged in, logged out).
+- Users can log out using the button in the Account tab.
+- Provides the foundation for implementing login/signup functionality and features requiring authentication.
+
+### Next Steps:
+- Implement the actual login/signup UI and logic (currently placeholder).
+- Use the user state to control access to features or sync data (e.g., history).
+
+## [2024-09-22] - Set Up Login/Signup Form Structure in Account Tab
+Goal: Create the basic UI structure for login and signup forms within the Account tab of the Settings page.
+
+### Changes Made:
+
+**`src/pages/SettingsPage.tsx`:**
+- Added a new state variable `authView` of type `'login' | 'signup'`, initialized to `'login'`.
+- Modified the content of the "Account" tab for the logged-out state:
+  - Replaced the previous single "Login / Sign Up" button with a new structure.
+  - Implemented conditional rendering based on the `authView` state:
+    - If `authView === 'login'`, a placeholder "Login" form area is displayed.
+    - If `authView === 'signup'`, a placeholder "Sign Up" form area is displayed.
+  - Each placeholder form area (`div` with border and background) includes:
+    - A title (e.g., "Login" or "Sign Up").
+    - Placeholder text for form inputs (e.g., "[Email Input Placeholder]").
+    - A placeholder main action button (e.g., "Login" or "Sign Up").
+    - A text paragraph with a link-styled button to switch to the other view (e.g., "Don't have an account? Sign Up" or "Already have an account? Login").
+    - These toggle buttons update the `authView` state using `setAuthView`.
+  - The signup form area also includes a small note: "(A confirmation email will be sent.)".
+- Limited the width of the form container using `w-full max-w-sm` for better presentation.
+- Ensured `Button` component is correctly used for form actions and view toggling.
+
+### Impact:
+- The "Account" tab now has a clear, user-friendly structure for handling both login and signup when the user is logged out.
+- Users can easily switch between the login and signup views.
+- Placeholder elements are in place, ready to be replaced with actual input fields and form submission logic.
+- Provides a better user experience by separating login and signup flows visually.
+
+### Next Steps:
+- Implement the actual form input components (e.g., for email, password) within the placeholder areas.
+- Add form validation and submission logic using the Supabase client for login and signup.
+
+## [2024-09-22] - Simplified Account Tab to Login-Only View
+Goal: Simplify the Account tab UI to only display a login form, removing the signup option and associated state.
+
+### Changes Made:
+
+**`src/pages/SettingsPage.tsx`:**
+- Removed the `authView` state variable (`useState<'login' | 'signup'>`).
+- Modified the content of the "Account" tab for the logged-out state:
+  - Removed the conditional rendering logic that was based on `authView`.
+  - The logged-out view now directly renders only the placeholder for a login form.
+  - The placeholder signup form area was completely removed.
+  - The link/button to toggle to a signup view (e.g., "Don't have an account? Sign Up") was removed from the login form area.
+  - Updated the title within the login form area to "Login to Fethr".
+  - Added a subtitle: "Use the account created on the website."
+
+### Impact:
+- The Account tab UI for logged-out users is now simpler, presenting only a login option.
+- Removed complexity by eliminating the `authView` state and the conditional rendering for signup.
+- Aligns with a user flow where account creation (signup) is expected to happen on a website, and the desktop app is primarily for logging in.
+
+### Next Steps:
+- Implement the actual login form input components and submission logic using the Supabase client.
+
+## [2024-09-22] - Created and Integrated LoginForm Component
+Goal: Implement a reusable Login Form component and integrate it into the Settings page Account tab.
+
+### Changes Made:
+
+**1. Created `src/components/LoginForm.tsx`:**
+- Created a new React functional component `LoginForm`.
+- Imported necessary dependencies: `React`, `useState`, `supabase` client, `Button`, `Input`, `Label` (from shadcn/ui), and `useToast`.
+- Implemented component state for `email`, `password`, `loading`, and `message` (for form feedback).
+- **`handleLogin` Function:**
+  - Asynchronous function triggered on form submission.
+  - Prevents default form submission.
+  - Sets `loading` to `true` and clears any previous `message`.
+  - Calls `supabase.auth.signInWithPassword` with the provided email and password.
+  - **Error Handling:** If login fails, logs the error and displays a destructive toast notification with the error message.
+  - **Success Handling:** If login is successful, logs a success message. (Actual UI update to show logged-in state is handled by the `onAuthStateChange` listener in `App.tsx`).
+  - Sets `loading` back to `false`.
+- **Return JSX:**
+  - Renders a `<form>` element with an `onSubmit` handler pointing to `handleLogin`.
+  - Includes styled `Label` and `Input` fields for Email and Password.
+    - Inputs are of type `email` and `password` respectively.
+    - Values are bound to `email` and `password` state.
+    - `onChange` handlers update the respective state variables.
+    - Inputs are `required`.
+    - Inputs are disabled when `loading` is true.
+    - Inputs are styled to match the application theme.
+  - Optionally displays a `message` paragraph (e.g., for non-toast feedback, though currently toast is used for errors).
+  - Renders a submit `Button` that displays "Logging in..." when `loading` is true, and "Login" otherwise. The button is also disabled during loading.
+
+**2. Integrated into `src/pages/SettingsPage.tsx`:**
+- Imported the newly created `LoginForm` component: `import { LoginForm } from '@/components/LoginForm';`.
+- In the Account tab's content (`activeSection === 'account'`), located the logged-out state (`!user && !loadingAuth`).
+- Replaced the previous placeholder content (text and placeholder button) for the login form with the actual `<LoginForm />` component.
+- Kept the existing title "Login to Fethr" above the `<LoginForm />` component.
+
+### Impact:
+- A dedicated, reusable `LoginForm` component now handles the login logic and UI.
+- The Settings page's Account tab now displays a functional login form (using Supabase for authentication) when the user is logged out.
+- Form includes input fields for email and password, a submit button with loading state, and error feedback via toast notifications.
+- Code is better organized by separating the form logic into its own component.
+
+### Next Steps:
+- Thoroughly test the login functionality.
+- Consider adding a "Forgot Password?" link/functionality if required.
+- Style the `message` state display or remove if toasts are sufficient for all feedback.
+
+## [2024-09-22] - Updated Supabase Client to Use Environment Variables
+Goal: Read Supabase credentials from environment variables instead of hardcoding them.
+
+### Changes Made:
+
+**`src/lib/supabaseClient.ts`:**
+- Removed the hardcoded `const supabaseUrl = ...` and `const supabaseAnonKey = ...` declarations.
+- Added lines to read these values from Vite's environment variables:
+  ```typescript
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  ```
+- Added runtime validation checks:
+  - Checks if `supabaseUrl` is missing and logs a styled error message to the console, instructing the developer to set `VITE_SUPABASE_URL` in `.env`.
+  - Checks if `supabaseAnonKey` is missing and logs a similar styled error message for `VITE_SUPABASE_ANON_KEY`.
+- Updated the `createClient` call to handle potentially undefined variables (though the validation should catch this in development):
+  ```typescript
+  export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', { /* ...auth config... */ });
+  ```
+- Updated the confirmation log message to: `console.log('Supabase client initialized (using env vars).');`
+
+**`src/vite-env.d.ts` (Created):**
+- Created this new file to address TypeScript errors related to `import.meta.env`.
+- Added a reference to `vite/client` types.
+- Defined the `ImportMetaEnv` interface with `readonly` properties for `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (both typed as `string`).
+- Extended the global `ImportMeta` interface to include the `env` property typed as `ImportMetaEnv`.
+
+### Impact:
+- Supabase credentials (URL and Anon Key) are no longer hardcoded in the source code, improving security.
+- The application now relies on the `.env` file (which should be gitignored) to provide these credentials at build/runtime.
+- Added runtime checks to provide clear error messages during development if the `.env` file is missing or variables are not set correctly.
+- Resolved TypeScript linter errors by providing type definitions for Vite's environment variables.
+
+### Next Steps:
+- Ensure the user has manually created the `.env` file in the project root and populated it with their actual Supabase URL and Anon Key.
+- Restart the development server (`npm run tauri dev` or similar) to ensure the new environment variables are loaded by Vite.
+- Verify successful Supabase client initialization by checking the console logs.
+
+## [2024-09-22] - Implemented User Profile Fetching and Display
+Goal: Fetch user-specific profile data (like subscription status) from Supabase and display it in the Account tab.
+
+### Changes Made:
+
+**`src/pages/SettingsPage.tsx`:**
+- **Defined `UserProfile` Interface:** Added an interface `UserProfile` with expected fields (`id`, `email?`, `subscription_status?`).
+- **Added Profile State:** Introduced state variables `profile` (type `UserProfile | null`) and `loadingProfile` (type `boolean`) using `useState`.
+- **Created `fetchProfile` Function:**
+  - Implemented an asynchronous function `fetchProfile` using `useCallback` to fetch data for a given `userId`.
+  - Sets `loadingProfile` true, clears previous `profile`.
+  - Uses the `supabase` client to query the `profiles` table.
+  - Selects `id`, `email`, and `subscription_status` columns.
+  - Filters the query using `.eq('id', userId)`.
+  - Uses `.single()` to expect only one result.
+  - **Error Handling:** Checks for Supabase errors (ignoring 406 status, which indicates no row found). Logs errors and displays a toast notification on failure.
+  - **Data Handling:** If data is returned, updates the `profile` state.
+  - **Fallback:** If no data is returned (status 406 or other), assumes a default profile (e.g., `{ id: userId, subscription_status: 'free' }`) to handle cases where the profile might not exist yet due to trigger delays.
+  - Sets `loadingProfile` false in a `finally` block.
+  - Added `toast` to the `useCallback` dependency array.
+- **Triggered Profile Fetch with `useEffect`:**
+  - Added a `useEffect` hook that depends on `user`, `fetchProfile`, and `profile`.
+  - **Condition:** If `user` exists and the `profile` state is either null or belongs to a different user (`profile.id !== user.id`), it calls `fetchProfile(user.id)`.
+  - **Logout Handling:** If `user` becomes null (logout), it clears the `profile` state by setting it to `null`.
+- **Updated Account Tab UI (Logged-In State):**
+  - Kept the display of the user's email (`user.email`).
+  - Added conditional rendering based on `loadingProfile` to show a "Loading profile details..." message.
+  - Added conditional rendering for when `!loadingProfile` and `profile` exists:
+    - Displays the `Subscription:` status using `profile.subscription_status || 'Unknown'`. Added `capitalize` class for styling.
+  - Added conditional rendering for when `!loadingProfile`, `!profile`, but `user` exists (fetch failed or data missing): Shows a fallback message "Could not load profile details. Try again later."
+  - Kept the "Log Out" button.
+
+### Impact:
+- When a user logs in, the application now attempts to fetch their corresponding profile data from the `profiles` table in Supabase.
+- The Account tab displays the user's subscription status (or a loading/error/fallback message).
+- Separates auth user data (`user` prop from `supabase.auth`) from profile data (`profile` state from the `profiles` table).
+- Handles cases where the profile might not exist yet for new users.
+
+### Next Steps:
+- Test profile fetching for both existing and newly created users.
+- Implement the "Manage Subscription" button functionality (likely linking to an external page).
+- Add more profile fields and display them as needed.
+
+## [2024-09-27] - Temporarily Removed Audio Device Listing Feature
+Goal: Isolate the persistent E0433 compilation error by temporarily removing all code related to the `get_audio_input_devices` command.
+
+### Changes Made in `src-tauri/src/main.rs`:
+
+1.  **Deleted `AudioDevice` Struct:**
+    *   Removed the entire struct definition for `AudioDevice`.
+
+2.  **Deleted `get_audio_input_devices` Function:**
+    *   Removed the entire function definition for `get_audio_input_devices`, including its `#[tauri::command]` attribute.
+
+3.  **Removed Associated Imports:**
+    *   Deleted the line `use cpal::traits::{DeviceTrait, HostTrait};`.
+    *   (Note: `serde::Serialize` was kept as it's likely used by other parts of `main.rs`.)
+
+4.  **Updated `invoke_handler`:**
+    *   Removed the `get_audio_input_devices,` line from the command list within `tauri::generate_handler![]`.
+    *   Reverted the `invoke_handler` structure by removing the extra pair of square brackets that were added speculatively in the previous step. The handler now uses the standard `tauri::generate_handler![command1, command2, ...]` format.
+
+### Impact & Current Status:
+- All code specific to the audio input device listing feature has been temporarily removed from `main.rs`.
+- This should help determine if the E0433 error (`failed to resolve: could not find __cmd__...`) was directly caused by this feature or its registration.
+
+### Next Steps:
+- Re-compile the project (`npm run tauri dev`).
+- **If compilation succeeds:** This strongly suggests the issue was with the `get_audio_input_devices` command or its interaction with the `tauri::generate_handler!` macro. The feature can be re-added carefully, perhaps by initially keeping it in `main.rs` and ensuring it compiles before moving it back to `audio_manager_rs.rs`.
+- **If E0433 (or another error) persists:** The root cause lies elsewhere in `main.rs` or the build process, unrelated to the audio device listing command specifically.
+
+---

@@ -10,6 +10,11 @@ import { Toaster } from "@/components/ui/toaster"; // Import shadcn/ui Toaster
 import { TooltipProvider } from "@/components/ui/tooltip"; // Import TooltipProvider
 import SettingsPage from './pages/SettingsPage';
 import './index.css';
+import { supabase } from '@/lib/supabaseClient'; // Import the Supabase client
+import { Session, User } from '@supabase/supabase-js'; // Import Session and User types
+
+// Log to confirm Supabase client module is loaded
+console.log('[App.tsx] Supabase client module loaded.', supabase ? 'Instance exists.' : 'Instance MISSING.');
 
 // Define interface for the test utility
 interface FethrDragTestInterface {
@@ -310,11 +315,48 @@ function App() {
   const initialPathname = window.location.pathname;
   console.log(`[App] Rendering. Initial Pathname detected: ${initialPathname}`);
 
+  // Add State for Auth Session/User:
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState<boolean>(true); // Track initial loading
+
+  // Add useEffect to Listen for Auth Changes:
+  useEffect(() => {
+      console.log('[Auth Listener] Setting up Supabase auth listener.');
+      setLoadingAuth(true);
+
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoadingAuth(false);
+          console.log('[Auth Listener] Initial session loaded:', session ? 'Exists' : 'None');
+      }).catch(error => {
+           console.error('[Auth Listener] Error getting initial session:', error);
+           setLoadingAuth(false);
+      });
+
+      // Set up the listener for future changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          console.log('[Auth Listener] Auth state changed. New session:', session ? 'Exists' : 'None', 'Event:', _event);
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoadingAuth(false); // Ensure loading is set to false on changes too
+      });
+
+      // Cleanup function to unsubscribe
+      return () => {
+          console.log('[Auth Listener] Unsubscribing from auth changes.');
+          subscription?.unsubscribe();
+      };
+  }, []); // Run only once on mount
+
   return (
     <TooltipProvider>
       <MemoryRouter initialEntries={[initialPathname]}>
         <Routes>
-          <Route path="/" element={<SettingsPage />} />
+          {/* Pass Auth State to SettingsPage */}
+          <Route path="/" element={<SettingsPage user={user} loadingAuth={loadingAuth} />} />
           <Route path="/pill" element={<PillPage />} />
         </Routes>
       </MemoryRouter>

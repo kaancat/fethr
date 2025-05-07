@@ -59,6 +59,13 @@ struct AiActionResponse {
 const VERCEL_PROXY_URL: &str = "https://fethr-ai-proxy.vercel.app/api/ai-proxy";
 // --- END Constant ---
 
+// --- PASTE AudioDevice Struct ---
+// #[derive(Serialize, Debug, Clone)]
+// pub struct AudioDevice { 
+//     name: String,
+// }
+// --- END AudioDevice Struct ---
+
 // --- State Definitions ---
 
 // --- Frontend State Enum for serialization to match TypeScript ---
@@ -633,25 +640,26 @@ fn main() {
         .on_window_event(|event| {
             match event.event() {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    let window = event.window(); // No need to clone here, we use it directly
-                    api.prevent_close(); // Prevent default close
-                    
+                    let window = event.window();
                     if window.label() == "main" {
-                        info!("Intercepted close request for main window. Hiding instead of closing.");
-                        if let Err(e) = window.hide() {
-                            error!("Failed to hide main window: {}", e);
+                        // This is the 'main' (likely settings) window
+                        println!("[WINDOW EVENT] Close requested for 'main' window. Preventing close and hiding.");
+                        api.prevent_close(); // Prevent the window from actually closing
+                        if let Err(e) = window.hide() { // Hide the window instead
+                            eprintln!("[WINDOW EVENT ERROR] Failed to hide main window: {}", e);
                         }
                     } else {
-                        // For other windows, maybe allow close or handle differently
-                        println!("Close requested for window: {}", window.label());
-                        // If you want to allow other windows to close, you would call:
-                        // if let Err(e) = window.close() {
-                        //     eprintln!("Failed to close window {}: {}", window.label(), e);
-                        // }
+                        // This is for any OTHER window (e.g., "pill" or future windows)
+                        // Allow them to close normally by NOT calling api.prevent_close()
+                        println!("[WINDOW EVENT] Close requested for window: '{}'. Allowing close.", window.label());
+                        // No api.prevent_close() here, so the window will close by default.
                     }
                 }
-                // Add any other specific WindowEvent cases you want to handle here
-                _ => {} // Add this wildcard arm to handle all other unlisted events
+                // Minimized event does not exist directly in Tauri v1 WindowEvent enum for on_window_event.
+                // Default behavior for minimization is handled by the catch-all arm below.
+                _ => {
+                     // println!("[WINDOW EVENT] Ignoring event: {:?}", event.event()); // Optional: Log ignored events
+                } // Default catch-all still ignores other events
             }
         })
         .system_tray(system_tray)
@@ -694,21 +702,22 @@ fn main() {
             _ => {} // Handle other tray events if necessary
         })
         .invoke_handler(tauri::generate_handler![
+            // REMOVE extra brackets and the command
             // Core Commands:
             audio_manager_rs::start_backend_recording,
             audio_manager_rs::stop_backend_recording,
             transcription::transcribe_audio_file,
             transcription::get_history, // History command
-            update_history_entry, // <-- REGISTER THE NEW COMMAND
-            show_settings_window_and_focus, // <-- REGISTER THE NEW COMMAND
-            perform_ai_action, // <-- REGISTER THE NEW COMMAND
-            get_default_prompt_for_action, // <--- ADDED THIS LINE
-            custom_prompts::save_custom_prompt,   // <-- New
-            custom_prompts::get_custom_prompt,    // <-- New
-            custom_prompts::delete_custom_prompt, // <-- New
+            update_history_entry,
+            show_settings_window_and_focus,
+            perform_ai_action,
+            get_default_prompt_for_action,
+            custom_prompts::save_custom_prompt,
+            custom_prompts::get_custom_prompt,
+            custom_prompts::delete_custom_prompt,
             // Utility Commands:
             write_to_clipboard_command,
-            paste_text_to_cursor, // Defined in this file now
+            paste_text_to_cursor,
             signal_reset_complete,
             delete_file,
             // UI-triggered hotkey events:
@@ -1048,17 +1057,3 @@ fn perform_ai_action(
         Err(e) => Err(format!("Network error calling AI service: {}", e))
     }
 }
-
-// ... existing code ...
-// Ensure all functions invoked by main are defined or imported.
-// fn main() {
-// ...
-// .invoke_handler(tauri::generate_handler![
-// ... existing commands ...
-// perform_ai_action, // Add this
-// get_default_prompt_for_action, // And this if it's a command
-// ...
-// ])
-// ...
-// }
-// ... existing code ...

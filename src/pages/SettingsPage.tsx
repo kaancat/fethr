@@ -15,6 +15,9 @@ import { Loader2, Copy, Trash2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import TextareaAutosize from 'react-textarea-autosize';
+import type { User } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
+import { LoginForm } from '@/components/LoginForm';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -39,7 +42,21 @@ languageOptions.sort((a, b) => {
    return a.name.localeCompare(b.name);
 });
 
-function SettingsPage() {
+// Update Props Interface
+interface SettingsPageProps {
+    user: User | null;
+    loadingAuth: boolean;
+}
+
+// Define UserProfile interface
+interface UserProfile {
+    id: string;
+    email?: string; // Make email optional as it might not always be needed directly from profile
+    subscription_status?: string;
+    // Add other profile fields here later if needed
+}
+
+function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const { toast } = useToast();
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -53,7 +70,7 @@ function SettingsPage() {
     const [historyError, setHistoryError] = useState<string | null>(null);
     
     // Section state
-    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions'>('general'); // Added 'ai_actions'
+    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account'>('general');
     const [apiKey, setApiKey] = useState<string>('');
     const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
 
@@ -65,7 +82,11 @@ function SettingsPage() {
 
     // State for User API Key
     const [userApiKey, setUserApiKey] = useState<string>('');
-    const [apiKeyInput, setApiKeyInput] = useState<string>(''); // For the input field buffer
+    const [apiKeyInput, setApiKeyInput] = useState<string>('');
+
+    // Add State for Profile Data:
+    const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [loadingProfile, setLoadingProfile] = useState<boolean>(false);
 
     // Placeholder for About content - Define outside component or fetch if needed
     const aboutContent = {
@@ -398,6 +419,52 @@ function SettingsPage() {
         console.log("[Settings AI] User API Key cleared from local storage.");
     };
 
+    // Create Function to Fetch Profile:
+    const fetchProfile = useCallback(async (userId: string) => {
+        console.log("[Settings Profile] Fetching profile for user:", userId);
+        setLoadingProfile(true);
+        setProfile(null); // Clear previous profile
+        try {
+            const { data, error, status } = await supabase
+                .from('profiles') // The table name
+                .select(`id, email, subscription_status`) // Select desired columns
+                .eq('id', userId) // Filter for the current user's ID
+                .single(); // Expect only one row
+
+            if (error && status !== 406) { // 406 means no rows found, which might be okay if trigger hasn't run yet
+                console.error("[Settings Profile] Error fetching profile:", error);
+                toast({ variant: "destructive", title: "Error Loading Profile", description: error.message });
+                // Removed throw error as it might prevent UI from showing fallback
+            }
+
+            if (data) {
+                console.log("[Settings Profile] Profile data received:", data);
+                setProfile(data as UserProfile);
+            } else {
+                 console.log("[Settings Profile] No profile data found for user (might be new user/trigger delay?).");
+                 // Handle case where profile might not exist yet (e.g., show default 'free' status)
+                 setProfile({ id: userId, subscription_status: 'free' }); // Assume free if profile not found
+            }
+        } catch (error) {
+            console.error('[Settings Profile] Catched Error fetching profile:', error);
+            // Toast handled above or do additional handling
+            toast({ variant: "destructive", title: "Error Loading Profile", description: "An unexpected error occurred while fetching your profile." });
+        } finally {
+            setLoadingProfile(false);
+        }
+    }, [toast]); // Add toast to dependencies
+
+    // Call fetchProfile when User Logs In:
+    useEffect(() => {
+        // Fetch profile if user is logged in and profile hasn't been loaded yet or user changed
+        if (user && user.id && (!profile || profile.id !== user.id)) {
+            fetchProfile(user.id);
+        } else if (!user) {
+            // Clear profile if user logs out
+            setProfile(null);
+        }
+    }, [user, fetchProfile, profile]); // Re-run if user object or fetchProfile function changes
+
     // --- Render Logic ---
     if (isLoading) {
         return (
@@ -467,19 +534,32 @@ function SettingsPage() {
                     </Button>
                     <Button
                         variant="ghost"
-                        disabled
-                        className="w-full justify-start text-left px-3 py-2 rounded text-gray-600 cursor-not-allowed"
-                        title="Coming soon"
+                        onClick={() => setActiveSection('account')}
+                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
+                            activeSection === 'account'
+                                ? 'bg-[#A6F6FF]/10 text-white'
+                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
+                        }`}
                     >
-                        Dictionary
+                        Account
                     </Button>
                     <Button
                         variant="ghost"
                         disabled
-                        className="w-full justify-start text-left px-3 py-2 rounded text-gray-600 cursor-not-allowed"
+                        onClick={() => {/* Placeholder */}}
+                        className="w-full justify-start text-left px-3 py-2 rounded bg-transparent text-gray-600 cursor-not-allowed"
                         title="Coming soon"
                     >
-                        Account
+                        Appearance
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        disabled
+                        onClick={() => {/* Placeholder */}}
+                        className="w-full justify-start text-left px-3 py-2 rounded bg-transparent text-gray-600 cursor-not-allowed"
+                        title="Coming soon"
+                    >
+                        Audio
                     </Button>
                 </div>
                 
@@ -836,6 +916,66 @@ function SettingsPage() {
                                     ))}
                                 </div>
                             </ScrollArea>
+                        </div>
+                    )}
+
+                    {/* Account Section */} 
+                    {activeSection === 'account' && (
+                        <div className="flex flex-col h-full">
+                            <h2 className="text-lg font-semibold mb-6 text-white flex-shrink-0">
+                                Account
+                            </h2>
+
+                            {loadingAuth ? (
+                                <p className="text-gray-400">Loading account status...</p>
+                            ) : user ? (
+                                // Logged In State - Updated with Profile Info
+                                <div className="space-y-4">
+                                    <p className="text-gray-300">
+                                        Logged in as: <span className="font-medium text-white">{user.email}</span>
+                                    </p>
+
+                                    {/* Display Profile Info */} 
+                                    {loadingProfile && <p className="text-sm text-gray-400">Loading profile details...</p>}
+                                    {!loadingProfile && profile && (
+                                        <div className="text-sm space-y-1">
+                                            <p className="text-gray-400">
+                                                Subscription: <span className="font-medium capitalize text-[#A6F6FF]">{profile.subscription_status || 'Unknown'}</span>
+                                            </p>
+                                            {/* TODO: Add "Manage Subscription" button later */} 
+                                        </div>
+                                    )}
+                                    {!loadingProfile && !profile && user && (
+                                        <p className="text-sm text-yellow-400">Could not load profile details. Try again later.</p>
+                                    )}
+
+                                    <Button
+                                        variant="destructive"
+                                        onClick={async () => {
+                                            const { error } = await supabase.auth.signOut();
+                                            if (error) {
+                                                console.error("Error logging out:", error);
+                                                toast({ variant: "destructive", title: "Logout Failed", description: error.message });
+                                            } else {
+                                                toast({ title: "Logged out successfully." });
+                                                // User state will update via the listener in App.tsx
+                                            }
+                                        }}
+                                    >
+                                        Log Out
+                                    </Button>
+                                </div>
+                            ) : (
+                                // Logged Out State - Keep LoginForm
+                                <div className="space-y-4 w-full max-w-sm">
+                                    {/* --- Login Form Area --- */}
+                                    <div className="p-4 border border-gray-700 rounded-md bg-gray-800/30">
+                                        <h3 className="text-md font-semibold text-center mb-4">Login to Fethr</h3>
+                                        <LoginForm />
+                                    </div>
+                                    {/* --- End Login Form Area --- */}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
