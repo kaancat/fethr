@@ -5,7 +5,8 @@ import { listen } from '@tauri-apps/api/event'; // Ensure listen is imported
 import { appWindow } from '@tauri-apps/api/window';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea"; // Import Textarea
-import { toast } from 'react-hot-toast';
+import { useToast } from "@/hooks/use-toast"; // Changed import
+import { Toaster } from "@/components/ui/toaster"; // Added Toaster import
 import { Copy, Check, Send, X as CloseIcon } from 'lucide-react'; // Import icons
 
 function EditorPage() {
@@ -13,6 +14,7 @@ function EditorPage() {
     const navigate = useNavigate(); // Keep for potential future use
     const [text, setText] = useState(''); // Initialize empty
     const [isCopied, setIsCopied] = useState(false);
+    const { toast } = useToast(); // Initialize useToast
 
     // Listen for transcription text via Tauri event
     useEffect(() => {
@@ -34,7 +36,7 @@ function EditorPage() {
                  // await invoke("editor_ready");
             } catch (e) {
                  console.error("EditorPage: Failed to set up listener", e);
-                 toast.error("Failed to initialize editor.");
+                 toast({ variant: "destructive", title: "Error", description: "Failed to initialize editor." });
             }
         }
 
@@ -54,13 +56,13 @@ function EditorPage() {
     const handleCopy = () => {
         navigator.clipboard.writeText(text)
             .then(() => {
-                toast.success("Copied!");
+                toast({ title: "Copied!", description: "Text copied to clipboard." });
                 setIsCopied(true);
                 setTimeout(() => setIsCopied(false), 1500); // Reset icon after delay
             })
             .catch(err => {
                 console.error("Editor copy failed:", err);
-                toast.error("Copy failed.");
+                toast({ variant: "destructive", title: "Error", description: "Copy failed." });
             });
     };
 
@@ -69,15 +71,15 @@ function EditorPage() {
          navigator.clipboard.writeText(text)
             .then(() => {
                 invoke('paste_text_to_cursor') // Assuming this backend command exists
-                    .then(() => toast.success("Pasted!"))
+                    .then(() => toast({ title: "Pasted!", description: "Text pasted from editor." }))
                     .catch(err => {
                          console.error("Editor paste invoke failed:", err);
-                         toast.error("Paste failed.");
+                         toast({ variant: "destructive", title: "Error", description: "Paste failed." });
                     });
             })
             .catch(err => {
                 console.error("Editor copy-before-paste failed:", err);
-                toast.error("Copy before paste failed.");
+                toast({ variant: "destructive", title: "Error", description: "Copy before paste failed." });
             });
     };
 
@@ -115,6 +117,7 @@ function EditorPage() {
                     <CloseIcon className="w-5 h-5" />
                  </Button>
             </div>
+            <Toaster /> {/* Added Toaster component */}
         </div>
     );
 }

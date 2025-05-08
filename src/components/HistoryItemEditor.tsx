@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from 'date-fns'; // For formatting the timestamp
 import { invoke } from '@tauri-apps/api/tauri'; // Added invoke
-import toast from 'react-hot-toast'; // Added toast
+import { useToast } from "@/hooks/use-toast"; // Changed import
 import { Copy } from 'lucide-react'; // Added Copy icon import
 
 interface HistoryItemEditorProps {
@@ -17,6 +17,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
   const [editedText, setEditedText] = useState<string>(entry.text);
   const [isAiLoading, setIsAiLoading] = useState<string | null>(null); // Re-added
   const [initialTextSnapshot, setInitialTextSnapshot] = useState<string>('');
+  const { toast } = useToast(); // Initialize useToast
 
   // Effect to reset editedText when the entry prop changes
   useEffect(() => {
@@ -29,20 +30,54 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
       onSave(entry.timestamp, editedText);
     } else {
       console.warn("Attempted to save empty transcription.");
-      toast.error("Cannot save an empty transcription.");
+      toast({ variant: "destructive", title: "Error", description: "Cannot save an empty transcription." });
     }
   };
 
   // Re-added handleAiAction function
   const handleAiAction = async (actionType: string) => {
     if (!editedText.trim()) {
-        toast.error("Cannot perform AI action on empty text.");
+        toast({ variant: "destructive", title: "Error", description: "Cannot perform AI action on empty text." });
         return;
     }
 
     console.log(`[AI Action] Requesting '${actionType}' for text: "${editedText.substring(0, 50)}..."`);
     setIsAiLoading(actionType);
-    let toastId = toast.loading(`Performing ${actionType}...`);
+
+    let loadingTitle = "Working on it...";
+    let loadingDescription = "Please wait while the AI processes your request.";
+    let successTitle = "Action Completed!";
+    let successDescription = "Result has been updated.";
+    let errorTitle = "Hmm, an AI Hiccup...";
+
+    switch (actionType) {
+        case 'summarize':
+            loadingTitle = "Distilling Wisdom...";
+            loadingDescription = "Condensing your text into a neat summary!";
+            successTitle = "Summary Ready!";
+            successDescription = "Your concise summary has been generated.";
+            break;
+        case 'written_form':
+            loadingTitle = "Polishing Prose...";
+            loadingDescription = "Tidying up your text into a more formal written style.";
+            successTitle = "Text Polished!";
+            successDescription = "Your text is now in a spiffy written form.";
+            break;
+        case 'email':
+            loadingTitle = "Drafting Email...";
+            loadingDescription = "Whipping your notes into email shape!";
+            successTitle = "Email Drafted!";
+            successDescription = "Your email content is ready to go.";
+            break;
+        case 'promptify':
+            loadingTitle = "Sparking Ideas...";
+            loadingDescription = "Crafting an effective AI prompt from your text.";
+            successTitle = "Prompt Perfected!";
+            successDescription = "Your new AI prompt has been created.";
+            break;
+    }
+
+    toast({ title: loadingTitle, description: loadingDescription });
 
     try {
         const result = await invoke<string>('perform_ai_action', {
@@ -51,11 +86,11 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
         });
         console.log(`[AI Action] Received result for '${actionType}': "${result.substring(0, 50)}..."`);
         setEditedText(result);
-        toast.success(`Action '${actionType}' completed!`, { id: toastId });
+        toast({ title: successTitle, description: successDescription });
     } catch (error: any) {
         console.error(`[AI Action] Error performing '${actionType}':`, error);
         const errorMessage = typeof error === 'string' ? error : (error?.message || `Failed to perform ${actionType}.`);
-        toast.error(errorMessage, { id: toastId });
+        toast({ variant: "destructive", title: errorTitle, description: `The ${actionType} action encountered an issue. ${errorMessage}` });
     } finally {
         setIsAiLoading(null);
     }
@@ -131,15 +166,15 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
                     navigator.clipboard.writeText(editedText)
                         .then(() => {
                             console.log("[Copy Editor] Text copied to clipboard successfully.");
-                            toast.success("Copied to clipboard!");
+                            toast({ title: "Copied!", description: "Text copied to clipboard." });
                         })
                         .catch(err => {
                             console.error("[Copy Editor] Failed to copy text:", err);
-                            toast.error("Failed to copy text.");
+                            toast({ variant: "destructive", title: "Error", description: "Failed to copy text." });
                         });
                 } else {
                     console.log("[Copy Editor] Attempted to copy empty text.");
-                    toast.error("Nothing to copy.");
+                    toast({ variant: "destructive", title: "Error", description: "Nothing to copy." });
                 }
             }}
             title="Copy Edited Text"
@@ -159,7 +194,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
             variant="ghost"
             onClick={() => {
                 setEditedText(initialTextSnapshot);
-                toast.success("Changes reverted to original.");
+                toast({ title: "Reverted", description: "Changes have been reverted to the original text." });
             }}
             disabled={editedText === initialTextSnapshot}
             className="text-gray-400 hover:text-amber-400 hover:bg-amber-900/20 disabled:opacity-40"

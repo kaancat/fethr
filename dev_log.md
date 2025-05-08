@@ -1230,3 +1230,13 @@ Goal: Isolate the persistent E0433 compilation error by temporarily removing all
 - **If E0433 (or another error) persists:** The root cause lies elsewhere in `main.rs` or the build process, unrelated to the audio device listing command specifically.
 
 ---
+
+## [2024-07-29] - Update
+Goal: Change capitalization of main settings page title to all lowercase.
+
+- In `src/pages/SettingsPage.tsx`:
+  - Changed the main `<h1>` title from "fethr Settings" to "fethr settings" (all lowercase for 'fethr settings').
+- Impact: The main title of the settings page now fully reflects the preferred lowercase branding.
+- TODO: Verify the title change in the UI.
+
+---

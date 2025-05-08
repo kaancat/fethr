@@ -487,7 +487,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             <div className="pt-6 w-full mx-auto mb-4"> 
                 {/* Replaced CardTitle */}
                 <h1 className="text-xl font-semibold text-white tracking-wide flex items-center">
-                    Fethr Settings
+                    fethr settings
                 </h1>
                 {/* Replaced CardDescription */}
                 <p className="text-gray-400">
@@ -519,7 +519,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
                         }`}
                     >
-                        History
+                        History Editor
                     </Button>
                     <Button
                         variant="ghost"
@@ -672,7 +672,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     {/* History Section */}
                     {activeSection === 'history' && (
                         <div className="flex flex-col h-full">
-                            <h2 className="text-lg font-semibold mb-4 text-white flex-shrink-0">Transcription History</h2>
+                            <h2 className="text-lg font-semibold mb-4 text-white flex-shrink-0">History Editor</h2>
                             
                             <div className="space-y-4 flex-grow">
                                 {historyLoading && (
@@ -748,175 +748,137 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                     {/* AI Actions Section */}
                     {activeSection === 'ai_actions' && (
-                        <div className="flex flex-col h-full">
-                            <h2 className="text-lg font-semibold mb-2 text-white">
-                                Configure AI Actions
-                            </h2>
+                        <ScrollArea className="h-full max-h-[calc(100vh-200px)] flex-grow pr-4">
+                            <div>
+                                <h2 className="text-lg font-semibold mb-4 text-white">AI Action Settings</h2>
+                                <p className="text-sm text-gray-400 mb-6">
+                                    Configure your OpenRouter API key and customize the prompts used for AI actions.
+                                    Fethr uses <a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer" className="text-[#A6F6FF] hover:underline">OpenRouter.ai</a> to provide access to various large language models.
+                                </p>
 
-                            {/* --- API Key Configuration Section --- */}
-                            <div className="mb-8 p-4 bg-gray-800/30 border border-gray-700/50 rounded-md">
-                                <h3 className="text-md font-semibold text-white mb-3">Your OpenRouter API Key (Optional)</h3>
-                                <p className="text-xs text-gray-400 mb-1">
-                                    Provide your own OpenRouter API key to use your personal account for AI actions.
-                                    If left blank, Fethr will use a default shared key (usage may be limited).
-                                </p>
-                                <p className="text-xs text-gray-500 mb-3">
-                                    Your key is stored locally on this computer and is not sent to Fethr servers.
-                                </p>
-                                <div className="flex items-center space-x-2">
-                                    <Input
-                                        type="password" // Use password type to mask the key
-                                        placeholder="sk-or-v1-..."
-                                        value={apiKeyInput}
-                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKeyInput(e.target.value)}
-                                        className="flex-grow bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#A6F6FF]/50 focus:ring-offset-1"
-                                    />
-                                    <Button onClick={handleSaveUserApiKey} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
-                                        Save Key
-                                    </Button>
-                                    {userApiKey && ( // Only show Clear button if a key is currently set/saved
-                                        <Button onClick={handleClearUserApiKey} variant="destructive" size="sm">
-                                            Clear Key
+                                {/* AI Prompts Customization Section - MOVED UP */}
+                                <div>
+                                    <h3 className="text-md font-semibold mb-3 text-gray-200">Customize AI Prompts</h3>
+                                    <p className="text-xs text-gray-400 mb-4">
+                                        View and modify the default prompts used for each AI action. Changes are saved automatically.
+                                    </p>
+                                    <div className="space-y-3">
+                                        {DEFAULT_AI_ACTIONS.map(action => (
+                                            <div key={action.id} className="p-3 border border-[#A6F6FF]/15 rounded-md bg-[#0A0F1A]/40">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h4 className="font-medium text-gray-100">{action.name}</h4>
+                                                        <p className="text-xs text-gray-400">{action.description}</p>
+                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleViewPrompt(action.id)}
+                                                        className="text-xs text-[#A6F6FF] hover:bg-[#A6F6FF]/10 hover:text-white"
+                                                    >
+                                                        {viewingPromptForActionId === action.id && !isLoadingPrompt ? 'Hide Prompt' : 'View/Edit Prompt'}
+                                                        {viewingPromptForActionId === action.id && isLoadingPrompt && <Loader2 className="ml-2 h-3 w-3 animate-spin" />}
+                                                    </Button>
+                                                </div>
+                                                {viewingPromptForActionId === action.id && (
+                                                    <div className="mt-3 pt-3 border-t border-[#A6F6FF]/10">
+                                                        {isLoadingPrompt ? (
+                                                            <div className="flex items-center text-gray-400">
+                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading prompt...
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <TextareaAutosize
+                                                                    minRows={3}
+                                                                    value={editedPromptText ?? ''}
+                                                                    onChange={(e) => setEditedPromptText(e.target.value)}
+                                                                    className="w-full bg-[#020409]/70 border border-[#A6F6FF]/25 text-gray-200 text-sm rounded-md p-2 focus:border-[#A6F6FF]/60 focus:ring-1 focus:ring-[#A6F6FF]/60 resize-none"
+                                                                />
+                                                                <div className="mt-2 flex justify-end space-x-2">
+                                                                    <Button
+                                                                        size="sm" /* Changed from xs */ variant="outline"
+                                                                        className="text-xs px-2 py-1 h-auto border-[#FFB4A6]/30 bg-transparent text-[#FFC8B8] hover:bg-[#FFB4A6]/10 hover:text-white focus-visible:ring-[#FFB4A6]"
+                                                                        onClick={async () => {
+                                                                            try {
+                                                                                await invoke('delete_custom_prompt', { actionId: action.id });
+                                                                                setEditedPromptText(await invoke<string>('get_default_prompt_for_action', { actionId: action.id }));
+                                                                                setCurrentPromptText(editedPromptText); // update current to match new default
+                                                                                toast({ title: "Prompt Reset", description: "Prompt has been reset to default." });
+                                                                            } catch (error) {
+                                                                                toast({ variant: "destructive", title: "Reset Error", description: "Failed to reset prompt." });
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        Reset to Default
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm" /* Changed from xs */
+                                                                        className="text-xs px-2 py-1 h-auto bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF]"
+                                                                        disabled={editedPromptText === currentPromptText || editedPromptText === null}
+                                                                        onClick={async () => {
+                                                                            if (editedPromptText !== null) {
+                                                                                try {
+                                                                                    await invoke('save_custom_prompt', { actionId: action.id, newPrompt: editedPromptText });
+                                                                                    setCurrentPromptText(editedPromptText);
+                                                                                    toast({ title: "Prompt Saved", description: "Custom prompt has been saved." });
+                                                                                } catch (error) {
+                                                                                    toast({ variant: "destructive", title: "Save Error", description: "Failed to save custom prompt." });
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        Save Custom Prompt
+                                                                    </Button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* API Key Management Section - MOVED DOWN */}
+                                <div className="mt-8 p-4 border border-[#A6F6FF]/20 rounded-md bg-[#0A0F1A]/50"> {/* Added mt-8 for spacing */}
+                                    <h3 className="text-md font-semibold mb-2 text-gray-200">OpenRouter API Key</h3>
+                                    <p className="text-xs text-gray-400 mb-3">
+                                        Your API key is stored locally and never sent to Fethr servers.
+                                        {userApiKey && " An API key is currently saved."}
+                                    </p>
+                                    <div className="flex items-center space-x-2">
+                                        <Input
+                                            type="password"
+                                            id="api-key-input"
+                                            placeholder="Enter your OpenRouter API key (e.g., sk-or-v1-...)"
+                                            value={apiKeyInput}
+                                            onChange={(e) => setApiKeyInput(e.target.value)}
+                                            className="flex-grow bg-[#020409]/70 border-[#A6F6FF]/25 text-gray-200 focus:border-[#A6F6FF]/60 focus:ring-1 focus:ring-[#A6F6FF]/60"
+                                        />
+                                        <Button
+                                            onClick={handleSaveUserApiKey}
+                                            size="sm"
+                                            className="bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF]"
+                                        >
+                                            Save Key
                                         </Button>
+                                        {userApiKey && (
+                                            <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={handleClearUserApiKey}
+                                                className="bg-red-700/80 text-white hover:bg-red-600"
+                                            >
+                                                Clear Key
+                                            </Button>
+                                        )}
+                                    </div>
+                                    {isApiKeyValid === false && ( // This state is not currently used, but kept for potential future validation UI
+                                        <p className="text-xs text-red-400 mt-1">The entered API key appears to be invalid.</p>
                                     )}
                                 </div>
-                                 {userApiKey && (
-                                    <p className="text-xs text-green-400 mt-2">An API key is currently saved.</p>
-                                )}
                             </div>
-                            {/* --- End API Key Configuration Section --- */}
-
-                            <p className="text-sm text-gray-400 mb-1">Predefined AI Actions:</p>
-                            <p className="text-xs text-gray-500 mb-4">
-                                View and customize the prompts for predefined AI actions. These actions will use your API key if provided.
-                            </p>
-
-                            <ScrollArea className="h-full max-h-[calc(100vh-450px)] flex-grow pr-4"> {/* Adjust max-h due to new section */}
-                                <div className="space-y-4">
-                                    {DEFAULT_AI_ACTIONS.map((action) => (
-                                        <div key={action.id} className="p-4 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 space-y-3">
-                                            <div>
-                                                <h3 className="text-md font-semibold text-[#A6F6FF] mb-1">{action.name}</h3>
-                                                <p className="text-xs text-gray-300">{action.description}</p>
-                                            </div>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="text-xs px-2 py-1 h-auto border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF]"
-                                                onClick={() => handleViewPrompt(action.id)}
-                                                disabled={isLoadingPrompt && viewingPromptForActionId === action.id}
-                                                title="View/Customize Prompt"
-                                            >
-                                                {viewingPromptForActionId === action.id ? (isLoadingPrompt ? 'Loading...' : 'Hide Prompt') : 'Customize Prompt'}
-                                            </Button>
-                                
-                                            {/* Conditionally render Textarea for viewing the prompt */}
-                                            {viewingPromptForActionId === action.id && !isLoadingPrompt && currentPromptText !== null && (
-                                              <>
-                                                <div className="mt-2 p-3 bg-black/20 rounded">
-                                                    <Label htmlFor={`prompt-textarea-${action.id}`} className="text-xs text-gray-400 mb-1 block">
-                                                        Default Prompt Template (uses "${'{text}'}" as placeholder for your transcription):
-                                                    </Label>
-                                                    <ScrollArea className="max-h-[20rem] w-full rounded-md border border-gray-700 bg-[#020409]"> 
-                                                        <TextareaAutosize
-                                                            id={`prompt-textarea-${action.id}`}
-                                                            value={editedPromptText || ''}
-                                                            onChange={(e) => setEditedPromptText(e.target.value)}
-                                                            minRows={5} 
-                                                            className="w-full text-xs p-2 bg-transparent text-gray-300 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-none shadow-none ring-0 overflow-hidden focus-visible:border-none focus-visible:shadow-none focus:ring-0"
-                                                        />
-                                                    </ScrollArea>
-                                                </div>
-                                                <div className="mt-3 flex justify-between items-center"> {/* Use justify-between */}
-                                                    {/* Revert to Default on the left */}
-                                                    <Button
-                                                        variant="link" // Subtle link-style button
-                                                        size="sm"
-                                                        className="text-xs text-amber-500 hover:text-amber-400 p-0 h-auto"
-                                                        onClick={async () => { // Make onClick async
-                                                            if (!viewingPromptForActionId) return;
-                                
-                                                            const actionIdToRevert = viewingPromptForActionId;
-                                                            console.log(`[Settings AI] Attempting to REVERT TO DEFAULT for ${actionIdToRevert}`);
-                                                            setIsLoadingPrompt(true); // Show loading for the whole operation
-                                
-                                                            try {
-                                                                // Step 1: Delete the custom prompt from backend
-                                                                await invoke('delete_custom_prompt', { actionId: actionIdToRevert });
-                                                                console.log(`[Settings AI] Custom prompt for ${actionIdToRevert} deleted from backend.`);
-                                
-                                                                // Step 2: Fetch the default prompt again to display it
-                                                                const defaultPrompt = await invoke<string>('get_default_prompt_for_action', { actionId: actionIdToRevert });
-                                                                setCurrentPromptText(defaultPrompt);
-                                                                setEditedPromptText(defaultPrompt);
-                                                                toast({ title: "Reverted to Default", description: "Prompt has been reverted to its default setting." });
-                                                            } catch (error) {
-                                                                console.error(`[Settings AI] Error reverting ${actionIdToRevert} to default:`, error);
-                                                                toast({ variant: "destructive", title: "Revert Failed", description: "Could not revert prompt to its default setting." });
-                                                                // Optionally try to re-fetch current/default even on error to reset view
-                                                                const fallbackPrompt = await invoke<string>('get_default_prompt_for_action', { actionId: actionIdToRevert }).catch(() => "Error reloading prompt.");
-                                                                setCurrentPromptText(fallbackPrompt);
-                                                                setEditedPromptText(fallbackPrompt);
-                                                            } finally {
-                                                                setIsLoadingPrompt(false);
-                                                            }
-                                                        }}
-                                                        disabled={isLoadingPrompt}
-                                                    >
-                                                        {isLoadingPrompt && viewingPromptForActionId === action.id ? 'Working...' : 'Revert to Default'}
-                                                    </Button>
-                                
-                                                    {/* Cancel and Save on the right */}
-                                                    <div className="flex space-x-2">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => {
-                                                                setEditedPromptText(currentPromptText); // Revert to original fetched/saved prompt
-                                                                toast({ title: "Changes Discarded"});
-                                                            }}
-                                                            disabled={editedPromptText === currentPromptText || isLoadingPrompt}
-                                                        >
-                                                            Cancel
-                                                        </Button>
-                                                        <Button
-                                                            variant="default"
-                                                            size="sm"
-                                                            className="bg-green-600 hover:bg-green-700 text-white"
-                                                            onClick={async () => { // Make onClick async
-                                                                if (!editedPromptText || !editedPromptText.trim() || !viewingPromptForActionId) return;
-                                    
-                                                                const actionIdToSave = viewingPromptForActionId;
-                                                                const promptToSave = editedPromptText;
-                                                                console.log(`[Settings AI] Attempting to SAVE CUSTOM PROMPT for ${actionIdToSave}`);
-                                                                try {
-                                                                    await invoke('save_custom_prompt', {
-                                                                        actionId: actionIdToSave,
-                                                                        customPrompt: promptToSave
-                                                                    });
-                                                                    setCurrentPromptText(promptToSave); // Update our "source of truth" for this view
-                                                                    toast({ title: "Prompt Saved", description: "Custom prompt saved successfully!" });
-                                                                } catch (error) {
-                                                                    const errorMsg = error instanceof Error ? error.message : String(error);
-                                                                    toast({ variant: "destructive", title: "Save Failed", description: `Failed to save prompt: ${errorMsg}` });
-                                                                }
-                                                            }}
-                                                            disabled={editedPromptText === currentPromptText || !editedPromptText || !editedPromptText.trim() || isLoadingPrompt}
-                                                        >
-                                                            Save Prompt
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                              </>
-                                            )}
-                                            {viewingPromptForActionId === action.id && isLoadingPrompt && (
-                                                 <p className="text-xs text-gray-400 mt-2">Loading prompt...</p>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </ScrollArea>
-                        </div>
+                        </ScrollArea>
                     )}
 
                     {/* Account Section */} 
