@@ -5,6 +5,7 @@ import { RecordingState } from '../types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 import { invoke } from '@tauri-apps/api/tauri';
+import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -39,61 +40,12 @@ type PillVariant = 'idle' | 'ready' | 'recording' | 'processing' | 'error' | 'ed
 
 // --- Animation Variants (with explicit styling) ---
 const pillContainerVariants = {
-  idle: {
-    width: "28px", height: "28px", padding: "4px", minWidth: "28px", borderRadius: "9999px",
-    backgroundColor: "rgba(10, 15, 26, 0.0)", // Use transparent equivalent for gradient start/end for animation, or a solid color
-    // backgroundColor: "linear-gradient(135deg, #0A0F1A 0%, #020409 100%)", // Gradient might not animate smoothly
-    boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", // #A6F6FF33
-    border: "1px solid transparent",
-    borderColor: "transparent",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-  },
-  edit_pending: {
-    width: "28px", height: "28px", padding: "4px", minWidth: "28px", borderRadius: "9999px",
-    backgroundColor: "rgba(10, 15, 26, 0.0)", // Keep consistent with idle for size transition
-    boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", // #22C55E66
-    border: "1px solid rgba(34, 197, 94, 0.3)", // border-green-500/30
-    borderColor: "rgba(34, 197, 94, 0.3)",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-  },
-  ready: {
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "110px", borderRadius: "9999px",
-    backgroundColor: "rgba(10, 15, 26, 0.9)", // bg-gradient-to-br from-[#0A0F1A] to-[#020409] (approximation)
-    boxShadow: "0 0 10px rgba(166, 246, 255, 0.4)", // hover:shadow-[0_0_10px_#A6F6FF66]
-    border: "1px solid rgba(166, 246, 255, 0.1)", // border-[#A6F6FF]/10
-    borderColor: "rgba(166, 246, 255, 0.1)",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-   },
-  recording: {
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "110px", borderRadius: "9999px",
-    backgroundColor: "rgba(2, 4, 9, 1)", // bg-[#020409]
-    boxShadow: "0 0 8px rgba(255, 77, 109, 0.26)", // shadow-[0_0_8px_#FF4D6D44]
-    border: "1px solid rgba(255, 77, 109, 0.5)", // border-[#FF4D6D]/50
-    borderColor: "rgba(255, 77, 109, 0.5)",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-  },
-  processing: {
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "70px", borderRadius: "9999px",
-    backgroundColor: "rgba(2, 4, 9, 1)", // bg-[#020409]
-    boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", // shadow-[0_0_10px_#8B9EFF66]
-    border: "1px solid rgba(139, 158, 255, 0.5)", // border-[#8B9EFF]/50
-    borderColor: "rgba(139, 158, 255, 0.5)",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-  },
-  error: {
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "110px", borderRadius: "9999px",
-    backgroundColor: "rgba(194, 65, 12, 0.2)", // bg-orange-700/20
-    boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", // shadow-[0_0_8px_#FF8B6644]
-    border: "1px solid rgba(249, 115, 22, 0.5)", // border-orange-500/50
-    borderColor: "rgba(249, 115, 22, 0.5)",
-    opacity: 1,
-    transition: { duration: 0.3, ease: "easeOut" }
-  }
+  idle: { width: "28px", height: "28px", padding: "4px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.0)", boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", border: "1px solid transparent", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+  edit_pending: { width: "28px", height: "28px", padding: "4px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.0)", boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", border: "1px solid rgba(34, 197, 94, 0.3)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+  ready: { width: "auto", height: "32px", padding: "4px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.9)", boxShadow: "0 0 10px rgba(166, 246, 255, 0.4)", border: "1px solid rgba(166, 246, 255, 0.1)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+  recording: { width: "auto", height: "32px", padding: "4px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 8px rgba(255, 77, 109, 0.26)", border: "1px solid rgba(255, 77, 109, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+  processing: { width: "auto", height: "32px", padding: "4px 8px", minWidth: "50px", borderRadius: "9999px", backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+  error: { width: "auto", height: "32px", padding: "4px 8px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(194, 65, 12, 0.2)", boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", border: "1px solid rgba(249, 115, 22, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } }
 };
 
 const iconVariant = {
@@ -105,207 +57,157 @@ const iconVariant = {
   error: { opacity: 1, scale: 0.9, x: 0 } // Centered on error
 };
 
-const contentVariants = {
-  hidden: { opacity: 0, scale: 0.95, x: 5 },
-  visible: { 
-    opacity: 1, 
-    scale: 1, 
-    x: 0, 
-    transition: { duration: 0.2, delay: 0.1 } 
-  },
-  exit: { 
-    opacity: 0, 
-    scale: 0.95, 
-    x: -5, 
-    transition: { duration: 0.1 } 
-  }
+const contentAnimationVariants = { 
+    initial: { opacity: 0, scale: 0.9, x: -8 }, 
+    animate: { opacity: 1, scale: 1, x: 0, transition:{ duration: 0.2, ease: "circOut" } }, 
+    exit: { opacity:0, scale:0.9, x: 8, transition:{ duration:0.1, ease: "circIn" }} 
 };
+
+const featherIconPath = "/feather-logo.png";
+const editIconPath = "/Icons/edit icon.png";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, onEditClick }) => {
     const isIdle = currentState === RecordingState.IDLE;
-    const isRecording = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
-    const isProcessing = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
+    const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
+    const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
     const isEditPending = currentState === RecordingState.SUCCESS_EDIT_PENDING;
-    const isError = currentState === RecordingState.ERROR || !!backendError;
-    const showTranscription = isIdle && transcription && !error && !backendError;
+    const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
-    // Track hover state
     const [isHovered, setIsHovered] = useState(false);
     
-    // Determine the target variant
     let targetVariant: PillVariant = 'idle';
+    if (backendError) targetVariant = 'error';
+    else if (isEditPending) targetVariant = 'edit_pending';
+    else if (isIdle && isHovered) targetVariant = 'ready';
+    else if (isRecordingState) targetVariant = 'recording';
+    else if (isProcessingState) targetVariant = 'processing';
+    else if (isErrorUiState) targetVariant = 'error';
+    else targetVariant = 'idle';
 
-    if (backendError) {
-        targetVariant = 'error';
-    } else if (isEditPending) {
-        targetVariant = 'edit_pending';
-    } else if (isIdle && isHovered) {
-        targetVariant = 'ready';
-    } else if (isRecording) {
-        targetVariant = 'recording';
-    } else if (isProcessing) {
-        targetVariant = 'processing';
-    } else if (isError) {
-        targetVariant = 'error';
-    } else {
-        targetVariant = 'idle';
-    }
-
-    // Click handler for the feather icon
-    const handleIconClick = async () => {
-        console.log(`Icon clicked in state: ${targetVariant}`); // Keep overall log
-
-        if (targetVariant === 'ready') {
-            try {
-                // Start recording by simulating a press
-                console.log('Invoking trigger_press_event via UI click...');
-                await invoke('trigger_press_event');
-                console.log('trigger_press_event invoked successfully.');
-            } catch (error) {
-                console.error('Error invoking trigger_press_event:', error);
-            }
+    const handleContentAreaClick = async () => {
+        console.log(`[Pill Inner Click] Action based on targetVariant: ${targetVariant}`);
+        if (targetVariant === 'edit_pending') {
+            if (onEditClick) onEditClick();
+        } else if (targetVariant === 'ready') {
+            try { await invoke('trigger_press_event'); } 
+            catch (err) { console.error('Error invoking trigger_press_event:', err); }
         } else if (targetVariant === 'recording') {
-            try {
-                // Stop recording by simulating a release
-                console.log('Invoking trigger_release_event (to stop) via UI click...'); // Log updated
-                await invoke('trigger_release_event'); // USE RELEASE HERE
-                console.log('trigger_release_event (to stop) invoked successfully.'); // Log updated
-            } catch (error) {
-                console.error('Error invoking trigger_release_event (to stop):', error); // Log updated
-            }
-        } else {
-            console.log('Icon click ignored in current state.'); // Keep this part
+            try { await invoke('trigger_release_event'); } 
+            catch (err) { console.error('Error invoking trigger_release_event:', err); }
         }
     };
 
-    // Simplified stateClasses - only add non-layout/non-variant styles
-    let stateClasses = "text-white"; // Base text color
-    if (targetVariant === 'recording' || targetVariant === 'error') {
-        stateClasses += " text-xs font-mono"; // Specific text style for these states
-    } else if (targetVariant === 'processing') {
-        stateClasses += " text-[#8B9EFF]"; // Specific text color
+    let stateClasses = "text-white";
+    if ([ 'ready', 'recording', 'error', 'processing'].includes(targetVariant) ) {
+        stateClasses += " text-xs font-mono";
     }
-    // Add hover effects not handled by variants if needed
-    if (targetVariant === 'idle' && !isHovered) {
-        stateClasses += " hover:shadow-[0_0_10px_#A6F6FF66]"; // Idle non-hover needs hover shadow
-    } else if (targetVariant === 'edit_pending') {
-        stateClasses += " hover:shadow-[0_0_10px_#22C55E99]"; // Edit pending hover shadow
-    } // Other hover shadows are handled by the 'ready'/'recording' etc. variants
-    
-    // Log the props received by this component render
-    console.log(`---> RecordingPill Rendering: State=${RecordingState[currentState]}(${currentState}), Duration=${duration}, Trans=${transcription ? transcription.substring(0,10)+'...' : 'none'}, Err=${error || 'none'}, BackendErr=${backendError || 'none'}, Hovered=${isHovered}`);
-
-    // --- Determine Content Before Return --- 
-    let iconElement: React.ReactNode = null;
-    let mainContentElement: React.ReactNode = null;
+    if (targetVariant === 'processing') stateClasses += " text-indigo-300";
+    if (targetVariant === 'idle' && !isHovered) stateClasses += " hover:shadow-[0_0_10px_#A6F6FF66]";
+    else if (targetVariant === 'edit_pending') stateClasses += " hover:shadow-[0_0_10px_#22C55E99]";
+            
+    let pillContent: React.ReactNode = null;
+    const iconClass = "w-5 h-5 object-contain flex-shrink-0";
+    const textClass = "truncate";
 
     switch (targetVariant) {
         case 'idle':
-            iconElement = (
-                <motion.div layoutId="feather-icon-idle" className="absolute inset-0 flex items-center justify-center">
-                    <img src="/feather-logo.png" alt="Fethr" className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]" />
+            pillContent = (
+                <motion.div key="idle" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                    <img src={featherIconPath} alt="Fethr" className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} />
                 </motion.div>
             );
             break;
         case 'edit_pending':
-            iconElement = (
-                <motion.div layoutId="edit-icon-pending" className="absolute inset-0 flex items-center justify-center">
-                    <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5 filter brightness-125 saturate-150 hover:opacity-80" />
+            pillContent = (
+                <motion.div key="edit" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                    <img src={editIconPath} alt="Edit" className={`${iconClass} filter brightness-125 saturate-150`} />
                 </motion.div>
             );
             break;
         case 'error':
-            iconElement = (
-                 <div className="flex-shrink-0 flex items-center justify-center z-10 ml-3 mr-2">
-                    <AlertTriangle className="w-4 h-4 text-red-400" />
-                 </div>
+            pillContent = (
+                <motion.div key="error" {...contentAnimationVariants} className="flex items-center justify-start w-full h-full px-2 space-x-1.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <span className={textClass}>Error</span>
+                </motion.div>
             );
-            // Optionally add error message text to mainContentElement here if desired
-             mainContentElement = (
-                 <div className="flex-grow h-full flex items-center overflow-hidden relative min-w-0 ml-1 mr-2">
-                     <span className="text-xs text-red-400 truncate">Error</span>
-                 </div>
-             );
             break;
         case 'ready':
-        case 'recording':
-        case 'processing':
-            // Icon for active states
-             iconElement = (
-                <motion.div
-                    layoutId="feather-icon-active"
-                    variants={iconVariant} 
-                    animate={{
-                        ...iconVariant[targetVariant as keyof typeof iconVariant],
-                        rotate: targetVariant === 'ready' ? [0, -10, 10, -5, 5, 0] : 0,
-                        scale: iconVariant[targetVariant as keyof typeof iconVariant].scale,
-                    }}
-                    transition={{
-                        duration: 0.2,
-                        rotate: targetVariant === 'ready'
-                            ? {
-                                duration: 1.2,
-                                repeat: Infinity,
-                                ease: "easeInOut",
-                              }
-                            : {
-                                duration: 0.2,
-                                ease: "easeOut",
-                              }
-                    }}
-                    className={`flex-shrink-0 flex items-center justify-center z-10 ${targetVariant === 'ready' || targetVariant === 'recording' ? 'cursor-pointer' : ''}`}
-                    onClick={targetVariant === 'ready' || targetVariant === 'recording' ? handleIconClick : undefined}
-                 >
-                    <img src="/feather-logo.png" alt="Fethr" className="w-5 h-5 object-contain filter drop-shadow-[0_0_4px_#A6F6FF]" />
-                 </motion.div>
+            pillContent = (
+                <motion.div key="ready" {...contentAnimationVariants} className="flex items-center justify-between w-full h-full space-x-1.5">
+                    <img src={featherIconPath} alt="Fethr Ready" className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} />
+                    <div className="flex-grow h-[55%] min-w-[35px]">
+                        <LiveWaveform barColor="#A6F6FF" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
+                    </div>
+                    <span className={`text-sky-300 tabular-nums`}>0s</span>
+                </motion.div>
             );
-            // Content for active states
-            mainContentElement = (
-                 <div className="flex-grow h-full flex items-center overflow-hidden relative min-w-0 ml-2">
-                     <AnimatePresence mode="wait" initial={false}>
-                         <motion.div
-                             key={targetVariant} // Animate based on variant change
-                             variants={contentVariants}
-                             initial="hidden"
-                             animate="visible"
-                             exit="exit"
-                             className="flex items-center justify-end w-full h-full space-x-1.5"
-                         >
-                             {(targetVariant === 'recording' || targetVariant === 'ready') && <LiveWaveform />} {/* Show for ready too */}
-                             {targetVariant === 'processing' && <Loader2 className="w-4 h-4 animate-spin" />} 
-                             {targetVariant === 'recording' && <span className="flex-shrink-0 font-mono text-xs">{duration}</span>} 
-                             {targetVariant === 'ready' && <span className="flex-shrink-0 font-mono text-xs text-gray-500">0s</span>} 
-                         </motion.div>
-                     </AnimatePresence>
-                 </div>
+            break;
+        case 'recording':
+            pillContent = (
+                <motion.div key="recording" {...contentAnimationVariants} className="flex items-center justify-between w-full h-full space-x-1.5">
+                    <img src={featherIconPath} alt="Stop Recording" className={`${iconClass} filter drop-shadow-[0_0_4px_#FF4D6D]`} />
+                    <div className="flex-grow h-[65%] min-w-[50px]">
+                        <LiveWaveform barColor="#FF4D6D" idleHeight={10} barWidth={4} gap={2.5} isRecording={true} />
+                    </div>
+                    <span className={`tabular-nums flex-shrink-0`}>{duration}</span>
+                </motion.div>
+            );
+            break;
+        case 'processing':
+            pillContent = (
+                <motion.div key="processing" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                    <Loader2 className="w-5 h-5 animate-spin text-indigo-300 flex-shrink-0" />
+                </motion.div>
+            );
+            break;
+        default:
+            pillContent = (
+                <motion.div key="default" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                     <img src={featherIconPath} alt="Fethr" className={`${iconClass} opacity-50`} />
+                </motion.div>
             );
             break;
     }
 
-    // Define base classes for the motion.div
-    const basePillClasses = "flex items-center relative overflow-hidden outline outline-1 outline-transparent";
-    const justificationClass = (targetVariant === 'idle' || targetVariant === 'edit_pending') ? 'justify-center' : 'justify-start';
+    const basePillClasses = "flex items-center justify-center relative overflow-hidden outline outline-1 outline-transparent select-none";
 
     return (
         <motion.div
+            data-tauri-drag-region
             layout
             variants={pillContainerVariants}
-            initial="idle"
+            initial={false}
             animate={targetVariant}
-            onHoverStart={() => { if (currentState === RecordingState.IDLE) setIsHovered(true); }}
+            onHoverStart={() => { if (isIdle) setIsHovered(true); }}
             onHoverEnd={() => setIsHovered(false)}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className={`${basePillClasses} ${justificationClass} ${stateClasses}`}
-            title={backendError ? backendError : (targetVariant === 'edit_pending' ? "Edit Last Transcription (Click Pill)" : undefined)}
-            onClick={targetVariant === 'edit_pending' ? (e) => { e.stopPropagation(); onEditClick?.(); } : undefined}
-            style={{ cursor: targetVariant === 'edit_pending' ? 'pointer' : 'default' }}
+            transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
+            className={`${basePillClasses} ${stateClasses}`}
+            title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
+            style={{ cursor: 'grab' }}
+            onMouseDown={(e) => {
+                const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording';
+                const clickedInteractiveArea = (e.target as HTMLElement).closest('.pill-interactive-content-area');
+                if (interactiveInner && clickedInteractiveArea) return;
+                appWindow.startDragging().catch(err => console.error("[Pill Main Drag] Error:", err));
+            }}
         >
-            {/* Render the determined icon and content */} 
-            {iconElement}
-            {mainContentElement}
-
-            {/* Transcription bubble logic can remain the same */}
-            {/* {showTranscription && ( ... )} */}
+            <div
+                className={`pill-interactive-content-area w-full h-full relative`} 
+                onClick={handleContentAreaClick}
+                onMouseDown={(e) => {
+                    if (targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording') {
+                        e.stopPropagation();
+                    }
+                }}
+                style={{
+                    cursor: (targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording') ? 'pointer' : 'default' 
+                }}
+            >
+                <AnimatePresence mode='wait' initial={false}>
+                    {pillContent}
+                </AnimatePresence>
+            </div>
         </motion.div>
     );
 };

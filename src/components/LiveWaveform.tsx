@@ -1,13 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const NUM_BARS = 6; // Increased from 5 to 6 for better visualization
-const MIN_BAR_HEIGHT = 5; // Minimum 5% height
+const MIN_BAR_HEIGHT_PERCENT = 5; // Default min height as a percentage
 const SMOOTHING_FACTOR = 0.85; // Analyser smoothing
 const FFT_SIZE = 256; // Increase for time domain data
 const SCALE_FACTOR = 900; // Dramatically increased from 700 to 1100 for even better visual impact
 
-const LiveWaveform: React.FC = () => {
-    const [barHeights, setBarHeights] = useState<number[]>(() => new Array(NUM_BARS).fill(MIN_BAR_HEIGHT));
+// Define the props interface
+interface LiveWaveformProps {
+    barColor?: string;
+    idleHeight?: number;
+    maxHeight?: number; // Though not directly used in scaling logic, good to have if needed later
+    barWidth?: number;
+    gap?: number;
+    isRecording?: boolean; // Can be used to conditionally run the analyser
+}
+
+const LiveWaveform: React.FC<LiveWaveformProps> = ({
+    barColor = 'rgba(255,255,255,0.8)', // Default to white with some transparency
+    idleHeight = MIN_BAR_HEIGHT_PERCENT,
+    barWidth = 1.5, // Default to 1.5px width
+    gap = 1, // Default to 1px gap
+    isRecording, // This prop can be used to conditionally start/stop the analyser
+}) => {
+    const [barHeights, setBarHeights] = useState<number[]>(() => new Array(NUM_BARS).fill(idleHeight));
     const audioContextRef = useRef<AudioContext | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
     const dataArrayRef = useRef<Uint8Array | null>(null);
@@ -62,7 +78,7 @@ const LiveWaveform: React.FC = () => {
             
             // Scale max deviation (0-128) to height percentage (0-100)
             // Apply scaling factor to make it more visually responsive
-            const heightPercent = Math.max(MIN_BAR_HEIGHT, Math.min(100, (maxAmplitude / 128) * SCALE_FACTOR));
+            const heightPercent = Math.max(idleHeight, Math.min(100, (maxAmplitude / 128) * SCALE_FACTOR));
             newHeights[i] = heightPercent;
         }
 
@@ -78,6 +94,17 @@ const LiveWaveform: React.FC = () => {
     useEffect(() => {
         isMountedRef.current = true; // Mark as mounted
         drawCountRef.current = 0; // Initialize counter
+
+        // Determine if audio should be set up based on isRecording prop if it's explicitly passed
+        // If isRecording is undefined, always attempt to set up audio (original behavior)
+        const shouldSetupAudio = typeof isRecording === 'undefined' || isRecording === true;
+
+        if (!shouldSetupAudio) {
+            console.log("[LiveWaveform] Audio setup skipped as isRecording is false.");
+            // Ensure cleanup if audio was previously active and isRecording becomes false
+            // This part might need more robust handling if isRecording can toggle during component lifetime
+            return;
+        }
 
         const setupAudio = async () => {
             setError(null); // Clear previous errors
@@ -155,9 +182,7 @@ const LiveWaveform: React.FC = () => {
 
              console.log("[LiveWaveform] Cleanup finished.");
         };
-    // No dependencies needed, runs once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isRecording]); // Add isRecording to dependency array to re-run effect if it changes
 
     // --- RENDER ---
     if (error) {
@@ -166,13 +191,21 @@ const LiveWaveform: React.FC = () => {
 
     // Use a consistent key for the container if needed, or rely on parent key
     return (
-         <div className="flex items-end justify-center space-x-1 h-4 w-full overflow-hidden"> {/* Keep space-x-1 */}
+         <div 
+            className="flex items-end justify-center h-full w-full overflow-hidden"
+            style={{ columnGap: `${gap}px` }} // Apply gap using style
+        >
              {barHeights.map((height, index) => (
                  <span
                      key={index}
-                     className="block w-1 bg-white/80 rounded-full" // Changed from w-1.5 to w-1 for thinner bars
-                     // Apply dynamic height, ensure min-height via Math.max in calculation
-                     style={{ height: `${height}%`, transition: 'height 0.075s ease-out' }}
+                     className="block rounded-full"
+                     style={{
+                         backgroundColor: barColor,
+                         width: `${barWidth}px`,
+                         height: `${height}%`,
+                         minHeight: `${idleHeight}%`,
+                         transition: 'height 0.075s ease-out' 
+                     }}
                  />
              ))}
          </div>
