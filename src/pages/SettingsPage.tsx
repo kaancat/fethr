@@ -18,6 +18,7 @@ import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { LoginForm } from '@/components/LoginForm';
+import DictionarySettingsTab from '../components/settings/DictionarySettingsTab';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -70,7 +71,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const [historyError, setHistoryError] = useState<string | null>(null);
     
     // Section state
-    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account'>('general');
+    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary'>('general');
     const [apiKey, setApiKey] = useState<string>('');
     const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
 
@@ -534,6 +535,17 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     </Button>
                     <Button
                         variant="ghost"
+                        onClick={() => setActiveSection('dictionary')}
+                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
+                            activeSection === 'dictionary'
+                                ? 'bg-[#A6F6FF]/10 text-white'
+                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
+                        }`}
+                    >
+                        Dictionary
+                    </Button>
+                    <Button
+                        variant="ghost"
                         onClick={() => setActiveSection('account')}
                         className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
                             activeSection === 'account'
@@ -818,7 +830,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                                         onClick={async () => {
                                                                             if (editedPromptText !== null) {
                                                                                 try {
-                                                                                    await invoke('save_custom_prompt', { actionId: action.id, newPrompt: editedPromptText });
+                                                                                    await invoke('save_custom_prompt', { actionId: action.id, customPrompt: editedPromptText });
                                                                                     setCurrentPromptText(editedPromptText);
                                                                                     toast({ title: "Prompt Saved", description: "Custom prompt has been saved." });
                                                                                 } catch (error) {
@@ -879,6 +891,11 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 </div>
                             </div>
                         </ScrollArea>
+                    )}
+
+                    {/* Dictionary Settings Section */}
+                    {activeSection === 'dictionary' && (
+                        <DictionarySettingsTab />
                     )}
 
                     {/* Account Section */} 

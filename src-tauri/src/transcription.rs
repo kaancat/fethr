@@ -16,6 +16,7 @@ use std::process::{Command, Stdio}; // Add these imports for FFmpeg
 use chrono::{DateTime, Utc}; // For timestamp in history entries
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
+use crate::dictionary_manager;
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -228,6 +229,24 @@ pub async fn transcribe_local_audio_impl(
     println!("[RUST DEBUG transcription.rs] Using Model: '{}', Language: '{}'", model_name_string, language_string);
     info!("[RUST WHISPER PREP] Language read from settings: {}", language_string);
 
+    // --- BEGINNING OF INSERTED BLOCK 1: Fetch and Prepare Dictionary Prompt ---
+    let dictionary_words = match dictionary_manager::get_dictionary(app_handle.clone()) {
+        Ok(words) => words,
+        Err(e) => {
+            log::error!("[Transcription] Failed to load dictionary: {}. Proceeding without custom prompt.", e);
+            Vec::new()
+        }
+    };
+
+    let initial_prompt_string = if !dictionary_words.is_empty() {
+        let prompt = dictionary_words.join(". ") + ".";
+        log::info!("[Transcription] Using initial prompt from dictionary: \"{}\"", prompt);
+        prompt
+    } else {
+        String::new()
+    };
+    // --- END OF INSERTED BLOCK 1 ---
+
     // --- Resolve Paths (Debug vs Release) ---
 
     let whisper_binary_path: PathBuf;
@@ -413,7 +432,13 @@ pub async fn transcribe_local_audio_impl(
         info!("[RUST WHISPER PREP] Language setting is empty, defaulting to Whisper auto-detection.");
         // Do NOT add the -l argument
     }
-    // --- End conditional language ---
+    // --- END conditional language ---
+    
+    // --- BEGINNING OF INSERTED BLOCK 2: Add Prompt to Whisper Command ---
+    if !initial_prompt_string.is_empty() {
+        command.arg("--prompt").arg(&initial_prompt_string);
+    }
+    // --- END OF INSERTED BLOCK 2 ---
     
     command.arg("-nt") // No timestamps flag
            .arg(&whisper_input_path); // Pass input audio AFTER flags

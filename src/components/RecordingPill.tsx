@@ -33,6 +33,7 @@ interface RecordingPillProps {
     error?: string; // Optional error message
     backendError?: string | null; // Optional backend error message from Rust
     onEditClick?: () => void; // <-- Add prop back
+    onErrorDismiss?: () => void; // Make sure this prop exists
 }
 
 // Add edit_pending to variants
@@ -66,7 +67,7 @@ const contentAnimationVariants = {
 const featherIconPath = "/feather-logo.png";
 const editIconPath = "/Icons/edit icon.png";
 
-const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, onEditClick }) => {
+const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, onEditClick, onErrorDismiss }) => {
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
@@ -84,16 +85,12 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
 
-    const handleContentAreaClick = async () => {
-        console.log(`[Pill Inner Click] Action based on targetVariant: ${targetVariant}`);
-        if (targetVariant === 'edit_pending') {
-            if (onEditClick) onEditClick();
-        } else if (targetVariant === 'ready') {
-            try { await invoke('trigger_press_event'); } 
-            catch (err) { console.error('Error invoking trigger_press_event:', err); }
-        } else if (targetVariant === 'recording') {
-            try { await invoke('trigger_release_event'); } 
-            catch (err) { console.error('Error invoking trigger_release_event:', err); }
+    const handleContentAreaClick = (currentPillState: RecordingState) => {
+        console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]}`);
+        if (currentPillState === RecordingState.IDLE) {
+            invoke('trigger_press_event').catch(err => console.error("Error invoking trigger_press_event:", err));
+        } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
+            invoke('trigger_release_event').catch(err => console.error("Error invoking trigger_release_event:", err));
         }
     };
 
@@ -185,26 +182,71 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
             style={{ cursor: 'grab' }}
+            onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
             onMouseDown={(e) => {
-                const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording';
+                const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording' || currentState === RecordingState.ERROR;
                 const clickedInteractiveArea = (e.target as HTMLElement).closest('.pill-interactive-content-area');
                 if (interactiveInner && clickedInteractiveArea) return;
                 appWindow.startDragging().catch(err => console.error("[Pill Main Drag] Error:", err));
             }}
         >
             <div
-                className={`pill-interactive-content-area w-full h-full relative`} 
-                onClick={handleContentAreaClick}
+                onClick={() => {
+                    console.log(`[RecordingPill] Inner div clicked. Actual currentState: ${RecordingState[currentState]}, TargetVariant: ${targetVariant}`);
+                    if (currentState === RecordingState.ERROR) {
+                        console.log("%c[RecordingPill NATIVE CLICK HANDLER] ERROR state confirmed. Attempting to call prop / GLOBAL FALLBACK.", "color: red; font-size: 1.2em; font-weight: bold;");
+                        console.log("[RecordingPill NATIVE CLICK HANDLER] Type of onErrorDismiss prop:", typeof onErrorDismiss);
+                        if (typeof onErrorDismiss === 'function') {
+                            console.log("[RecordingPill NATIVE CLICK HANDLER] onErrorDismiss is a function, calling it.");
+                            onErrorDismiss(); // Try the prop first
+                        } else {
+                            console.error("[RecordingPill NATIVE CLICK HANDLER] onErrorDismiss is NOT a function or is undefined/null. Type:", typeof onErrorDismiss, "Value:", onErrorDismiss);
+                            console.log("[RecordingPill NATIVE CLICK HANDLER] Attempting FALLBACK to window.TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT...");
+                            if (typeof (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT === 'function') {
+                                console.log("[RecordingPill NATIVE CLICK HANDLER] Global fallback (via effect) function found! Calling it.");
+                                (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT();
+                            } else {
+                                console.error("[RecordingPill NATIVE CLICK HANDLER] Global fallback (via effect) function NOT found either. Type:", typeof (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT);
+                            }
+                        }
+                    } else if (targetVariant === 'edit_pending') {
+                        console.log("[RecordingPill] EDIT_PENDING state clicked, calling onEditClick.");
+                        onEditClick?.();
+                    } else if (
+                        currentState === RecordingState.IDLE ||
+                        currentState === RecordingState.RECORDING ||
+                        currentState === RecordingState.LOCKED_RECORDING
+                    ) {
+                        console.log("[RecordingPill] Operational state click. Calling handleContentAreaClick with actual currentState.");
+                        handleContentAreaClick(currentState);
+                    } else {
+                        console.log(`[RecordingPill] Click in state ${RecordingState[currentState]} / variant ${targetVariant} not handled by primary actions.`);
+                    }
+                }}
                 onMouseDown={(e) => {
-                    if (targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording') {
+                    if (currentState === RecordingState.ERROR || targetVariant === 'edit_pending' || 
+                        targetVariant === 'idle' || targetVariant === 'ready' || 
+                        targetVariant === 'recording') {
                         e.stopPropagation();
                     }
                 }}
+                className={`pill-interactive-content-area w-full h-full relative flex items-center justify-center`}
                 style={{
-                    cursor: (targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording') ? 'pointer' : 'default' 
+                    cursor: (
+                        currentState === RecordingState.ERROR ||
+                        targetVariant === 'edit_pending' ||
+                        targetVariant === 'idle' ||
+                        targetVariant === 'ready' ||
+                        targetVariant === 'recording'
+                    ) ? 'pointer' : 'grab'
                 }}
+                title={ currentState === RecordingState.ERROR ? (error || backendError || 'Error - Click to dismiss') : 
+                        (targetVariant === 'edit_pending' ? 'Edit Last Transcription' : 
+                        (currentState === RecordingState.IDLE ? 'Click to Record' : 
+                        (currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING ? 'Click to Stop' : 'Fethr')))
+                      }
             >
-                <AnimatePresence mode='wait' initial={false}>
+                <AnimatePresence mode='popLayout' initial={false}>
                     {pillContent}
                 </AnimatePresence>
             </div>

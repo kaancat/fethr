@@ -32,6 +32,7 @@ mod transcription;
 mod audio_manager_rs;
 mod config; // Add config module
 mod custom_prompts; // <-- ADDED THIS LINE
+mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -491,6 +492,12 @@ fn main() {
             // Manage audio recording state
             app.manage(Arc::new(Mutex::new(AudioRecordingState::default())));
 
+            // --- Initialize Dictionary Manager ---
+            println!("[RUST SETUP] Initializing DictionaryManager...");
+            dictionary_manager::init_dictionary_manager(&app.handle());
+            println!("[RUST SETUP] DictionaryManager initialized.");
+            // --- End Dictionary Manager Init ---
+
             // --- Debug Window Handles (Final Correction) ---
             println!("[RUST SETUP DEBUG] Checking window handles for URL/Title...");
             match app.get_window("main") {
@@ -726,7 +733,11 @@ fn main() {
             // Settings Commands:
             get_settings,
             save_settings,
-            get_available_models
+            get_available_models,
+            // --- ADD THE NEW DICTIONARY COMMANDS ---
+            dictionary_manager::get_dictionary,
+            dictionary_manager::add_dictionary_word,
+            dictionary_manager::delete_dictionary_word
         ])
         .run(context)
         .expect("Error while running Fethr application");

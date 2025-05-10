@@ -15,7 +15,7 @@ interface StateUpdatePayload {
 
 // --- THIS IS THE CORRECTED PillPage COMPONENT ---
 function PillPage() {
-    console.log("PillPage: Component rendering (Corrected Listener - Attempt FINAL)");
+    // console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;"); // MOVED
     const [currentState, setCurrentState] = useState<RecordingState>(RecordingState.IDLE);
     const [duration, setDuration] = useState<number>(0);
     // Note: Removing transcription state from here as it's not directly displayed by the pill itself anymore
@@ -28,6 +28,76 @@ function PillPage() {
     const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const editReadyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // MOVED TO THE TOP and SIMPLIFIED for diagnostics
+    // useEffect(() => {
+    //     console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC useEffect (first one) ENTERED", "background: lime; color: black; font-weight: bold;");
+    //     return () => {
+    //         console.log('%c[PillPage CRITICAL LOG] DIAGNOSTIC useEffect (first one) CLEANUP', "background: red; color: white; font-weight: bold;");
+    //     };
+    // }, []); // Empty dependency array
+
+    const handleErrorDismiss_MEMOIZED = useCallback(() => {
+        console.log(`%c[PillPage handleErrorDismiss_MEMOIZED CALLED] State: ${RecordingState[currentState]}, Error: ${error}, Message: ${errorMessage}`, "color: orange; font-weight: bold;");
+        if (errorTimeoutRef.current) {
+            clearTimeout(errorTimeoutRef.current);
+            errorTimeoutRef.current = null;
+            console.log("[PillPage handleErrorDismiss] Cleared errorTimeoutRef.");
+        }
+        if (editReadyTimeoutRef.current) {
+            clearTimeout(editReadyTimeoutRef.current);
+            editReadyTimeoutRef.current = null;
+            console.log("[PillPage handleErrorDismiss] Cleared editReadyTimeoutRef.");
+        }
+
+        setError(null);
+        setErrorMessage(null);
+        setLastTranscriptionText(null); 
+        setCurrentState(RecordingState.IDLE);
+        console.log("[PillPage handleErrorDismiss] All frontend states reset to idle/null.");
+
+        invoke('signal_reset_complete')
+            .then(() => {
+                console.log("[PillPage handleErrorDismiss] Backend reset signal SUCCEEDED.");
+            })
+            .catch(err => {
+                console.error("[PillPage handleErrorDismiss] Backend reset signal FAILED:", err);
+            });
+    }, [setCurrentState, setError, setErrorMessage, setLastTranscriptionText]); // Added setLastTranscriptionText
+
+    // New useEffect for the robust global fallback - RESTORED with empty dependency array for now
+    useEffect(() => {
+        console.log("%c[PillPage CRITICAL LOG] Entering useEffect to define TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT", "background: yellow; color: black; font-weight: bold;");
+        (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT = () => {
+            console.log(`%c[PillPage TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT CALLED!] CurrentState (at definition time): ${RecordingState[currentState]}`, "color: purple; font-size: 1.3em; font-weight: bold;");
+            // Note: currentState here will be stale due to the empty dependency array for this diagnostic step.
+            // The actual dismissal logic might need to be adapted or this effect reverted once the assignment issue is solved.
+            if (errorTimeoutRef.current) {
+                clearTimeout(errorTimeoutRef.current);
+                errorTimeoutRef.current = null;
+                console.log("[PillPage GlobalEffectFn] Cleared errorTimeoutRef.");
+            }
+            if (editReadyTimeoutRef.current) {
+                clearTimeout(editReadyTimeoutRef.current);
+                editReadyTimeoutRef.current = null;
+                console.log("[PillPage GlobalEffectFn] Cleared editReadyTimeoutRef.");
+            }
+            setError(null);
+            setErrorMessage(null);
+            setLastTranscriptionText(null);
+            setCurrentState(RecordingState.IDLE); // This will use the initial setCurrentState
+            console.log("[PillPage GlobalEffectFn] All frontend states reset to idle/null.");
+            invoke('signal_reset_complete')
+                .then(() => console.log("[PillPage GlobalEffectFn] Backend reset signal SUCCEEDED."))
+                .catch(err => console.error("[PillPage GlobalEffectFn] Backend reset signal FAILED:", err));
+        };
+        console.log('[PillPage useEffect] Assigned (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT. Type:', typeof (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT);
+    
+        return () => {
+            delete (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT;
+            console.log('%c[PillPage CRITICAL LOG] Cleaned up (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT', "background: orange; color: black; font-weight: bold;");
+        };
+    }, []); // Empty dependency array for now
 
     // --- Handler for Edit Icon Click ---
     const handleEditClick = useCallback(() => {
@@ -61,6 +131,7 @@ function PillPage() {
             .then(resultText => {
                 console.log("PillPage: stop_backend_recording promise resolved:", resultText);
                 if (!resultText || resultText.trim() === '') {
+                    console.warn("[PillPage handleTranscriptionResult - EMPTY RESULT] Current state before setting ERROR:", RecordingState[currentState]);
                     console.warn("PillPage: Backend returned empty result");
                     setError('Transcription empty'); // Set functional error state
                     setLastTranscriptionText(null);
@@ -91,6 +162,7 @@ function PillPage() {
                 }
             })
             .catch(error => {
+                console.warn("[PillPage handleTranscriptionResult - CATCH BLOCK] Current state before setting ERROR:", RecordingState[currentState]);
                 console.error("PillPage: stop_backend_recording promise rejected:", error);
                 const errorMsg = `Transcription error: ${error instanceof Error ? error.message : String(error)}`;
                 setError(errorMsg); // Set functional error state
@@ -120,6 +192,9 @@ function PillPage() {
 
     // --- Main useEffect for listeners ---
     useEffect(() => {
+        // ADD THE CRITICAL LOG HERE AS THE VERY FIRST LINE
+        console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC LOG INSIDE MAIN LISTENER useEffect", "background: cyan; color: black; font-weight: bold;");
+
         console.log("PillPage: useEffect running - setting up listeners (External File - Corrected)");
         let isMounted = true; // Add mount check flag
         const unlisteners: Array<() => void> = [];
@@ -129,6 +204,7 @@ function PillPage() {
                 // --- Listener for Backend Errors ---
                 const handleErrorOccurred = (event: { payload: string }) => {
                     if (!isMounted) return; // Check if component is still mounted
+                    console.warn("[PillPage handleErrorOccurred - EVENT RECEIVED] Current state before setting ERROR:", RecordingState[currentState]);
                     const errorMsg = event.payload;
                     console.log(`PillPage: Received fethr-error-occurred: "${errorMsg}"`);
                     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
@@ -311,7 +387,8 @@ function PillPage() {
         return Math.floor(ms / 1000).toString() + "s";
     };
 
-    console.log(`PillPage: Rendering. State: ${RecordingState[currentState]}(${currentState}), Duration: ${duration}`);
+    // Log state just before rendering
+    console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;");
 
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
@@ -323,6 +400,28 @@ function PillPage() {
                 error={error ?? undefined}
                 backendError={errorMessage} // Pass specific error message state
                 onEditClick={handleEditClick}
+                onErrorDismiss={() => {
+                    console.log(`%c[PillPage JSX onErrorDismiss] PROXY FUNCTION CALLED. CurrentState at this point: ${RecordingState[currentState]}. Bypassing memoized handler for direct action.`, "color: green; font-weight: bold;");
+                    // Directly call the state setters here for a test
+                    if (errorTimeoutRef.current) {
+                        clearTimeout(errorTimeoutRef.current);
+                        errorTimeoutRef.current = null;
+                        console.log("[PillPage JSX onErrorDismiss] Cleared errorTimeoutRef.");
+                    }
+                    if (editReadyTimeoutRef.current) {
+                        clearTimeout(editReadyTimeoutRef.current);
+                        editReadyTimeoutRef.current = null;
+                        console.log("[PillPage JSX onErrorDismiss] Cleared editReadyTimeoutRef.");
+                    }
+                    setError(null);
+                    setErrorMessage(null);
+                    setLastTranscriptionText(null);
+                    setCurrentState(RecordingState.IDLE);
+                    console.log("[PillPage JSX onErrorDismiss] All frontend states reset to idle/null.");
+                    invoke('signal_reset_complete')
+                        .then(() => console.log("[PillPage JSX onErrorDismiss] Backend reset signal SUCCEEDED."))
+                        .catch(err => console.error("[PillPage JSX onErrorDismiss] Backend reset signal FAILED:", err));
+                }}
             />
         </div>
     );
