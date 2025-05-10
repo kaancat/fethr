@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { HistoryEntry } from '../types'; // Adjust path if necessary
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import TextareaAutosize from 'react-textarea-autosize'; // For custom prompt input
 import { format } from 'date-fns'; // For formatting the timestamp
 import { invoke } from '@tauri-apps/api/tauri'; // Added invoke
 import { useToast } from "@/hooks/use-toast"; // Changed import
@@ -13,11 +13,18 @@ interface HistoryItemEditorProps {
   onCancel: () => void; // Function to call when canceling
 }
 
+// Define the character limit constant (can be defined outside the component or as a const inside)
+const CUSTOM_PROMPT_MAX_LENGTH = 500;
+
 const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, onCancel }) => {
   const [editedText, setEditedText] = useState<string>(entry.text);
   const [isAiLoading, setIsAiLoading] = useState<string | null>(null); // Re-added
   const [initialTextSnapshot, setInitialTextSnapshot] = useState<string>('');
   const { toast } = useToast(); // Initialize useToast
+
+  // --- NEW STATE FOR CUSTOM PROMPT ---
+  const [customUserPrompt, setCustomUserPrompt] = useState<string>('');
+  const [isApplyingCustomPrompt, setIsApplyingCustomPrompt] = useState<string | boolean>(false);
 
   // Effect to reset editedText when the entry prop changes
   useEffect(() => {
@@ -43,6 +50,8 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
 
     console.log(`[AI Action] Requesting '${actionType}' for text: "${editedText.substring(0, 50)}..."`);
     setIsAiLoading(actionType);
+    // Disable custom prompt button while other AI actions are running
+    if (typeof setIsApplyingCustomPrompt === 'function') setIsApplyingCustomPrompt(true);
 
     let loadingTitle = "Working on it...";
     let loadingDescription = "Please wait while the AI processes your request.";
@@ -93,7 +102,41 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
         toast({ variant: "destructive", title: errorTitle, description: `The ${actionType} action encountered an issue. ${errorMessage}` });
     } finally {
         setIsAiLoading(null);
+        // Re-enable custom prompt button
+        if (typeof setIsApplyingCustomPrompt === 'function') setIsApplyingCustomPrompt(false);
     }
+  };
+
+  // --- NEW FUNCTION TO HANDLE APPLYING THE CUSTOM PROMPT ---
+  const handleApplyCustomPrompt = async () => {
+      if (!customUserPrompt.trim()) {
+          toast({variant: "destructive", title: "Input Error", description:"Please enter a custom prompt to apply."});
+          return;
+      }
+      if (!editedText.trim()) {
+          toast({variant: "destructive", title: "Input Error", description:"There is no text to apply the prompt to."});
+          return;
+      }
+
+      setIsApplyingCustomPrompt(true);
+      setIsAiLoading('custom_prompt'); // Visually disable other AI buttons
+
+      try {
+          const result = await invoke<string>('perform_ai_action', {
+              action: "custom_direct_prompt", 
+              text: editedText,
+              directPrompt: customUserPrompt,
+          });
+          setEditedText(result);
+          toast({title: "Custom Prompt Applied", description: "The text has been transformed."});
+      } catch (error) {
+          console.error("Failed to apply custom prompt:", error);
+          const errorMessage = typeof error === 'string' ? error : "An unexpected error occurred.";
+          toast({ variant: "destructive", title: "Custom Prompt Error", description: errorMessage });
+      } finally {
+          setIsApplyingCustomPrompt(false);
+          setIsAiLoading(null); // Re-enable other AI buttons
+      }
   };
 
   return (
@@ -104,56 +147,96 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
       </div>
 
       {/* Textarea for Editing - Reverted */}
-      <Textarea
+      <TextareaAutosize
         value={editedText}
         onChange={(e) => setEditedText(e.target.value)}
-        className="w-full h-40 bg-[#1e1e1e] border-gray-600 text-white resize-none focus:ring-1 focus:ring-offset-0 focus:ring-offset-transparent focus:ring-[#A6F6FF]/50 focus:border-[#A6F6FF]/50"
+        className="w-full h-40 bg-[#1e1e1e] border-gray-600 text-white resize-none focus:ring-1 focus:ring-offset-0 focus:ring-offset-transparent focus:ring-[#A6F6FF]/50 focus:border-[#A6F6FF]/50 p-2.5 text-sm min-h-[80px]" // Added p-2.5, text-sm, min-h
         placeholder="Edit transcription..."
+        minRows={3} // Added minRows
       />
 
       {/* --- AI Action Buttons --- */}
-      <div className="flex items-center space-x-2 pt-2 border-t border-gray-700/50 mt-3">
-          <span className="text-xs text-gray-400 mr-2">AI Actions:</span>
-          <Button // New "Written Form" button
-              variant="outline"
-              size="sm"
-              className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
-              disabled={isAiLoading !== null}
-              title="Convert to clean written text"
-              onClick={() => handleAiAction('written_form')} // Action type 'written_form'
-          >
-              {isAiLoading === 'written_form' ? 'Processing...' : 'Written Form'}
-          </Button>
-          <Button // Existing "Summarize" button, now connected
-              variant="outline"
-              size="sm"
-              className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
-              disabled={isAiLoading !== null}
-              title="Summarize text"
-              onClick={() => handleAiAction('summarize')}
-          >
-              {isAiLoading === 'summarize' ? 'Processing...' : 'Summarize'}
-          </Button>
-          <Button // Existing "Email Mode" button, now connected
-              variant="outline"
-              size="sm"
-              className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
-              disabled={isAiLoading !== null}
-              title="Format as Email"
-              onClick={() => handleAiAction('email')}
-          >
-              {isAiLoading === 'email' ? 'Processing...' : 'Email Mode'}
-          </Button>
-          <Button // New "Promptify" button
-              variant="outline"
-              size="sm"
-              className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
-              disabled={isAiLoading !== null}
-              title="Refine this text into an effective AI prompt"
-              onClick={() => handleAiAction('promptify')} // Action type 'promptify'
-          >
-              {isAiLoading === 'promptify' ? 'Processing...' : 'Promptify'}
-          </Button>
+      <div className="mt-0 pt-3 border-t border-neutral-700"> {/* Adjusted mt-0 for tighter spacing initially */}
+        <div className="flex items-center space-x-2 mb-3"> {/* mb-3 for spacing before next section */}
+            <h4 className="text-xs font-medium text-neutral-400 mr-2">Predefined AI Actions:</h4>
+            <Button
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
+                title="Convert to clean written text"
+                onClick={() => handleAiAction('written_form')}
+            >
+                {isAiLoading === 'written_form' ? 'Processing...' : 'Written Form'}
+            </Button>
+            <Button
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
+                title="Summarize text"
+                onClick={() => handleAiAction('summarize')}
+            >
+                {isAiLoading === 'summarize' ? 'Processing...' : 'Summarize'}
+            </Button>
+            <Button 
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
+                title="Format as Email"
+                onClick={() => handleAiAction('email')}
+            >
+                {isAiLoading === 'email' ? 'Processing...' : 'Email Mode'}
+            </Button>
+            <Button
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
+                title="Refine this text into an effective AI prompt"
+                onClick={() => handleAiAction('promptify')}
+            >
+                {isAiLoading === 'promptify' ? 'Processing...' : 'Promptify'}
+            </Button>
+        </div>
+
+        {/* --- NEW CUSTOM PROMPT SECTION (Revised Layout) --- */}
+        <div className="mt-3 pt-3 border-t border-neutral-700/50"> 
+            <h4 className="text-sm font-medium text-neutral-300 mb-2">
+                Transform with your prompt:
+            </h4>
+            <TextareaAutosize
+                value={customUserPrompt}
+                onChange={(e) => setCustomUserPrompt(e.target.value)}
+                placeholder="e.g., 'Translate this to Spanish.' or 'Make this more formal. The text is: ${text}'"
+                className="w-full p-2.5 bg-neutral-700 border border-neutral-600 rounded-md text-neutral-100 placeholder-neutral-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm min-h-[40px]"
+                minRows={2}
+                maxRows={6}
+                disabled={!!isApplyingCustomPrompt || isAiLoading !== null} 
+                maxLength={CUSTOM_PROMPT_MAX_LENGTH} 
+            />
+            {/* Helper text with reduced top margin */}
+            <p className="text-xs text-neutral-500 mt-0.5 mb-1.5"> {/* Adjusted top margin, slightly increased bottom margin for spacing before counter */}
+                Optional: Use <code className="bg-neutral-750 px-1 py-0.5 rounded text-neutral-300 text-[0.7rem]">${'{text}'}</code> in your prompt to specify where the current transcription text should be inserted. If omitted, your prompt will be used as a general instruction for the text.
+            </p>
+            {/* Character counter, moved here and right-aligned */}
+            <div className="text-xs text-neutral-500 text-right">
+                {customUserPrompt.length} / {CUSTOM_PROMPT_MAX_LENGTH}
+            </div>
+            
+            {/* Container for button, now only button, aligned right */}
+            <div className="mt-2 flex justify-end w-full"> {/* Button container, mt-2 for spacing from counter */}
+                <Button 
+                    onClick={handleApplyCustomPrompt}
+                    disabled={!!isApplyingCustomPrompt || isAiLoading !== null || !customUserPrompt.trim() || !editedText.trim()} 
+                    size="sm" 
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 transition-colors"
+                >
+                    {isApplyingCustomPrompt === true || isAiLoading === 'custom_prompt' ? 'Applying...' : 'Apply Custom Prompt'}
+                </Button>
+            </div>
+        </div>
       </div>
 
       {/* Existing Action Buttons (Save/Cancel) */}

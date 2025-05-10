@@ -125,70 +125,45 @@ function PillPage() {
     // --- Handler for processing transcription results ---
     const handleTranscriptionResult = useCallback((resultPromise: Promise<string>) => {
         console.log("PillPage: Entering handleTranscriptionResult...");
-        setError(null); // Clear previous functional error
+        setError(null);
 
         resultPromise
             .then(resultText => {
-                console.log("PillPage: stop_backend_recording promise resolved:", resultText);
                 if (!resultText || resultText.trim() === '') {
-                    console.warn("[PillPage handleTranscriptionResult - EMPTY RESULT] Current state before setting ERROR:", RecordingState[currentState]);
                     console.warn("PillPage: Backend returned empty result");
-                    setError('Transcription empty'); // Set functional error state
+                    setError('Transcription empty');
                     setLastTranscriptionText(null);
-                    const errorState = RecordingState.ERROR; // Use dedicated error state
-                    console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[errorState]} (${errorState}) for empty result`, "color: red;");
-                    setCurrentState(errorState);
+                    setCurrentState(RecordingState.ERROR);
 
-                    // Start timeout to revert from ERROR to IDLE
-                    if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current); // Reuse timeout ref
+                    if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
                     editReadyTimeoutRef.current = setTimeout(() => {
                         console.log("PillPage: Empty result/Error timeout. Reverting to IDLE.");
-                        const finalIdleState = RecordingState.IDLE;
-                        console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[finalIdleState]} (${finalIdleState})`, "color: orange;");
-                        setCurrentState(finalIdleState);
-                        // Signal reset AFTER going back to idle from error
-                        invoke('signal_reset_complete').catch(err => console.error("Error signaling reset:", err));
-                        editReadyTimeoutRef.current = null;
+                        handleErrorDismiss_MEMOIZED(); // Use central handler
                     }, 3000);
                 } else {
-                    // --- SUCCESS PATH ---
                     console.log("[PillPage RESULT] Got successful transcription. Storing text.");
-                    // We don't actually need to store the full text here if the pill doesn't show it
-                    // setTranscription(resultText);
                     setError(null);
-                    setLastTranscriptionText(resultText); // Store for potential edit click
-
-                    // NOTE: State transition to SUCCESS now happens via the event listener below
+                    setLastTranscriptionText(resultText);
                 }
             })
-            .catch(error => {
-                console.warn("[PillPage handleTranscriptionResult - CATCH BLOCK] Current state before setting ERROR:", RecordingState[currentState]);
-                console.error("PillPage: stop_backend_recording promise rejected:", error);
-                const errorMsg = `Transcription error: ${error instanceof Error ? error.message : String(error)}`;
-                setError(errorMsg); // Set functional error state
+            .catch(errorObj => {
+                console.error("PillPage: stop_backend_recording promise rejected:", errorObj);
+                const errorMsg = `Transcription error: ${errorObj instanceof Error ? errorObj.message : String(errorObj)}`;
+                setError(errorMsg);
                 toast.error(errorMsg.substring(0, 100));
                 setLastTranscriptionText(null);
-                const errorState = RecordingState.ERROR; // Use dedicated error state
-                 console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[errorState]} (${errorState}) after promise reject`, "color: red;");
-                setCurrentState(errorState);
+                setCurrentState(RecordingState.ERROR);
 
-                // Start timeout to revert from ERROR to IDLE
-                if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current); // Reuse timeout ref
+                if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
                 editReadyTimeoutRef.current = setTimeout(() => {
                     console.log("PillPage: Transcription error timeout. Reverting to IDLE.");
-                    const finalIdleState = RecordingState.IDLE;
-                     console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[finalIdleState]} (${finalIdleState})`, "color: orange;");
-                    setCurrentState(finalIdleState);
-                    // Signal reset AFTER going back to idle from error
-                    invoke('signal_reset_complete').catch(err => console.error("Error signaling reset:", err));
-                    editReadyTimeoutRef.current = null;
+                    handleErrorDismiss_MEMOIZED(); // Use central handler
                 }, 3000);
             })
             .finally(() => {
-                // ** NO state changes or reset signals here **
                 console.log("PillPage: Transcription attempt complete (finally block).");
             });
-    }, []); // Added useCallback with empty dependency array
+    }, [handleErrorDismiss_MEMOIZED]);
 
     // --- Main useEffect for listeners ---
     useEffect(() => {
@@ -203,22 +178,20 @@ function PillPage() {
             try {
                 // --- Listener for Backend Errors ---
                 const handleErrorOccurred = (event: { payload: string }) => {
-                    if (!isMounted) return; // Check if component is still mounted
-                    console.warn("[PillPage handleErrorOccurred - EVENT RECEIVED] Current state before setting ERROR:", RecordingState[currentState]);
+                    if (!isMounted) return;
                     const errorMsg = event.payload;
                     console.log(`PillPage: Received fethr-error-occurred: "${errorMsg}"`);
+                    if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
+                    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+                    editReadyTimeoutRef.current = null;
+                    successTimeoutRef.current = null;
                     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                    setErrorMessage(errorMsg || "An unknown error occurred."); // For specific error display in pill
-                    const errorState = RecordingState.ERROR; // Also set main state to ERROR
-                    console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[errorState]} (${errorState}) from error event`, "color: red;");
-                    setCurrentState(errorState);
+                    setErrorMessage(errorMsg || "An unknown error occurred.");
+                    setCurrentState(RecordingState.ERROR);
                     errorTimeoutRef.current = setTimeout(() => {
-                        setErrorMessage(null);
-                        const finalIdleState = RecordingState.IDLE;
-                         console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[finalIdleState]} (${finalIdleState}) after error display timeout`, "color: orange;");
-                        setCurrentState(finalIdleState); // Go back to idle after showing error
-                        // Assume backend reset itself or doesn't need it if error occurred during transcription phase
-                        errorTimeoutRef.current = null;
+                        if (!isMounted) return;
+                        console.log("PillPage: Backend error display timeout. Reverting to IDLE.");
+                        handleErrorDismiss_MEMOIZED(); // Use central handler
                     }, 4000);
                 };
                 const unlistenError = await listen<string>('fethr-error-occurred', handleErrorOccurred);
@@ -390,38 +363,20 @@ function PillPage() {
     // Log state just before rendering
     console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;");
 
+    // ADD DIAGNOSTIC LOG HERE
+    console.log("%c[PillPage PRE-RENDER CHECK VERY VISIBLE LOG] Type of handleErrorDismiss_MEMOIZED:", "color: lime; font-weight: bold; font-size: 1.2em;", typeof handleErrorDismiss_MEMOIZED, "Value:", handleErrorDismiss_MEMOIZED);
+
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
+            <h1 style={{ color: 'red', fontSize: '30px', position: 'absolute', top: '10px', left: '10px', zIndex: '9999' }}>TEMP TEST VISIBLE ON SCREEN</h1>
              <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
-                // Passing undefined explicitly if null
-                transcription={undefined} // Pill doesn't display transcription
-                error={error ?? undefined}
-                backendError={errorMessage} // Pass specific error message state
+                transcription={lastTranscriptionText || undefined}
+                error={error || undefined}
+                backendError={errorMessage || undefined}
                 onEditClick={handleEditClick}
-                onErrorDismiss={() => {
-                    console.log(`%c[PillPage JSX onErrorDismiss] PROXY FUNCTION CALLED. CurrentState at this point: ${RecordingState[currentState]}. Bypassing memoized handler for direct action.`, "color: green; font-weight: bold;");
-                    // Directly call the state setters here for a test
-                    if (errorTimeoutRef.current) {
-                        clearTimeout(errorTimeoutRef.current);
-                        errorTimeoutRef.current = null;
-                        console.log("[PillPage JSX onErrorDismiss] Cleared errorTimeoutRef.");
-                    }
-                    if (editReadyTimeoutRef.current) {
-                        clearTimeout(editReadyTimeoutRef.current);
-                        editReadyTimeoutRef.current = null;
-                        console.log("[PillPage JSX onErrorDismiss] Cleared editReadyTimeoutRef.");
-                    }
-                    setError(null);
-                    setErrorMessage(null);
-                    setLastTranscriptionText(null);
-                    setCurrentState(RecordingState.IDLE);
-                    console.log("[PillPage JSX onErrorDismiss] All frontend states reset to idle/null.");
-                    invoke('signal_reset_complete')
-                        .then(() => console.log("[PillPage JSX onErrorDismiss] Backend reset signal SUCCEEDED."))
-                        .catch(err => console.error("[PillPage JSX onErrorDismiss] Backend reset signal FAILED:", err));
-                }}
+                onErrorDismiss={handleErrorDismiss_MEMOIZED}
             />
         </div>
     );

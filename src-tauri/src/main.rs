@@ -33,6 +33,7 @@ mod audio_manager_rs;
 mod config; // Add config module
 mod custom_prompts; // <-- ADDED THIS LINE
 mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
+mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -717,7 +718,7 @@ fn main() {
             transcription::get_history, // History command
             update_history_entry,
             show_settings_window_and_focus,
-            perform_ai_action,
+            ai_actions_manager::perform_ai_action, // <<< ADD NEW ONE
             get_default_prompt_for_action,
             custom_prompts::save_custom_prompt,
             custom_prompts::get_custom_prompt,
@@ -979,92 +980,3 @@ async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<
     }
 }
 // --- END Command ---
-
-// --- ADD Perform AI Action Command ---
-#[tauri::command]
-fn perform_ai_action(
-    _app_handle: tauri::AppHandle, // Keep _app_handle if not used directly for now
-    action: String,
-    text: String,
-    user_api_key: Option<String> // <-- New optional parameter
-) -> Result<String, String> { 
-    println!("[RUST CMD] perform_ai_action called with action: '{}', user_text length: {}", action, text.len());
-
-    // 1. Try to get a custom prompt for this action
-    let prompt_template = match custom_prompts::get_custom_prompt(_app_handle.clone(), action.clone()) { // Pass AppHandle
-        Ok(Some(custom_prompt)) => {
-            println!("[RUST CMD] Using custom prompt for action '{}'", action);
-            custom_prompt
-        }
-        Ok(None) => {
-            println!("[RUST CMD] No custom prompt for action '{}', using default.", action);
-            match get_default_prompt_for_action(action.clone()) { // Ensure get_default_prompt_for_action is in scope
-                Ok(default_template) => default_template,
-                Err(e) => {
-                    return Err(format!("Internal error: Could not find default prompt template. Details: {}", e));
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("[RUST CMD] Error fetching custom prompt for action '{}': {}. Falling back to default.", action, e);
-            // Fallback to default if there's an error reading custom prompts
-            match get_default_prompt_for_action(action.clone()) { // Ensure get_default_prompt_for_action is in scope
-                Ok(default_template) => default_template,
-                Err(e_default) => {
-                    return Err(format!("Internal error: Could not find any prompt template. Details: {}", e_default));
-                }
-            }
-        }
-    };
-
-    // 2. Replace the placeholder in the template with the actual user text
-    let final_prompt = prompt_template.replace("${text}", &text);
-    println!("[RUST CMD] Assembled final prompt (first 100 chars): {}", final_prompt.chars().take(100).collect::<String>());
-
-    // Log whether a user API key is being used
-    if user_api_key.is_some() && user_api_key.as_ref().map_or(false, |k| !k.trim().is_empty()) {
-        println!("[RUST CMD] Using user-provided API key for this request.");
-    } else {
-        println!("[RUST CMD] No user-provided API key, proxy will use fallback app key.");
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(45))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-    #[derive(serde::Serialize)]
-    struct VercelProxyPayload<'a> {
-        prompt: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "apiKey")] // Output as "apiKey" in JSON
-        api_key: Option<&'a str>, // Use snake_case in Rust
-    }
-
-    let request_payload = VercelProxyPayload {
-        prompt: &final_prompt,
-        api_key: user_api_key.as_ref().map(|s| s.as_str()).filter(|s| !s.trim().is_empty()), // use api_key here
-    };
-
-    match client.post(VERCEL_PROXY_URL) // Assuming VERCEL_PROXY_URL is in scope
-        .json(&request_payload)
-        .send()
-    {
-        Ok(response) => {
-            let status = response.status();
-            if status.is_success() {
-                match response.json::<AiActionResponse>() {
-                    Ok(ai_response) => {
-                        if let Some(result_text) = ai_response.result { Ok(result_text) }
-                        else if let Some(err_msg) = ai_response.error { Err(format!("AI service error: {}", err_msg)) }
-                        else { Err("Invalid response structure from AI service.".to_string()) }
-                    }
-                    Err(e) => Err(format!("Failed to parse AI service response: {}", e))
-                }
-            } else {
-                let error_text = response.text().unwrap_or_else(|_| "Could not read error body".to_string());
-                Err(format!("AI service request failed with status {}: {}", status, error_text))
-            }
-        }
-        Err(e) => Err(format!("Network error calling AI service: {}", e))
-    }
-}

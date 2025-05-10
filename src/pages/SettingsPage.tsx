@@ -686,75 +686,70 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                         <div className="flex flex-col h-full">
                             <h2 className="text-lg font-semibold mb-4 text-white flex-shrink-0">History Editor</h2>
                             
-                            <div className="space-y-4 flex-grow">
-                                {historyLoading && (
-                                    <div className="flex items-center justify-center text-gray-400 py-8">
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading history...
-                                    </div>
-                                )}
-                                {historyError && (
-                                    <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-2 rounded border border-[#FF4D6D]/30">{historyError}</p>
-                                )}
-                                
-                                {!historyLoading && !historyError && (
-                                    <>
-                                      {editingEntry ? (
-                                        // --- Show the Editor --- 
-                                        <HistoryItemEditor
-                                            key={editingEntry.timestamp}
-                                            entry={editingEntry}
-                                            onSave={handleSaveEdit}
-                                            onCancel={handleCancelEdit}
-                                        />
-                                      ) : (
-                                        // --- History List (Scroll handled by div below) --- 
-                                        historyEntries.length > 0 ? (
-                                            <ScrollArea className="h-full max-h-[calc(100vh-250px)] flex-grow pr-4">
-                                                <div className="space-y-4">
-                                                    {historyEntries.map((entry) => (
-                                                        <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-xs text-gray-400 font-mono">
-                                                                    {format(new Date(entry.timestamp), 'yyyy-MM-dd HH:mm:ss')}
-                                                                </span>
-                                                                <div className="flex space-x-1 flex-shrink-0">
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="w-6 h-6 text-gray-400 hover:text-green-400 hover:bg-green-900/30"
-                                                                        onClick={() => {
-                                                                            console.log("Setting entry to edit:", entry.timestamp);
-                                                                            setEditingEntry(entry);
-                                                                        }}
-                                                                        title="Edit Transcription"
-                                                                    >
-                                                                        <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
-                                                                        onClick={() => copyHistoryItem(entry.text)}
-                                                                        title="Copy Transcription"
-                                                                    >
-                                                                        <Copy className="w-3 h-3" />
-                                                                    </Button>
-                                                                </div>
+                            <ScrollArea className="h-full flex-grow pr-4 max-h-[calc(100vh-250px)]">
+                                <div className="space-y-4">
+                                    {historyLoading && (
+                                        <div className="flex items-center justify-center text-gray-400 py-8">
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading history...
+                                        </div>
+                                    )}
+                                    {historyError && (
+                                        <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-2 rounded border border-[#FF4D6D]/30">{historyError}</p>
+                                    )}
+                                    
+                                    {!historyLoading && !historyError && (
+                                        <>
+                                          {editingEntry ? (
+                                            <HistoryItemEditor
+                                                key={editingEntry.timestamp}
+                                                entry={editingEntry}
+                                                onSave={handleSaveEdit}
+                                                onCancel={handleCancelEdit}
+                                            />
+                                          ) : (
+                                            historyEntries.length > 0 ? (
+                                                historyEntries.map((entry) => (
+                                                    <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-xs text-gray-400 font-mono">
+                                                                {format(new Date(entry.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+                                                            </span>
+                                                            <div className="flex space-x-1 flex-shrink-0">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="w-6 h-6 text-gray-400 hover:text-green-400 hover:bg-green-900/30"
+                                                                    onClick={() => {
+                                                                        setEditingEntry(entry);
+                                                                    }}
+                                                                    title="Edit Transcription"
+                                                                >
+                                                                    <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5" />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
+                                                                    onClick={() => copyHistoryItem(entry.text)}
+                                                                    title="Copy Transcription"
+                                                                >
+                                                                    <Copy className="w-3 h-3" />
+                                                                </Button>
                                                             </div>
-                                                            <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
-                                                                {entry.text}
-                                                            </p>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            </ScrollArea>
-                                        ) : (
-                                            <p className="text-center text-gray-400 py-8">No transcription history yet.</p>
-                                        )
-                                      )}
-                                    </>
-                                )}
-                            </div>
+                                                        <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
+                                                            {entry.text}
+                                                        </p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <p className="text-center text-gray-400 py-8">No transcription history yet.</p>
+                                            )
+                                          )}
+                                        </>
+                                    )}
+                                </div>
+                            </ScrollArea>
                         </div>
                     )}
 
