@@ -1,5 +1,32 @@
 # Dev Log
 
+## [YYYY-MM-DD] - Session Start
+Goal: Refactor and cleanup existing codebase. Address UI polish.
+
+- Analyzed imports in `src-tauri/src/ai_actions_manager.rs`.
+  - Commented out redundant `use crate::custom_prompts;` as its usage `crate::custom_prompts::get_custom_prompt` is fully qualified.
+  - Kept `use serde::Serialize;` as it is necessary for `VercelProxyPayloadInternal`.
+  - Commented out `use tauri::AppHandle;` as `tauri::AppHandle` is used directly in the function signature, making the `use` statement redundant.
+  - Changed `use log;` to `use log::{debug, error, info, warn};` to itemize used log macros and align with preferred style, ensuring all used levels (including `warn`) are listed.
+- Removed (commented out) `AiActionResponse` struct and `VERCEL_PROXY_URL` constant from `src-tauri/src/main.rs` as this functionality is now handled in `ai_actions_manager.rs`.
+- Verified structure and content of `src-tauri/src/ai_actions_manager.rs`, ensuring `perform_ai_action` and its helper structs/constants are self-contained. Added `use serde::Deserialize;` for `AiActionResponseInternal`.
+- Consolidated AI action logic into `src-tauri/src/ai_actions_manager.rs`:
+  - Moved the default prompt generation logic from `main.rs` (from `get_default_prompt_for_action` command) into a local helper function `get_default_prompt_template_for_action_logic` within `ai_actions_manager.rs`.
+  - Updated `perform_ai_action` to call this local helper for default prompts.
+  - Ensured `perform_ai_action` contains the complete and up-to-date logic for handling direct prompts, custom prompts, API calls, and error/response processing.
+  - Standardized imports and local definitions (structs, constants) as per the latest specifications.
+  - Renamed local constant `CUSTOM_PROMPT_MAX_CHARS` to `CUSTOM_PROMPT_MAX_CHARS_AI`.
+- Investigated pill icon blinking issue on hover (`src/components/RecordingPill.tsx`):
+  - Changed `AnimatePresence` mode from `popLayout` to `sync`. **Reverted this change** as it broke animations; `AnimatePresence` mode is now back to `popLayout`.
+  - Wrapped icons (`<img>`) in `<motion.img>` and timer text (`<span>`) in `<motion.span>` for `idle`, `edit_pending`, `ready`, and `recording` states with individual animations. **Simplified this further** by reverting to plain `<img>` and `<span>` for content, relying on parent `motion.div` with `contentAnimationVariants` for enter/exit animations.
+  - Added `overflow: "hidden"` to the main `motion.div` style.
+  - Adjusted `borderRadius` in `pillContainerVariants` for `idle`/`edit_pending` to `50%` and for expanded states to `16px`.
+  - Removed individual `transition` objects from `pillContainerVariants` states. The main `motion.div`'s `transition` (initially set to a spring: `{{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}`) now governs these property changes.
+  - Adjusted `padding` in `pillContainerVariants` for `ready` and `recording` states to `"4px 8px"` (from `"4px 10px"`).
+  - Reverted the main `motion.div`'s `transition` prop back to `{{ type: "tween", duration: 0.3, ease: "easeInOut" }}` to address potential lag from the spring animation.
+  - Temporarily commented out `boxShadow` and `border` properties for `ready` and `recording` states in `pillContainerVariants` for debugging animation performance.
+  - Modified `contentAnimationVariants` to remove x-axis translation; content now fades and scales in place to improve perceived synchronization during pill expansion.
+
 ## [2024-09-20] - Implemented Settings Page Frontend
 Goal: Create the frontend UI for the Settings page using React components
 

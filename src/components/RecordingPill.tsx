@@ -41,12 +41,54 @@ type PillVariant = 'idle' | 'ready' | 'recording' | 'processing' | 'error' | 'ed
 
 // --- Animation Variants (with explicit styling) ---
 const pillContainerVariants = {
-  idle: { width: "28px", height: "28px", padding: "4px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.0)", boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", border: "1px solid transparent", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
-  edit_pending: { width: "28px", height: "28px", padding: "4px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.0)", boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", border: "1px solid rgba(34, 197, 94, 0.3)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
-  ready: { width: "auto", height: "32px", padding: "4px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(10, 15, 26, 0.9)", boxShadow: "0 0 10px rgba(166, 246, 255, 0.4)", border: "1px solid rgba(166, 246, 255, 0.1)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
-  recording: { width: "auto", height: "32px", padding: "4px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 8px rgba(255, 77, 109, 0.26)", border: "1px solid rgba(255, 77, 109, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
-  processing: { width: "auto", height: "32px", padding: "4px 8px", minWidth: "50px", borderRadius: "9999px", backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
-  error: { width: "auto", height: "32px", padding: "4px 8px", minWidth: "100px", borderRadius: "9999px", backgroundColor: "rgba(194, 65, 12, 0.2)", boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", border: "1px solid rgba(249, 115, 22, 0.5)", opacity: 1, transition: { duration: 0.3, ease: "easeOut" } }
+  idle: { 
+    width: "28px", 
+    height: "28px", 
+    padding: "4px", // This should result in a 28+4+4 = 36px total outer size if box-sizing is content-box, or 28px if border-box
+    borderRadius: "50%", 
+    backgroundColor: "rgba(10, 15, 26, 0.0)", 
+    boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", 
+    border: "1px solid transparent", 
+    opacity: 1 
+  },
+  edit_pending: { 
+    width: "28px", 
+    height: "28px", 
+    padding: "4px", 
+    borderRadius: "50%", 
+    backgroundColor: "rgba(10, 15, 26, 0.0)", 
+    boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", 
+    border: "1px solid rgba(34, 197, 94, 0.3)", 
+    opacity: 1 
+  },
+  ready: { 
+    width: "120px", height: "32px", 
+    padding: "4px 8px", 
+    borderRadius: "16px", 
+    backgroundColor: "rgba(10, 15, 26, 0.9)", 
+    // boxShadow: "0 0 10px rgba(166, 246, 255, 0.4)", // <<< TEMPORARILY COMMENT OUT
+    // border: "1px solid rgba(166, 246, 255, 0.1)",    // <<< TEMPORARILY COMMENT OUT
+    opacity: 1 
+  },
+  recording: { 
+    width: "120px", height: "32px", 
+    padding: "4px 8px", 
+    borderRadius: "16px",
+    backgroundColor: "rgba(2, 4, 9, 1)", 
+    // boxShadow: "0 0 8px rgba(255, 77, 109, 0.26)", // <<< TEMPORARILY COMMENT OUT
+    // border: "1px solid rgba(255, 77, 109, 0.5)",    // <<< TEMPORARILY COMMENT OUT
+    opacity: 1 
+  },
+  processing: { 
+    width: "auto", height: "32px", padding: "4px 8px", minWidth: "50px", borderRadius: "16px",
+    backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", 
+    border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1 
+  },
+  error: { 
+    width: "auto", height: "32px", padding: "4px 8px", minWidth: "100px", borderRadius: "16px",
+    backgroundColor: "rgba(194, 65, 12, 0.2)", boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
+    border: "1px solid rgba(249, 115, 22, 0.5)", opacity: 1 
+  }
 };
 
 const iconVariant = {
@@ -59,9 +101,9 @@ const iconVariant = {
 };
 
 const contentAnimationVariants = { 
-    initial: { opacity: 0, scale: 0.9, x: -8 }, 
-    animate: { opacity: 1, scale: 1, x: 0, transition:{ duration: 0.2, ease: "circOut" } }, 
-    exit: { opacity:0, scale:0.9, x: 8, transition:{ duration:0.1, ease: "circIn" }} 
+    initial: { opacity: 0, scale: 0.9 }, 
+    animate: { opacity: 1, scale: 1, transition:{ duration: 0.2, ease: "circOut" } }, 
+    exit: { opacity:0, scale:0.9, transition:{ duration:0.1, ease: "circIn" }} 
 };
 
 const featherIconPath = "/feather-logo.png";
@@ -109,21 +151,50 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     switch (targetVariant) {
         case 'idle':
             pillContent = (
-                <motion.div key="idle" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
-                    <img src={featherIconPath} alt="Fethr" className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} />
+                <motion.div 
+                    key="idle_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-center w-full h-full"
+                >
+                    <img 
+                        src={featherIconPath} 
+                        alt="Fethr" 
+                        className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} 
+                    />
                 </motion.div>
             );
             break;
         case 'edit_pending':
             pillContent = (
-                <motion.div key="edit" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
-                    <img src={editIconPath} alt="Edit" className={`${iconClass} filter brightness-125 saturate-150`} />
+                <motion.div 
+                    key="edit_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-center w-full h-full"
+                >
+                    <img 
+                        src={editIconPath} 
+                        alt="Edit" 
+                        className={`${iconClass} filter brightness-125 saturate-150`} 
+                    />
                 </motion.div>
             );
             break;
         case 'error':
             pillContent = (
-                <motion.div key="error" {...contentAnimationVariants} className="flex items-center justify-start w-full h-full px-2 space-x-1.5">
+                <motion.div 
+                    key="error_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-start w-full h-full px-2 space-x-1.5"
+                >
                     <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
                     <span className={textClass}>Error</span>
                 </motion.div>
@@ -131,36 +202,76 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             break;
         case 'ready':
             pillContent = (
-                <motion.div key="ready" {...contentAnimationVariants} className="flex items-center justify-between w-full h-full space-x-1.5">
-                    <img src={featherIconPath} alt="Fethr Ready" className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} />
+                <motion.div 
+                    key="ready_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-between w-full h-full space-x-1.5 px-1.5"
+                >
+                    <img 
+                        src={featherIconPath} 
+                        alt="Fethr Ready" 
+                        className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} 
+                    />
                     <div className="flex-grow h-[55%] min-w-[35px]">
                         <LiveWaveform barColor="#A6F6FF" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
                     </div>
-                    <span className={`text-sky-300 tabular-nums`}>0s</span>
+                    <span className={`text-sky-300 tabular-nums`}> 
+                        0s
+                    </span>
                 </motion.div>
             );
             break;
         case 'recording':
             pillContent = (
-                <motion.div key="recording" {...contentAnimationVariants} className="flex items-center justify-between w-full h-full space-x-1.5">
-                    <img src={featherIconPath} alt="Stop Recording" className={`${iconClass} filter drop-shadow-[0_0_4px_#FF4D6D]`} />
+                <motion.div 
+                    key="recording_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-between w-full h-full space-x-1.5 px-1.5"
+                >
+                    <img 
+                        src={featherIconPath} 
+                        alt="Stop Recording" 
+                        className={`${iconClass} filter drop-shadow-[0_0_4px_#FF4D6D]`}
+                    />
                     <div className="flex-grow h-[65%] min-w-[50px]">
                         <LiveWaveform barColor="#FF4D6D" idleHeight={10} barWidth={4} gap={2.5} isRecording={true} />
                     </div>
-                    <span className={`tabular-nums flex-shrink-0`}>{duration}</span>
+                    <span className={`tabular-nums flex-shrink-0`}>
+                        {duration}
+                    </span>
                 </motion.div>
             );
             break;
         case 'processing':
             pillContent = (
-                <motion.div key="processing" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                <motion.div 
+                    key="processing_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-center w-full h-full"
+                >
                     <Loader2 className="w-5 h-5 animate-spin text-indigo-300 flex-shrink-0" />
                 </motion.div>
             );
             break;
         default:
             pillContent = (
-                <motion.div key="default" {...contentAnimationVariants} className="flex items-center justify-center w-full h-full">
+                <motion.div 
+                    key="default_content_block"
+                    variants={contentAnimationVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="flex items-center justify-center w-full h-full"
+                >
                      <img src={featherIconPath} alt="Fethr" className={`${iconClass} opacity-50`} />
                 </motion.div>
             );
@@ -172,7 +283,6 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     return (
         <motion.div
             data-tauri-drag-region
-            layout
             variants={pillContainerVariants}
             initial={false}
             animate={targetVariant}
@@ -181,7 +291,10 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
-            style={{ cursor: 'grab' }}
+            style={{ 
+                cursor: 'grab', 
+                overflow: "hidden"
+            }}
             onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
             onMouseDown={(e) => {
                 const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording' || currentState === RecordingState.ERROR;

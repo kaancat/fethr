@@ -51,14 +51,16 @@ pub struct HistoryEntry {
 // --- END HistoryEntry Struct ---
 
 // --- ADD AI Action Structs ---
+/*
 #[derive(Deserialize, Debug)] // For receiving from Vercel
 struct AiActionResponse {
     result: Option<String>, // Make it optional to handle potential nulls/errors
     error: Option<String>,
 }
+*/
 
 // --- ADD Vercel Proxy URL Constant ---
-const VERCEL_PROXY_URL: &str = "https://fethr-ai-proxy.vercel.app/api/ai-proxy";
+// const VERCEL_PROXY_URL: &str = "https://fethr-ai-proxy.vercel.app/api/ai-proxy";
 // --- END Constant ---
 
 // --- PASTE AudioDevice Struct ---

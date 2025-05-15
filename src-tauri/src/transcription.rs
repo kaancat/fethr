@@ -8,7 +8,7 @@ use tauri::api::path::resource_dir;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
 use uuid::Uuid;
-use log::{error, info, warn};
+use log::{error, info};
 use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
 use std::process::{Command, Stdio}; // Add these imports for FFmpeg
