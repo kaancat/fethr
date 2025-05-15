@@ -642,6 +642,28 @@ fn main() {
             });
             // --- End Rdev Listener Thread ---
 
+            // --- NEW: Initial Pill Visibility based on Config ---
+            let initial_pill_enabled = {
+                let settings_guard = crate::config::SETTINGS.lock().unwrap();
+                settings_guard.pill_enabled
+            };
+            log::info!("[RUST SETUP] Initial pill_enabled state from config: {}", initial_pill_enabled);
+
+            if !initial_pill_enabled {
+                if let Some(pill_window) = app.get_window("pill") {
+                    log::info!("[RUST SETUP] Pill is configured to be disabled on startup. Hiding pill window.");
+                    if let Err(e) = pill_window.hide() {
+                        log::error!("[RUST SETUP] Failed to hide pill window on startup: {}", e);
+                    }
+                } else {
+                    log::error!("[RUST SETUP] Could not find pill window to hide on startup.");
+                }
+            }
+            // --- END NEW ---
+
+            // Setup complete
+            log::info!("[RUST SETUP] Application setup complete.");
+
             Ok(())
         })
         // Add window event handler to intercept close requests for main window
@@ -738,7 +760,10 @@ fn main() {
             // --- ADD THE NEW DICTIONARY COMMANDS ---
             dictionary_manager::get_dictionary,
             dictionary_manager::add_dictionary_word,
-            dictionary_manager::delete_dictionary_word
+            dictionary_manager::delete_dictionary_word,
+            
+            // --- ADD NEW COMMAND ---
+            set_pill_visibility
         ])
         .run(context)
         .expect("Error while running Fethr application");
@@ -980,3 +1005,35 @@ async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<
     }
 }
 // --- END Command ---
+
+#[tauri::command]
+async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(pill_window) = app_handle.get_window("pill") {
+        if visible {
+            log::info!("[CMD set_pill_visibility] Attempting to show pill window.");
+            match pill_window.show() {
+                Ok(_) => {
+                    log::info!("[CMD set_pill_visibility] Pill window shown successfully.");
+                    // Optional: Attempt to focus after showing.
+                    if let Err(e_focus) = pill_window.set_focus() {
+                        log::warn!("[CMD set_pill_visibility] Failed to focus pill window after show (non-fatal): {}", e_focus);
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    log::error!("[CMD set_pill_visibility] Failed to show pill window: {}", e);
+                    Err(format!("Failed to show pill: {}", e))
+                }
+            }
+        } else {
+            log::info!("[CMD set_pill_visibility] Attempting to hide pill window.");
+            pill_window.hide().map_err(|e| {
+                log::error!("[CMD set_pill_visibility] Failed to hide pill window: {}", e);
+                format!("Failed to hide pill: {}", e)
+            })
+        }
+    } else {
+        log::error!("[CMD set_pill_visibility] Pill window with label 'pill' not found.");
+        Err("Pill window not found.".to_string())
+    }
+}

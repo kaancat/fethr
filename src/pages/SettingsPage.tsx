@@ -19,6 +19,7 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { LoginForm } from '@/components/LoginForm';
 import DictionarySettingsTab from '../components/settings/DictionarySettingsTab';
+import AppearanceSettingsTab from '../components/settings/AppearanceSettingsTab';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -557,10 +558,13 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     </Button>
                     <Button
                         variant="ghost"
-                        disabled
-                        onClick={() => {/* Placeholder */}}
-                        className="w-full justify-start text-left px-3 py-2 rounded bg-transparent text-gray-600 cursor-not-allowed"
-                        title="Coming soon"
+                        onClick={() => setActiveSection('appearance')}
+                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
+                            activeSection === 'appearance'
+                                ? 'bg-[#A6F6FF]/10 text-white'
+                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
+                        }`}
+                        title="Appearance Settings"
                     >
                         Appearance
                     </Button>
@@ -890,7 +894,15 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                     {/* Dictionary Settings Section */}
                     {activeSection === 'dictionary' && (
-                        <DictionarySettingsTab />
+                        <DictionarySettingsTab currentModelName={settings?.model_name || ''} />
+                    )}
+
+                    {/* Appearance Settings Section - NEW CASE */}
+                    {activeSection === 'appearance' && (
+                        <AppearanceSettingsTab 
+                            settings={settings} 
+                            onSettingChange={handleSettingChange} 
+                        />
                     )}
 
                     {/* Account Section */} 

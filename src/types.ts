@@ -16,6 +16,7 @@ export interface AppSettings {
   model_name: string;
   language: string;
   auto_paste: boolean;
+  pill_enabled: boolean;
 }
 
 // History entry for transcription results

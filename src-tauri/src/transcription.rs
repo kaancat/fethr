@@ -8,8 +8,7 @@ use tauri::api::path::resource_dir;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
 use uuid::Uuid;
-use log::error;
-use log::info;
+use log::{error, info, warn};
 use crate::config; // Make sure this line is present
 use crate::config::SETTINGS; // Import the global settings
 use std::process::{Command, Stdio}; // Add these imports for FFmpeg
@@ -25,6 +24,9 @@ static TRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 // Define maximum number of history entries to keep
 const MAX_HISTORY_ENTRIES: usize = 200;
+// --- NEW: Tiny model prompt length threshold ---
+// const TINY_MODEL_PROMPT_MAX_CHARS: usize = 60; // <<< REMOVE OR COMMENT OUT
+// --- END NEW ---
 
 // History entry structure for storing transcription results
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,30 +420,53 @@ pub async fn transcribe_local_audio_impl(
 
     // --- Setup Whisper command ---
     let mut command = std::process::Command::new(&whisper_binary_path);
-    command.current_dir(&whisper_working_dir) // Set CWD
-           .arg("-m").arg(&model_path); // Pass model path
-    
-    // --- Conditionally add language argument ---
-    if language_string.trim().to_lowercase() == "auto" {
-        info!("[RUST WHISPER PREP] Language is 'auto', not adding -l flag.");
-        // Do NOT add the -l argument
-    } else if !language_string.trim().is_empty() {
-        info!("[RUST WHISPER PREP] Adding language flag: -l {}", language_string);
-        command.arg("-l").arg(&language_string); // Pass language only if specified and not "auto"
-    } else {
-        info!("[RUST WHISPER PREP] Language setting is empty, defaulting to Whisper auto-detection.");
-        // Do NOT add the -l argument
+    command.current_dir(&whisper_working_dir)
+           .arg("-m").arg(&model_path); // Model argument
+
+    // Add language argument if not auto
+    if language_string != "auto" {
+        command.arg("-l").arg(&language_string);
     }
-    // --- END conditional language ---
+
+    command.arg("--split-on-word"); // Keep this from the previous fix
     
-    // --- BEGINNING OF INSERTED BLOCK 2: Add Prompt to Whisper Command ---
+    command.arg("-nt"); // No Timestamps flag - RETAINED
+
+    // --- RE-ENABLE PROMPT ADDITION ---
     if !initial_prompt_string.is_empty() {
-        command.arg("--prompt").arg(&initial_prompt_string);
+        // Get the current model name from your config settings
+        // model_name_string is already fetched and in scope
+        let current_model_name_str = &model_name_string; 
+
+        let mut use_this_prompt = true; 
+
+        // Conditional logic based on model name
+        if current_model_name_str.contains("ggml-tiny.bin") {
+            log::warn!( 
+                "[Transcription] Tiny model selected. Initial prompt from dictionary will be SKIPPED to ensure stability. Select a larger model (e.g., base) to use dictionary prompts. Original prompt was ({} chars): \"{}\"",
+                initial_prompt_string.chars().count(),
+                initial_prompt_string 
+            );
+            use_this_prompt = false;
+        }
+        // For non-tiny models, use_this_prompt remains true, so the prompt will be used.
+
+        if use_this_prompt {
+            log::info!(
+                "[Transcription] Using initial prompt ({} chars) for model '{}': \"{}\"", 
+                initial_prompt_string.chars().count(),
+                current_model_name_str,
+                initial_prompt_string 
+            ); 
+            command.arg("--prompt").arg(&initial_prompt_string);
+        }
+        // No 'else' needed here as the log for skipping tiny is specific enough.
+    } else {
+        log::info!("[Transcription] Dictionary is empty or failed to load; no prompt will be passed.");
     }
-    // --- END OF INSERTED BLOCK 2 ---
-    
-    command.arg("-nt") // No timestamps flag
-           .arg(&whisper_input_path); // Pass input audio AFTER flags
+    // --- END RE-ENABLE PROMPT ---
+           
+    command.arg(whisper_input_path); // Input file
 
     // --- Run Whisper command and read output ---
     println!("[RUST DEBUG] Running Whisper with these args: {:?}", command.get_args().collect::<Vec<_>>());

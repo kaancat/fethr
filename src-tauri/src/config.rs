@@ -13,6 +13,8 @@ pub struct AppSettings {
     pub language: String,
     #[serde(default = "default_auto_paste")]
     pub auto_paste: bool,
+    #[serde(default = "default_pill_enabled")]
+    pub pill_enabled: bool,
 }
 
 fn default_model_name() -> String {
@@ -27,12 +29,17 @@ fn default_auto_paste() -> bool {
     true
 }
 
+fn default_pill_enabled() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             model_name: default_model_name(),
             language: default_language(),
             auto_paste: default_auto_paste(),
+            pill_enabled: default_pill_enabled(),
         }
     }
 }
@@ -64,8 +71,8 @@ fn load_settings() -> AppSettings {
             Ok(contents) => {
                 match toml::from_str::<AppSettings>(&contents) {
                     Ok(settings) => {
-                         println!("[Config] Settings loaded successfully: model='{}', lang='{}', paste={}", 
-                                  settings.model_name, settings.language, settings.auto_paste);
+                         println!("[Config] Settings loaded successfully: model='{}', lang='{}', paste={}, pill={}", 
+                                  settings.model_name, settings.language, settings.auto_paste, settings.pill_enabled);
                          return settings;
                     },
                     Err(e) => {

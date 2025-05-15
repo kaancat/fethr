@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Loader2, Trash2 } from 'lucide-react';
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from 'sonner';
+import { PlusCircle, Trash2, Loader2, AlertTriangle, ListX } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 /**
  * DictionarySettingsTab Component
@@ -18,204 +18,199 @@ import { useToast } from "@/hooks/use-toast";
  * To allow users to customize the application's vocabulary, potentially improving
  * transcription accuracy or other text-processing features by recognizing specific terms.
  */
-const DictionarySettingsTab: React.FC = () => {
-    const { toast } = useToast();
-    const [dictionary, setDictionary] = useState<string[]>([]);
-    const [newWord, setNewWord] = useState<string>('');
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [isUpdating, setIsUpdating] = useState<boolean>(false); // For add/delete operations
-    const [error, setError] = useState<string | null>(null);
 
-    /**
-     * Fetches the dictionary from the backend when the component mounts.
-     * Handles loading and error states for the initial fetch.
-     */
-    const fetchDictionary = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            console.log("[DictionaryTab] Fetching dictionary...");
-            const currentDictionary = await invoke<string[]>('get_dictionary');
-            setDictionary(currentDictionary);
-            console.log("[DictionaryTab] Dictionary fetched:", currentDictionary);
-        } catch (err) {
-            console.error('[DictionaryTab] Error fetching dictionary:', err);
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            setError(`Failed to load dictionary: ${errorMsg}`);
-            toast({
-                variant: "destructive",
-                title: "Dictionary Load Failed",
-                description: errorMsg,
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    }, [toast]);
+// --- NEW: Define Props interface ---
+interface DictionarySettingsTabProps {
+  currentModelName: string;
+}
 
-    useEffect(() => {
-        fetchDictionary();
-    }, [fetchDictionary]);
+const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentModelName }) => {
+  const [dictionaryWords, setDictionaryWords] = useState<string[]>([]);
+  const [newWord, setNewWord] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false); // For add/delete operations
+  const [isListLoading, setIsListLoading] = useState<boolean>(true); // For initial list loading
+  const [error, setError] = useState<string | null>(null);
 
-    /**
-     * Handles adding a new word to the dictionary.
-     * It invokes a backend command to add the word and then updates the local state.
-     * Prevents adding empty or duplicate words.
-     */
-    const handleAddWord = async () => {
-        const trimmedWord = newWord.trim();
-        if (!trimmedWord) {
-            toast({
-                variant: "destructive",
-                title: "Invalid Word",
-                description: "Word cannot be empty.",
-            });
-            return;
-        }
-        if (dictionary.includes(trimmedWord.toLowerCase())) {
-             toast({
-                variant: "destructive",
-                title: "Duplicate Word",
-                description: `"${trimmedWord}" is already in the dictionary.`,
-            });
-            return;
-        }
+  const loadDictionary = useCallback(async () => {
+    setIsListLoading(true);
+    setError(null);
+    try {
+      const words = await invoke<string[]>('get_dictionary');
+      setDictionaryWords(words.sort((a, b) => a.localeCompare(b)));
+    } catch (err) {
+      console.error('Failed to load dictionary:', err);
+      setError('Failed to load dictionary. Please try again.');
+      toast.error('Failed to load dictionary.');
+    } finally {
+      setIsListLoading(false);
+    }
+  }, []);
 
-        setIsUpdating(true);
-        setError(null);
-        try {
-            console.log(`[DictionaryTab] Adding word: "${trimmedWord}"`);
-            const updatedDictionary = await invoke<string[]>('add_dictionary_word', { word: trimmedWord });
-            setDictionary(updatedDictionary);
-            setNewWord(''); // Clear input field
-            toast({
-                title: "Word Added",
-                description: `"${trimmedWord}" has been added to the dictionary.`,
-            });
-            console.log("[DictionaryTab] Word added, updated dictionary:", updatedDictionary);
-        } catch (err) {
-            console.error('[DictionaryTab] Error adding word:', err);
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            setError(`Failed to add word: ${errorMsg}`);
-            toast({
-                variant: "destructive",
-                title: "Add Failed",
-                description: errorMsg,
-            });
-        } finally {
-            setIsUpdating(false);
-        }
-    };
+  useEffect(() => {
+    loadDictionary();
+  }, [loadDictionary]);
 
-    /**
-     * Handles deleting a word from the dictionary.
-     * It invokes a backend command to delete the word and then updates the local state.
-     */
-    const handleDeleteWord = async (wordToDelete: string) => {
-        setIsUpdating(true);
-        setError(null);
-        try {
-            console.log(`[DictionaryTab] Deleting word: "${wordToDelete}"`);
-            const updatedDictionary = await invoke<string[]>('delete_dictionary_word', { wordToDelete });
-            setDictionary(updatedDictionary);
-            toast({
-                title: "Word Deleted",
-                description: `"${wordToDelete}" has been removed from the dictionary.`,
-            });
-            console.log("[DictionaryTab] Word deleted, updated dictionary:", updatedDictionary);
-        } catch (err) {
-            console.error('[DictionaryTab] Error deleting word:', err);
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            setError(`Failed to delete word: ${errorMsg}`);
-            toast({
-                variant: "destructive",
-                title: "Delete Failed",
-                description: errorMsg,
-            });
-        } finally {
-            setIsUpdating(false);
-        }
-    };
-
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center text-gray-400 py-8">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin text-[#A6F6FF]" />
-                <span className="text-gray-300">Loading Dictionary...</span>
-            </div>
-        );
+  const handleAddWord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWord.trim()) {
+      setError('Word cannot be empty.');
+      return;
+    }
+    if (dictionaryWords.some(word => word.toLowerCase() === newWord.trim().toLowerCase())) {
+        setError(`"${newWord.trim()}" is already in the dictionary.`);
+        toast.warning(`"${newWord.trim()}" is already in your dictionary.`);
+        return;
     }
 
-    return (
-        <div className="space-y-6">
-            <div>
-                <h2 className="text-xl font-semibold text-white mb-3">Custom Dictionary</h2>
-                <p className="text-sm text-gray-400 mb-1">
-                    Add words that should always be transcribed as written, improving accuracy for specific terms, names, or jargon.
-                </p>
-                <p className="text-xs text-gray-500">
-                    Words are case-insensitive and will be stored in lowercase.
-                </p>
+    setIsLoading(true);
+    setError(null);
+    try {
+      await invoke('add_dictionary_word', { word: newWord.trim() });
+      setNewWord('');
+      toast.success(`"${newWord.trim()}" added to dictionary.`);
+      loadDictionary(); // Reload to get the sorted list and ensure UI consistency
+    } catch (err) {
+      console.error('Failed to add word:', err);
+      const errorMessage = (err instanceof Error) ? err.message : String(err);
+      setError(`Failed to add word: ${errorMessage}`);
+      toast.error(`Failed to add word: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteWord = async (wordToDelete: string) => {
+    setIsLoading(true); // Use general loading for this action too
+    setError(null);
+    try {
+      await invoke('delete_dictionary_word', { wordToDelete });
+      toast.success(`"${wordToDelete}" removed from dictionary.`);
+      loadDictionary(); // Reload to update the list
+    } catch (err) {
+      console.error('Failed to delete word:', err);
+      const errorMessage = (err instanceof Error) ? err.message : String(err);
+      setError(`Failed to delete word: ${errorMessage}`);
+      toast.error(`Failed to delete word: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- NEW: Determine if the notification should be shown ---
+  const showTinyModelNotification = useMemo(() => {
+    // Ensure currentModelName is a string and not undefined/null before calling .includes()
+    const modelIsTiny = typeof currentModelName === 'string' && currentModelName.includes("ggml-tiny.bin");
+    return modelIsTiny && dictionaryWords.length > 0;
+  }, [currentModelName, dictionaryWords]);
+
+  return (
+    <div className="space-y-6 text-neutral-100">
+      <h2 className="text-2xl font-semibold text-white">Custom Dictionary</h2>
+      <p className="text-sm text-neutral-400 max-w-xl">
+        Add words, names, or acronyms that Whisper often mis-transcribes.
+        This list helps improve accuracy for your specific terminology.
+      </p>
+
+      {showTinyModelNotification && (
+        <div 
+            className="p-3 mb-4 text-sm text-yellow-400 bg-yellow-700/30 border border-yellow-600/50 rounded-md" 
+            role="alert"
+        >
+            <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 mr-2 text-yellow-400" />
+                <strong className="font-medium">Note for '{currentModelName}' Model Users:</strong>
             </div>
-
-            {error && (
-                <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-3 rounded border border-[#FF4D6D]/30">
-                    Error: {error}
-                </p>
-            )}
-
-            <div className="flex items-center space-x-2">
-                <Input
-                    type="text"
-                    placeholder="Add a new word"
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddWord()}
-                    className="flex-grow bg-[#020409]/70 border-[#A6F6FF]/25 text-gray-200 focus:border-[#A6F6FF]/60 focus:ring-1 focus:ring-[#A6F6FF]/60"
-                    disabled={isUpdating}
-                />
-                <Button
-                    onClick={handleAddWord}
-                    disabled={isUpdating || !newWord.trim()}
-                    className="bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF] px-5"
-                >
-                    {isUpdating && !isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Add Word
-                </Button>
-            </div>
-
-            {dictionary.length > 0 ? (
-                <ScrollArea className="h-full max-h-[calc(100vh-400px)] border border-[#A6F6FF]/10 rounded-md bg-[#0A0F1A]/30">
-                    <div className="p-1">
-                        {dictionary.map((word) => (
-                            <div
-                                key={word}
-                                className="flex items-center justify-between p-2.5 hover:bg-[#A6F6FF]/5 rounded group"
-                            >
-                                <span className="text-sm text-gray-200">{word}</span>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleDeleteWord(word)}
-                                    disabled={isUpdating}
-                                    className="w-7 h-7 text-gray-500 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title={`Delete "${word}"`}
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </Button>
-                            </div>
-                        ))}
-                    </div>
-                </ScrollArea>
-            ) : (
-                !error && !isLoading && ( // Only show "No words" if not loading and no primary error
-                    <div className="text-center text-gray-400 py-10 border border-dashed border-[#A6F6FF]/10 rounded-md bg-[#0A0F1A]/20">
-                        <p className="text-sm">Your custom dictionary is empty.</p>
-                        <p className="text-xs mt-1 text-gray-500">Add words using the input field above.</p>
-                    </div>
-                )
-            )}
+            <p className="ml-7 mt-1">
+                To ensure stability, dictionary prompts are currently disabled when using the 'Tiny' model variants. For full dictionary support, please select a larger model (e.g., Base, Small) in General Settings.
+            </p>
         </div>
-    );
+      )}
+
+      <form onSubmit={handleAddWord} className="flex items-stretch space-x-3">
+        <Input
+          type="text"
+          value={newWord}
+          onChange={(e) => {
+            setNewWord(e.target.value);
+            if (error) setError(null); // Clear error on new input
+          }}
+          placeholder="Enter a new word or phrase"
+          className="bg-neutral-800 border-neutral-700 placeholder-neutral-500 text-neutral-100 focus:ring-fethr selection:bg-fethr/80 flex-grow"
+          disabled={isLoading || isListLoading}
+        />
+        <Button 
+          type="submit" 
+          variant="fethr" 
+          className="h-auto" // Ensure button height matches input
+          disabled={isLoading || isListLoading || !newWord.trim()}
+        >
+          {isLoading && !isListLoading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <PlusCircle className="mr-2 h-5 w-5" />
+          )}
+          Add Word
+        </Button>
+      </form>
+
+      {error && (
+        <div className="p-3 text-sm text-red-400 bg-red-900/30 border border-red-700/50 rounded-md flex items-center">
+          <AlertTriangle className="h-5 w-5 mr-2 text-red-400" />
+          {error}
+        </div>
+      )}
+
+      <div className="mt-6">
+        <h3 className="text-lg font-medium text-neutral-200 mb-3">
+          Your Dictionary ({dictionaryWords.length})
+        </h3>
+        {isListLoading ? (
+          <div className="flex items-center justify-center text-neutral-400 py-8">
+            <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+            <span>Loading dictionary...</span>
+          </div>
+        ) : dictionaryWords.length === 0 && !error ? (
+          <div className="text-center text-neutral-500 py-8 px-4 border-2 border-dashed border-neutral-700/70 rounded-lg">
+            <ListX className="mx-auto h-10 w-10 mb-3 text-neutral-600" />
+            <p className="font-medium">Your dictionary is empty.</p>
+            <p className="text-sm">Add some words using the form above to get started.</p>
+          </div>
+        ) : (
+          <ScrollArea className="h-64 w-full border border-neutral-700/80 rounded-md bg-neutral-800/50">
+            <div className="p-1">
+              {dictionaryWords.map((word, index) => (
+                <div
+                  key={index} 
+                  className="flex items-center justify-between p-2.5 hover:bg-neutral-700/60 rounded-md group"
+                >
+                  <span className="text-neutral-100 text-sm">{word}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteWord(word)}
+                    disabled={isLoading}
+                    className="text-neutral-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-2"
+                    aria-label={`Delete ${word}`}
+                  >
+                    {isLoading && dictionaryWords.includes(word) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </div>
+      
+      {/* Custom scrollbar styling (applied globally or via a CSS file ideally) */}
+      {/* This is a conceptual comment; actual styles would be in CSS. */}
+      {/* 
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #2d2d2d; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #777; }
+      */}
+    </div>
+  );
 };
 
 export default DictionarySettingsTab; 
