@@ -34,6 +34,7 @@ mod config; // Add config module
 mod custom_prompts; // <-- ADDED THIS LINE
 mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
 mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
+mod supabase_manager; // <<< ADDED THIS LINE
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules

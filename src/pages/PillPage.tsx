@@ -1,6 +1,3 @@
-console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-console.log("!!!! PILL PAGE - VERSION X - LOADED !!!!");
-console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 // ... rest of your file
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -72,7 +69,7 @@ function PillPage() {
 
     // New useEffect for the robust global fallback - RESTORED with empty dependency array for now
     useEffect(() => {
-        console.log("%c[PillPage CRITICAL LOG] Entering useEffect to define TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT", "background: yellow; color: black; font-weight: bold;");
+        // REMOVED: console.log("%c[PillPage CRITICAL LOG] Entering useEffect to define TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT", "background: yellow; color: black; font-weight: bold;");
         (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT = () => {
             console.log(`%c[PillPage TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT CALLED!] CurrentState (at definition time): ${RecordingState[currentState]}`, "color: purple; font-size: 1.3em; font-weight: bold;");
             // Note: currentState here will be stale due to the empty dependency array for this diagnostic step.
@@ -100,7 +97,7 @@ function PillPage() {
     
         return () => {
             delete (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT;
-            console.log('%c[PillPage CRITICAL LOG] Cleaned up (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT', "background: orange; color: black; font-weight: bold;");
+            // REMOVED: console.log('%c[PillPage CRITICAL LOG] Cleaned up (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT', "background: orange; color: black; font-weight: bold;");
         };
     }, []); // Empty dependency array for now
 
@@ -172,8 +169,7 @@ function PillPage() {
 
     // --- Main useEffect for listeners ---
     useEffect(() => {
-        // ADD THE CRITICAL LOG HERE AS THE VERY FIRST LINE
-        console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC LOG INSIDE MAIN LISTENER useEffect", "background: cyan; color: black; font-weight: bold;");
+        // REMOVED: console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC LOG INSIDE MAIN LISTENER useEffect", "background: cyan; color: black; font-weight: bold;");
 
         console.log("PillPage: useEffect running - setting up listeners (External File - Corrected)");
         let isMounted = true; // Add mount check flag
@@ -344,11 +340,15 @@ function PillPage() {
                         console.error('[PillPage] Exception during supabase.auth.getSession():', e.message);
                     }
 
-                    console.log(`[PillPage] Preparing to invoke 'stop_backend_recording' with userId: ${userId}, accessToken: ${accessToken ? 'Provided' : 'Not Provided/Null'}, autoPaste: ${autoPasteCurrentValue}`);
+                    console.log(`[PillPage] Preparing to invoke 'stop_backend_recording' with payload:`, { args: { auto_paste: autoPasteCurrentValue, user_id: userId, access_token_present: !!accessToken } });
 
                     try {
                         const stopPromise = invoke<string>('stop_backend_recording', {
-                            autoPaste: autoPasteCurrentValue // Pass autoPaste directly as a top-level key
+                            args: { // This key 'args' matches the Rust function's argument name for the StopRecordingPayloadArgs struct
+                                auto_paste: autoPasteCurrentValue,
+                                user_id: userId,        // From supabase.auth.getSession()
+                                access_token: accessToken // From supabase.auth.getSession()
+                            }
                         });
                         console.log('[PillPage] "stop_backend_recording" invoked.');
                         handleTranscriptionResult(stopPromise); 
@@ -400,9 +400,6 @@ function PillPage() {
 
     // Log state just before rendering
     console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;");
-
-    // ADD DIAGNOSTIC LOG HERE
-    console.log("%c[PillPage PRE-RENDER CHECK VERY VISIBLE LOG] Type of handleErrorDismiss_MEMOIZED:", "color: lime; font-weight: bold; font-size: 1.2em;", typeof handleErrorDismiss_MEMOIZED, "Value:", handleErrorDismiss_MEMOIZED);
 
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">

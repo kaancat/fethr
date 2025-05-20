@@ -8,7 +8,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use tauri::{command, AppHandle, Manager, State};
 use uuid::Uuid;
-use log::error;
+use log::{error, info, warn};
 use crate::SharedRecordingState; // Import SharedRecordingState from main/lib
 use crate::transcription::{self, TranscriptionState}; // Import transcription state
 use cpal::{SupportedStreamConfig, SampleFormat, SampleRate};
@@ -17,6 +17,7 @@ use std::io::BufWriter;
 use scopeguard::defer;
 use std::time::Duration;
 use std::path::PathBuf;
+use serde::Deserialize;
 
 // Add imports for the new state management
 use crate::RECORDING_LIFECYCLE;
@@ -26,6 +27,13 @@ use crate::config::SETTINGS; // Import the config settings
 // --- ADD THESE IMPORTS ---
 use crate::{write_to_clipboard_internal, paste_text_to_cursor}; // Import from main.rs
 // --- END IMPORTS ---
+
+#[derive(Deserialize, Debug)]
+pub struct StopRecordingPayloadArgs {
+    auto_paste: bool,
+    user_id: Option<String>,    // Optional: User might not be logged in
+    access_token: Option<String>, // Optional: User might not be logged in
+}
 
 #[command]
 pub async fn start_backend_recording(
@@ -216,15 +224,15 @@ pub async fn start_backend_recording(
 #[command]
 pub async fn stop_backend_recording(
     app_handle: AppHandle,
-    audio_state: State<'_, SharedRecordingState>, 
+    audio_state: State<'_, SharedRecordingState>,
     transcription_state: State<'_, TranscriptionState>,
-    auto_paste: bool,
+    args: StopRecordingPayloadArgs,
 ) -> Result<String, String> {
-    println!("[RUST AUDIO STOP] Received stop command. AutoPaste param: {}", auto_paste);
+    info!("[RUST AUDIO STOP] Received stop command. Payload: {:?}", args);
 
     // Get auto_paste setting from config if needed
     let effective_auto_paste = {
-        if !auto_paste {
+        if !args.auto_paste {
             // If auto_paste is false in the command, use that
             false
         } else {
@@ -233,7 +241,7 @@ pub async fn stop_backend_recording(
             settings_guard.auto_paste
         }
     };
-    println!("[RUST AUDIO STOP] Effective auto_paste setting: {}", effective_auto_paste);
+    info!("[RUST AUDIO STOP] Effective auto_paste setting: {}", effective_auto_paste);
 
     let session_active_flag: Arc<AtomicBool>; // Flag to signal thread
 
@@ -341,17 +349,25 @@ pub async fn stop_backend_recording(
 
     // --- Proceed with Transcription (if path is valid) ---
     match final_path_str_result {
-        Ok(path_str) => {
-            println!("[RUST AUDIO] Invoking transcription for: {}", path_str);
-            // Pass the EFFECTIVE auto_paste flag down to transcription
-            // The transcription module should NOT handle clipboard/paste itself
-            let transcription_result = transcription::transcribe_audio_file(
-                app_handle.clone(), 
-                transcription_state, 
-                path_str.clone(), 
-                false // Always pass false to prevent double paste
-            ).await;
-            
+        Ok(temp_wav_path_clone) => {
+            info!(
+                "[RUST AUDIO STOP] Path is valid. Proceeding to transcribe: {}",
+                temp_wav_path_clone
+            );
+            // Correctly get the transcription state
+            // REMOVED: let ts_state = transcription_state.inner().clone(); // Clone the state if necessary or pass as is
+
+            // Call transcribe_audio_file with the cloned path
+            let transcription_result = crate::transcription::transcribe_audio_file(
+                app_handle.clone(),
+                transcription_state, // Pass the State wrapper directly
+                temp_wav_path_clone,
+                args.auto_paste,   // From the new struct
+                args.user_id,      // New argument
+                args.access_token, // New argument
+            )
+            .await;
+
             match transcription_result {
                 Ok(text) => {
                     println!("[RUST AUDIO] Transcription successful, text length: {}", text.len());

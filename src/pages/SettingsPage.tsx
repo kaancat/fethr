@@ -89,6 +89,9 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     // Add State for Profile Data:
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loadingProfile, setLoadingProfile] = useState<boolean>(false);
+    const [wordUsage, setWordUsage] = useState<number | null>(null);
+    const [wordLimit, setWordLimit] = useState<number | null>(null);
+    const [loadingUsage, setLoadingUsage] = useState<boolean>(false);
 
     // Placeholder for About content - Define outside component or fetch if needed
     const aboutContent = {
@@ -466,6 +469,81 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             setProfile(null);
         }
     }, [user, fetchProfile, profile]); // Re-run if user object or fetchProfile function changes
+
+    // Fetch subscription usage
+    const fetchSubscriptionUsage = useCallback(async (currentUserId: string) => {
+        if (!currentUserId) return;
+
+        setLoadingUsage(true); 
+        console.log('[SettingsPage] Fetching subscription usage for user:', currentUserId);
+        try {
+            const { data, error } = await supabase
+                .from('subscriptions')
+                .select('word_usage_this_period, word_limit_this_period')
+                .eq('user_id', currentUserId)
+                .eq('status', 'active') 
+                .single(); 
+
+            if (error) {
+                console.error('[SettingsPage] Error fetching subscription usage:', error.message);
+                toast({
+                    variant: "destructive",
+                    title: "Usage Fetch Error",
+                    description: `Error fetching usage: ${error.message}`,
+                });
+                setWordUsage(null);
+                setWordLimit(null);
+            } else if (data) {
+                console.log('[SettingsPage] Subscription usage data received:', data);
+                setWordUsage(data.word_usage_this_period);
+                setWordLimit(data.word_limit_this_period);
+            } else {
+                console.log('[SettingsPage] No active subscription found for usage details.');
+                setWordUsage(0); 
+                setWordLimit(0); 
+            }
+        } catch (e: any) {
+            console.error('[SettingsPage] Exception fetching subscription usage:', e.message);
+            toast({
+                variant: "destructive",
+                title: "Usage Fetch Exception",
+                description: `Exception: ${e.message}`,
+            });
+        } finally {
+            setLoadingUsage(false); 
+        }
+    }, [toast, setWordUsage, setWordLimit]); // Added toast, setWordUsage, setWordLimit as dependencies
+
+    // Use effect for user profile and subscription
+    useEffect(() => {
+        if (user?.id) {
+            // fetchProfile(user.id); // fetchProfile is already called by its own useEffect
+            fetchSubscriptionUsage(user.id);
+        } else {
+            // setProfile(null); // profile is already cleared by its own useEffect
+            setWordUsage(null);
+            setWordLimit(null);
+        }
+    }, [user, fetchSubscriptionUsage]); // Added fetchSubscriptionUsage to dependencies
+
+    // --- Listener for word usage updates ---
+    useEffect(() => {
+        console.log('[SettingsPage] Setting up listener for "word_usage_updated".');
+        const unlistenWordUsageUpdate = listen<void>('word_usage_updated', (event) => {
+            console.log('%c[SettingsPage] EVENT RECEIVED: "word_usage_updated"!', 'color: green; font-weight: bold; font-size: 1.2em;', event);
+            if (user?.id) {
+                console.log('%c[SettingsPage] REFRESHING USAGE from event for user:', 'color: green; font-weight: bold;', user.id);
+                fetchSubscriptionUsage(user.id);
+            } else {
+                console.log('[SettingsPage] "word_usage_updated" event received, but no user logged in. Skipping refresh.');
+            }
+        });
+
+        return () => {
+            console.log('[SettingsPage] Cleaning up "word_usage_updated" listener.');
+            unlistenWordUsageUpdate.then(f => f());
+        };
+    }, [user, fetchSubscriptionUsage]); // Dependencies: user and fetchSubscriptionUsage
 
     // --- Render Logic ---
     if (isLoading) {
@@ -934,6 +1012,14 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     {!loadingProfile && !profile && user && (
                                         <p className="text-sm text-yellow-400">Could not load profile details. Try again later.</p>
                                     )}
+
+                                    {/* Word Usage Display */}
+                                    {wordLimit !== null && wordUsage !== null && user && (
+                                        <p className="text-sm text-gray-400 mt-1">
+                                            Word Usage: {wordUsage.toLocaleString()} / {wordLimit === 999999999 ? 'Unlimited' : wordLimit.toLocaleString()}
+                                        </p>
+                                    )}
+                                    {loadingUsage && <p className="text-sm text-gray-500 mt-1">Loading usage...</p>}
 
                                     <Button
                                         variant="destructive"

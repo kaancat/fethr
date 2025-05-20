@@ -51,6 +51,13 @@ struct PriceEmbed {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+struct SubscriptionLimits {
+    word_usage_this_period: i32,
+    word_limit_this_period: i32,
+    subscription_status: String, 
+}
+
+#[derive(Deserialize, Debug, Clone)]
 struct SubscriptionWithJoins {
     // Fields directly from 'subscriptions' table
     // id: String, // Subscription's own UUID primary key
@@ -190,6 +197,136 @@ pub async fn get_user_subscription_details(
     fetch_user_subscription_details_from_supabase(&user_id, &access_token).await
 }
 
+// New public async function containing the core RPC logic
+pub async fn execute_increment_word_usage_rpc(
+    user_id: String,
+    access_token: String,
+    words_transcribed: i32,
+) -> Result<(), String> {
+    println!("[RUST DEBUG SupabaseManager RPC] execute_increment_word_usage_rpc called for user_id: {}, words: {}", user_id, words_transcribed);
+
+    if user_id.trim().is_empty() || access_token.trim().is_empty() {
+        let err_msg = "[SupabaseManager RPC] ERROR: User ID or Access Token is empty for usage update.";
+        println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", err_msg);
+        return Err(err_msg.to_string());
+    }
+
+    if words_transcribed <= 0 {
+        println!("[RUST DEBUG SupabaseManager RPC] No words transcribed ({}), skipping usage update.", words_transcribed);
+        return Ok(());
+    }
+
+    let http_client = reqwest::Client::new();
+    let mut headers = HeaderMap::new();
+    headers.insert("apikey", HeaderValue::from_str(SUPABASE_ANON_KEY_PLACEHOLDER).map_err(|e| format!("Invalid anon key: {}",e))?);
+    headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", access_token)).map_err(|e| format!("Invalid access token: {}",e))?);
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    // 1. Call get_user_subscription_limits
+    println!("[RUST DEBUG SupabaseManager RPC] Attempting to fetch subscription limits for user_id: {}", user_id);
+    let limits_rpc_url = format!(
+        "{}/rest/v1/rpc/get_user_subscription_limits", 
+        SUPABASE_URL_PLACEHOLDER
+    );
+    let limits_payload = json!({ "p_user_id": user_id });
+
+    let limits_response = http_client
+        .post(&limits_rpc_url)
+        .headers(headers.clone()) // Clone headers for this request
+        .json(&limits_payload)
+        .send()
+        .await
+        .map_err(|e| {
+            println!("[RUST DEBUG SupabaseManager RPC ERROR] Network error calling get_user_subscription_limits: {:?}", e);
+            format!("Network error fetching subscription limits: {}", e)
+        })?;
+
+    let mut proceed_with_increment = true;
+
+    if limits_response.status().is_success() {
+        let limits_body = limits_response.text().await.map_err(|e| format!("Error reading limits response body: {}", e))?;
+        println!("[RUST DEBUG SupabaseManager RPC] get_user_subscription_limits raw response: {}", limits_body);
+        let limits_vec: Vec<SubscriptionLimits> = serde_json::from_str(&limits_body)
+            .map_err(|e| format!("Parse SubscriptionLimits failed: {}. Resp: {}", e, limits_body))?;
+
+        if let Some(limits_data) = limits_vec.first() {
+            if limits_data.subscription_status == "active" || limits_data.subscription_status == "trialing" {
+                println!("[RUST DEBUG SupabaseManager RPC] Fetched limits: Usage: {}, Limit: {}, Status: {}",
+                    limits_data.word_usage_this_period, limits_data.word_limit_this_period, limits_data.subscription_status);
+
+                let current_usage = limits_data.word_usage_this_period;
+                let actual_limit = limits_data.word_limit_this_period;
+
+                // Check if the limit is a "real" limit (not our placeholder for unlimited)
+                if actual_limit < 999_999_999 { // Assuming 999_999_999 is the "unlimited" marker
+                    if (current_usage + words_transcribed) > actual_limit {
+                        let error_message = format!(
+                            "Word limit exceeded. Usage: {}, Adding: {}, Limit: {}. Please upgrade your plan.",
+                            current_usage, words_transcribed, actual_limit
+                        );
+                        println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
+                        return Err(error_message); // Return an error immediately
+                    } else {
+                        println!("[RUST DEBUG SupabaseManager RPC] Word limit check passed.");
+                    }
+                } else {
+                    println!("[RUST DEBUG SupabaseManager RPC] Tier has unlimited usage (limit: {}).", actual_limit);
+                }
+            } else {
+                println!("[RUST DEBUG SupabaseManager RPC WARN] User subscription status is '{}', not 'active' or 'trialing'. Proceeding without strict limit check, but usage will be recorded.", limits_data.subscription_status);
+            }
+        } else {
+            println!("[RUST DEBUG SupabaseManager RPC WARN] No active/trialing subscription limits found for user. Proceeding to increment usage.");
+        }
+    } else {
+        let status = limits_response.status();
+        let error_text = limits_response.text().await.unwrap_or_else(|_| "Could not read error body from get_user_subscription_limits".to_string());
+        println!(
+            "[RUST DEBUG SupabaseManager RPC ERROR] Error calling get_user_subscription_limits. Status: {}. Body: {}. Proceeding with increment attempt.",
+            status, error_text
+        );
+        // If fetching limits fails, we log a warning and proceed with the increment as per the current instruction.
+        // A stricter implementation might return Err here.
+    }
+
+    // 3. If limit check passes (or was bypassed):
+    println!("[RUST DEBUG SupabaseManager RPC] Proceeding to call increment_word_usage RPC.");
+    let increment_rpc_url = format!(
+        "{}/rest/v1/rpc/increment_word_usage", 
+        SUPABASE_URL_PLACEHOLDER
+    );
+    let increment_payload = json!({
+        "p_user_id": user_id,          
+        "p_words_increment": words_transcribed
+    });
+
+    println!("[RUST DEBUG SupabaseManager RPC] Calling RPC 'increment_word_usage' at URL: {} with payload: {}", increment_rpc_url, increment_payload.to_string());
+
+    let increment_response = http_client
+        .post(&increment_rpc_url)
+        .headers(headers) // Headers were already set up and cloned for the first call, reuse original here.
+        .json(&increment_payload) 
+        .send()
+        .await
+        .map_err(|e| {
+            println!("[RUST DEBUG SupabaseManager RPC ERROR] Network error calling RPC 'increment_word_usage': {:?}", e);
+            format!("Network error calling RPC increment_word_usage: {}", e)
+        })?;
+
+    if increment_response.status().is_success() {
+        println!("[RUST DEBUG SupabaseManager RPC] RPC 'increment_word_usage' called successfully. Status: {}", increment_response.status());
+        Ok(())
+    } else {
+        let status = increment_response.status();
+        let error_text = increment_response.text().await.unwrap_or_else(|_| "Could not read error body from RPC call".to_string());
+        println!(
+            "[RUST DEBUG SupabaseManager RPC ERROR] Error calling RPC 'increment_word_usage'. Status: {}. Body: {}",
+            status, error_text
+        );
+        Err(format!("Supabase RPC 'increment_word_usage' error ({}): {}", status, error_text))
+    }
+}
+
 #[tauri::command]
 pub async fn update_word_usage(
     user_id: String,
@@ -197,73 +334,8 @@ pub async fn update_word_usage(
     words_transcribed: i32,
 ) -> Result<(), String> {
     // log::info!("[SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
-    println!("[RUST DEBUG SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
-
-    if user_id.trim().is_empty() || access_token.trim().is_empty() {
-        let err_msg = "[SupabaseManager CMD] ERROR: User ID or Access Token is empty for usage update.";
-        // log::error!("{}", err_msg);
-        println!("[RUST DEBUG SupabaseManager CMD ERROR] {}", err_msg);
-        return Err(err_msg.to_string());
-    }
-
-    if words_transcribed <= 0 {
-        // log::info!("[SupabaseManager CMD] No words transcribed ({}), skipping usage update.", words_transcribed);
-        println!("[RUST DEBUG SupabaseManager CMD] No words transcribed ({}), skipping usage update.", words_transcribed);
-        return Ok(());
-    }
-
-    let http_client = reqwest::Client::new();
-    // let rpc_function_name = "increment_word_usage"; // No longer needed as it's hardcoded in format!
-
-    let rpc_url = format!(
-        "{}/rest/v1/rpc/increment_word_usage", 
-        SUPABASE_URL_PLACEHOLDER
-    );
-    println!("[RUST DEBUG SupabaseManager CMD] Calling RPC URL: {}", rpc_url);
-
-    let mut headers = HeaderMap::new();
-    headers.insert("apikey", HeaderValue::from_str(SUPABASE_ANON_KEY_PLACEHOLDER).map_err(|e| format!("Invalid anon key for RPC: {}",e))?);
-    headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", access_token)).map_err(|e| format!("Invalid access token for RPC: {}",e))?);
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-    let payload = json!({
-        "p_user_id": user_id,          
-        "p_words_to_add": words_transcribed 
-    });
-
-    // log::info!("[SupabaseManager CMD] Calling RPC '{}' at URL: {} with payload: {}", rpc_function_name, rpc_url, payload.to_string());
-    // The rpc_function_name variable was removed, so this log needs adjustment if we were to keep it.
-    // For now, the println! below suffices and uses the hardcoded name for clarity.
-    println!("[RUST DEBUG SupabaseManager CMD] Calling RPC 'increment_word_usage' at URL: {} with payload: {}", rpc_url, payload.to_string());
-
-    let response = http_client
-        .post(&rpc_url)
-        .headers(headers)
-        .json(&payload) 
-        .send()
-        .await
-        .map_err(|e| {
-            // log::error!("[SupabaseManager CMD] Network error calling RPC '{}': {:?}", rpc_function_name, e);
-            // Again, rpc_function_name var removed.
-            println!("[RUST DEBUG SupabaseManager CMD ERROR] Network error calling RPC 'increment_word_usage': {:?}", e);
-            format!("Network error calling RPC increment_word_usage: {}", e)
-        })?;
-
-    if response.status().is_success() {
-        // log::info!("[SupabaseManager CMD] RPC '{}' called successfully. Status: {}", rpc_function_name, response.status());
-        println!("[RUST DEBUG SupabaseManager CMD] RPC 'increment_word_usage' called successfully. Status: {}", response.status());
-        Ok(())
-    } else {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Could not read error body from RPC call".to_string());
-        // log::error!(
-        //     "[SupabaseManager CMD] Error calling RPC '{}'. Status: {}. Body: {}",
-        //     rpc_function_name, status, error_text
-        // );
-        println!(
-            "[RUST DEBUG SupabaseManager CMD ERROR] Error calling RPC 'increment_word_usage'. Status: {}. Body: {}",
-            status, error_text
-        );
-        Err(format!("Supabase RPC 'increment_word_usage' error ({}): {}", status, error_text))
-    }
+    // println!("[RUST DEBUG SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
+    println!("[RUST DEBUG SupabaseManager CMD Wrapper] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
+    // Call the new internal logic function
+    execute_increment_word_usage_rpc(user_id, access_token, words_transcribed).await
 } 
