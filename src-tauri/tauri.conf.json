@@ -10,17 +10,7 @@
     "productName": "Fethr",
     "version": "0.1.0"
   },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "globalShortcut": {
-        "all": true
-      },
-      "clipboard": {
-        "all": false,
-        "writeText": true,
-        "readText": true
-      },
+    "tauri": {    "allowlist": {      "all": false,      "http": {        "all": false,        "request": true,        "scope": ["https://dttwcuqlnfpsbkketppf.supabase.co/*"]      },      "globalShortcut": {        "all": true      },      "clipboard": {        "all": false,        "writeText": true,        "readText": true      },
       "window": {
         "all": true,
         "create": true, 

@@ -1,0 +1,211 @@
+[33mcommit 977b2b4b23b007ab217cbf5fbbbf2a1667ea0451[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Thu May 15 21:23:14 2025 +0200
+
+    its perfect
+
+[33mcommit 44b2a1ea954a6f32c723a3dba0fbede44f65d3f4[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Thu May 15 20:37:46 2025 +0200
+
+    Hide unhide pill works
+
+[33mcommit 31f7dc6c78c4bba18de55c5ef498bfb5e83fcbdb[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Sat May 10 12:33:51 2025 +0200
+
+    AI Custom prompt er på plads
+
+[33mcommit 413685224025c0e829e76d3b2975ffbe20459fa5[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Sat May 10 11:03:36 2025 +0200
+
+    Dictionary og alt det gode virker herfra
+
+[33mcommit 9328a0c5126ada7f9b15a3979c0206f8e9391f48[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Thu May 8 23:01:58 2025 +0200
+
+    efter mange smårettelser godt sted her
+
+[33mcommit a9bdb307a709b62457b32124f3b93cae7438f464[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Thu May 8 21:48:25 2025 +0200
+
+    draggability virker men layout lidt messed up - godt udgangspounkt
+
+[33mcommit 45bbcfec048acb40276bbebb1e398a19a20134c9[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Wed May 7 23:01:47 2025 +0200
+
+    supabase paa plads
+
+[33mcommit 77f32e42afbc7bb5142e349f4ed0abefb9b3bee9[m
+Author: Kaan Catalkaya <kc@mondaybrew.dk>
+Date:   Wed May 7 00:52:22 2025 +0200
+
+    post AI install uden bugs
+
+[33mcommit 4e895fb25c0f990c244b11eedb69e2436c78532c[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Tue May 6 12:35:05 2025 +0200
+
+    History edit + Icon click works perfect. Pre AI commit
+
+[33mcommit 0b14e4e07010037de186cbf06bd1d4216aeb3628[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Mon May 5 23:11:35 2025 +0200
+
+    Settingspage klar parat til sick shit
+
+[33mcommit 38703c943006e71f2e4c38d3da744ef26cbf2a9b[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Mon May 5 17:54:46 2025 +0200
+
+    Fully functional with clicking too
+
+[33mcommit 58ee319ae3e719bb9167cfc14770aa36abd45097[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Mon May 5 00:47:00 2025 +0200
+
+    Icon centered in circle idle. Hover > Hover Idle: Good. Recording good. Animations good. Prior to click-mic implementation
+
+[33mcommit 80fecc7a41ba4614afde98ea5f6da4fa048e9d69[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Mon May 5 00:22:09 2025 +0200
+
+    Circle background transparent, no flicker square, consistent state ui hover. Kom hertil hvis alt er lort
+
+[33mcommit 7498bf7403764369f6be64f232df55e4db85ca81[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Sun May 4 21:42:32 2025 +0200
+
+    feat(ui): Implement Recording Pill state with Live Waveform
+    
+    Implemented visual UI for Recording state:- Added Framer Motion animations for Idle<->Recording transition.- Integrated LiveWaveform component using Web Audio API.- Styled Recording state with brand colors and improved visibility.- Refined waveform appearance (bar count, sensitivity, spacing).- Deferred click-to-record functionality.
+
+[33mcommit bbcb93dc178e70cfad27310e2160279864e518b7[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Sun May 4 19:27:41 2025 +0200
+
+    feat: Implement Settings UI and Basic Pill UI States
+    
+    Completed Phase 1: Settings backend commands, UI component with shadcn, config loading/saving.- Started Phase 2: Implemented Idle, Recording, Processing pill states with Framer Motion animations, dark theme, and brand colors. Fixed window close/minimize behavior and FFmpeg pathing. Deferred language UI and waveform.
+
+[33mcommit 3fc65fc492839d21cffc900645d44075bcced57e[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Sun May 4 12:30:54 2025 +0200
+
+    feat: Implement stable hotkey interactions and resource bundling
+    
+    - Reverted state machine to stable 'Tap->Lock' logic, removing WaitingForSecondTap state and timeout complexity.
+    - Implemented resource bundling for Whisper executable, DLLs, and models using Tauri config (externalBin, resources).
+    - Updated Rust code (transcription.rs) to use Tauri API for resolving bundled resource paths, handling debug vs. release builds.
+    - Removed dependency on 'whisper_directory' in config.toml.
+    - Configured AppSettings (config.rs) to manage model_name, language, and auto_paste.
+    - Ensured config settings are loaded correctly on startup.
+    - Corrected transcription module to use loaded settings.
+    - Consolidated clipboard/paste logic into audio_manager.rs based on config.
+    - Removed frontend safety timer now that backend state is reliable.
+    - Fixed various bugs related to config loading and path resolution.
+    
+    Core Interactions Stabilized:
+    - Hold/Release works reliably.
+    - Single Tap enters Locked Recording mode.
+    - Tap-while-Locked stops and transcribes.
+
+[33mcommit 3c3be7a262db5f94acd561278a373c27403f0f89[m[33m ([m[1;31morigin/main[m[33m)[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Thu May 1 21:49:01 2025 +0200
+
+    Chore: removed unused code pre-UI overhaul
+
+[33mcommit c7ea89693108a80afb4c1ee5dcea4392c4b63a41[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 23:36:50 2025 +0200
+
+    Milestone: Simple toggle hotkey with working transcription and paste
+
+[33mcommit 4bd525c0c7365e20f84235ed2399596863c4dc0c[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 22:03:52 2025 +0200
+
+    FIX: Adapt to enigo v0.2.0 API changes, fix return value
+
+[33mcommit 5103290e88253e7737fb2be9a5fd82848e809782[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:59:33 2025 +0200
+
+    FIX: Update enigo, ensure robust state reset via scopeguard
+
+[33mcommit e97e1e761f84e85036dce3cf23c0d9d807a2d463[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:52:33 2025 +0200
+
+    REFACTOR: Move paste logic to main.rs, call from frontend
+
+[33mcommit db4cb40a671c65e37eb881402f77cce7299c3ebc[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:44:23 2025 +0200
+
+    FEAT: Implement auto-paste after transcription
+
+[33mcommit dca2ef261e69310782ce82f3f0d5018503739576[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:32:51 2025 +0200
+
+    FEAT: Implement robust cpal input config selection (I16/F32)
+
+[33mcommit 1e4695cc134df16840367a1273fb9faa6850f66d[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:28:35 2025 +0200
+
+    FIX: Correct ownership move error for app_handle clones (E0382)
+
+[33mcommit 691161f52c410dd84aa819af347fcbbd8bcb399a[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:25:39 2025 +0200
+
+    FIX: Adapt cpal config finding for v0.14.2 API
+
+[33mcommit 29ab881704e612ff197cc09eece4110448261bf2[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:22:39 2025 +0200
+
+    FIX: Correct main.rs imports, ensure audio config logging is present
+
+[33mcommit 0a721f01ab5595f2053f850eca31e09e32e4fb77[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:14:18 2025 +0200
+
+    FIX: Remove unused variables/functions in RecController (TS6133)
+
+[33mcommit 3c0d5cbbb6f36e8e81cb4472c098dd2fa6d735fd[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:01:55 2025 +0200
+
+    FIX: Remove unused AudioRecordingState import from main.rs
+
+[33mcommit 67935f3aa1c966900adfea9504b43aeffd4eadee[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 21:00:29 2025 +0200
+
+    FIX: Correct Rust compilation errors (missing mods/types, cpal call)
+
+[33mcommit 9a88242911a36b76050a4fac70d5ee783dbce160[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 20:58:04 2025 +0200
+
+    REFAC: Simplify tauri features in Cargo.toml
+
+[33mcommit d93be897eb919920d5932483777539e366b934a2[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 20:56:07 2025 +0200
+
+    FIX: Correct tauri feature flag from 'path' to 'path-all'
+
+[33mcommit e446981f48d39a29477b63a15d6f5ebb9b276350[m
+Author: Kaan Catalkaya <kcatalkaya10@gmail.com>
+Date:   Wed Apr 30 20:54:40 2025 +0200
+
+    FIX: Co

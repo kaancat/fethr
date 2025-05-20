@@ -528,6 +528,9 @@ name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bzip2"
@@ -4923,6 +4926,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1be4ef682d128826ba4bce70a5cd18b7f5c5803e347835a2c6fed2d6ef3a690"
 dependencies = [
  "anyhow",
+ "bytes",
  "cocoa 0.24.1",
  "dirs-next",
  "dunce",
@@ -4937,6 +4941,7 @@ dependencies = [
  "heck 0.5.0",
  "http",
  "ignore",
+ "indexmap 1.9.3",
  "log",
  "nix 0.26.4",
  "notify-rust",
@@ -4948,6 +4953,7 @@ dependencies = [
  "rand 0.8.5",
  "raw-window-handle",
  "regex",
+ "reqwest",
  "rfd",
  "semver 1.0.26",
  "serde",

@@ -1,9 +1,14 @@
+console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+console.log("!!!! PILL PAGE - VERSION X - LOADED !!!!");
+console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+// ... rest of your file
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { RecordingState } from '../types'; // Assuming types.ts is in ../
 import RecordingPill from '../components/RecordingPill'; // Assuming RecordingPill is in ../components/
 import { toast } from "react-hot-toast";
+import { supabase } from '@/lib/supabaseClient';
 
 // Define the structure for the state update payload from the backend
 interface StateUpdatePayload {
@@ -254,29 +259,21 @@ function PillPage() {
                             case "RECORDING": newTsState = RecordingState.RECORDING; break;
                             case "LOCKEDRECORDING": newTsState = RecordingState.LOCKED_RECORDING; break;
                             case "TRANSCRIBING": newTsState = RecordingState.TRANSCRIBING; break;
-                            // Don't handle IDLE here if it interferes with SUCCESS flow
-                            // case "IDLE": newTsState = RecordingState.IDLE; break;
-                            default:
-                                console.warn(`PillPage: State listener ignoring state string: ${receivedState}`);
-                                return; // Ignore unknown or IDLE states pushed by backend during our sequence
+                            case "IDLE": newTsState = RecordingState.IDLE; break; // Explicitly handle IDLE
+                            default: 
+                                console.warn(`PillPage: State listener received unknown state string: ${receivedState}. Defaulting to IDLE.`);
+                                newTsState = RecordingState.IDLE; // Default to IDLE for unknown states
+                                break;
                          }
                     } else {
-                        console.error(`PillPage: Received non-string state type: ${typeof receivedState}`, receivedState);
-                         return; // Ignore non-string states
+                        console.error(`PillPage: Received non-string state type: ${typeof receivedState}. Defaulting to IDLE.`);
+                        newTsState = RecordingState.IDLE; // Default to IDLE for non-string states
                     }
                     console.log(`PillPage: Mapped received state "${receivedState}" to TS Enum value: ${RecordingState[newTsState]} (${newTsState})`);
 
-                    // Conditionally set state: Ignore IDLE pushed from backend
-                    // Explicitly allow IDLE type here for the comparison to satisfy linter
-                    const stateToCompare: RecordingState = newTsState as RecordingState;
-                     if (stateToCompare !== RecordingState.IDLE) {
-                        // Only set state if backend sends something other than IDLE
-                         console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[stateToCompare]} (${stateToCompare}) from backend update`, "color: purple;");
-                         setCurrentState(stateToCompare);
-                    } else {
-                         // Ignore explicit IDLE events from backend for now, let timeouts handle it
-                          console.log("[PillPage STATE] Ignored IDLE state push from backend update listener.");
-                    }
+                    // Always set the state after mapping, allowing IDLE through
+                    console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[newTsState]} (${newTsState}) from backend update (IDLE state processed)`, "color: purple;");
+                    setCurrentState(newTsState);
 
                     // --- Timer Logic ---
                     const shouldBeRunning = newTsState === RecordingState.RECORDING || newTsState === RecordingState.LOCKED_RECORDING;
@@ -319,13 +316,54 @@ function PillPage() {
                 unlisteners.push(unlistenStart);
                 console.log("PillPage: Start Recording listener setup.");
 
-                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", (event) => {
-                    if (!isMounted) return;
-                    const autoPaste = event.payload;
-                    console.log(`PillPage: Received fethr-stop-and-transcribe (autoPaste: ${autoPaste}). Invoking backend...`);
-                    const stopPromise = invoke<string>('stop_backend_recording', { autoPaste });
-                    handleTranscriptionResult(stopPromise); // Use the useCallback version
-                });
+                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", 
+                // START OF MODIFIED ASYNC CALLBACK
+                async (event) => { 
+                    if (!isMounted) return; 
+                    const autoPasteCurrentValue = event.payload;
+                    
+                    console.log(`[PillPage] Event: fethr-stop-and-transcribe. autoPaste: ${autoPasteCurrentValue}.`);
+                    console.log('[PillPage] Attempting to get Supabase session for stop_backend_recording...');
+                    let userId = null;
+                    let accessToken = null;
+
+                    try {
+                        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+                        if (sessionError) {
+                            console.error('[PillPage] Error getting Supabase session:', sessionError.message);
+                        } else if (sessionData && sessionData.session) {
+                            userId = sessionData.session.user.id;
+                            accessToken = sessionData.session.access_token;
+                            console.log('[PillPage] User ID obtained:', userId);
+                            console.log('[PillPage] Access Token obtained:', accessToken ? 'Yes' : 'No (session might be null or token not present)');
+                        } else {
+                            console.log('[PillPage] No active Supabase session found (sessionData.session is null). User might be logged out.');
+                        }
+                    } catch (e: any) {
+                        console.error('[PillPage] Exception during supabase.auth.getSession():', e.message);
+                    }
+
+                    console.log(`[PillPage] Preparing to invoke 'stop_backend_recording' with userId: ${userId}, accessToken: ${accessToken ? 'Provided' : 'Not Provided/Null'}, autoPaste: ${autoPasteCurrentValue}`);
+
+                    try {
+                        const stopPromise = invoke<string>('stop_backend_recording', {
+                            autoPaste: autoPasteCurrentValue // Pass autoPaste directly as a top-level key
+                        });
+                        console.log('[PillPage] "stop_backend_recording" invoked.');
+                        handleTranscriptionResult(stopPromise); 
+                    } catch (invokeError: any) { 
+                        console.error('[PillPage] Error invoking "stop_backend_recording":', invokeError);
+                        setError(`Failed to stop recording: ${invokeError.message}`);
+                        setCurrentState(RecordingState.ERROR);
+                        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+                        errorTimeoutRef.current = setTimeout(() => {
+                            handleErrorDismiss_MEMOIZED();
+                        }, 4000);
+                    }
+                }
+                // END OF MODIFIED ASYNC CALLBACK
+                );
                 unlisteners.push(unlistenStop);
                 console.log("PillPage: Stop/Transcribe listener setup.");
 
@@ -368,7 +406,6 @@ function PillPage() {
 
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
-            <h1 style={{ color: 'red', fontSize: '30px', position: 'absolute', top: '10px', left: '10px', zIndex: '9999' }}>TEMP TEST VISIBLE ON SCREEN</h1>
              <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
