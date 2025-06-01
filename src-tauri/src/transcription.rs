@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri::api::path::resource_dir;
 use std::sync::atomic::{AtomicBool, Ordering};
 use scopeguard;
@@ -16,7 +16,6 @@ use chrono::{DateTime, Utc}; // For timestamp in history entries
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
 use crate::dictionary_manager;
-use crate::supabase_manager; // <<< ADDED IMPORT
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -170,17 +169,15 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handl
 #[tauri::command]
 pub async fn transcribe_audio_file(
     app_handle: AppHandle,
-    _state: State<'_, TranscriptionState>,
+    _state: tauri::State<'_, TranscriptionState>,
     audio_path: String,
-    auto_paste: bool,
-    user_id_opt: Option<String>,
-    access_token_opt: Option<String>
+    auto_paste: bool, // Keep flag as override parameter
+    user_id_opt: Option<String>,    // NEW ARGUMENT
+    access_token_opt: Option<String> // NEW ARGUMENT
 ) -> Result<String, String> {
     println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
     println!("[RUST DEBUG] Input audio path: {}", audio_path);
     println!("[RUST DEBUG] Auto paste flag (passed): {}", auto_paste);
-    println!("[RUST DEBUG] User ID (opt): {:?}", user_id_opt);
-    println!("[RUST DEBUG] Access Token (opt): {:?}", access_token_opt);
 
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -212,7 +209,13 @@ pub async fn transcribe_audio_file(
     };
     
     // Call the implementation with appropriate auto_paste
-    let result = transcribe_local_audio_impl(audio_path, effective_auto_paste, app_handle, user_id_opt, access_token_opt).await;
+    let result = transcribe_local_audio_impl(
+        app_handle, // Pass app_handle
+        audio_path, 
+        effective_auto_paste, 
+        user_id_opt,      // Pass new argument
+        access_token_opt  // Pass new argument
+    ).await;
     println!("[RUST DEBUG] transcribe_local_audio_impl completed. Success? {}", result.is_ok());
     
     result
@@ -220,11 +223,11 @@ pub async fn transcribe_audio_file(
 
 // The main implementation function - now returns only the transcription text
 pub async fn transcribe_local_audio_impl(
+    app_handle: AppHandle, // Add app_handle here
     wav_path_in: String,
     auto_paste: bool, // Renamed parameter to match command
-    app_handle: AppHandle, // Keep app handle for emits
-    user_id_opt: Option<String>,
-    access_token_opt: Option<String>
+    user_id_opt: Option<String>,    // NEW ARGUMENT
+    access_token_opt: Option<String> // NEW ARGUMENT
 ) -> Result<String, String> {
     println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<");
     println!("[RUST DEBUG] Received initial WAV path: {}", wav_path_in);
@@ -597,39 +600,51 @@ pub async fn transcribe_local_audio_impl(
             println!("[RUST DEBUG] Auto-paste is disabled.");
         }
 
-        // New logic to update word usage:
+        // --- BEGIN SUPABASE WORD COUNT UPDATE ---
         if let (Some(user_id), Some(access_token)) = (user_id_opt, access_token_opt) {
             if !user_id.is_empty() && !access_token.is_empty() {
                 let words_transcribed = trimmed_output.split_whitespace().count() as i32;
-                log::info!("[Transcription] User ID: {}, Access Token: Present, Words Transcribed: {}", user_id, words_transcribed);
+                log::info!(
+                    "[Transcription] User details found (User ID: {}), proceeding with word count update for {} words.",
+                    user_id, // Log only user_id for privacy if access_token is sensitive
+                    words_transcribed
+                );
 
                 if words_transcribed > 0 {
-                    log::info!("[Transcription] Attempting to update word usage for user_id: {} with words: {}", user_id, words_transcribed);
+                    let app_handle_clone_for_supabase = app_handle.clone(); // Clone for the async block
                     
-                    let app_handle_clone = app_handle.clone();
-                    tokio::spawn(async move { 
-                        log::info!("[Transcription] Invoking 'update_word_usage' logic (direct call to RPC function).");
-                        // Ensure user_id and access_token are cloned or moved appropriately if needed by the async block
-                        // (they are already owned Strings here, so direct use should be fine for one-time consumption in a move async block)
-                        match crate::supabase_manager::execute_increment_word_usage_rpc(user_id, access_token, words_transcribed).await {
-                            Ok(_) => log::info!("[Transcription] Call to execute_increment_word_usage_rpc succeeded."),
-                            Err(e) => log::error!("[Transcription] Call to execute_increment_word_usage_rpc failed: {}", e),
+                    // Directly await the call here:
+                    match crate::supabase_manager::execute_increment_word_usage_rpc(user_id.clone(), access_token.clone(), words_transcribed).await {
+                        Ok(_) => {
+                            log::info!("[Transcription] Word usage update process reported success.");
+                            // Successfully updated or limit was fine, now emit event
+                            log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend.");
+                            if let Err(e) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
+                                log::error!("[Transcription] Failed to emit 'word_usage_updated' event: {}", e);
+                            }
                         }
-
-                        // Add new event emission here:
-                        log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend.");
-                        if let Err(e) = app_handle_clone.emit_all("word_usage_updated", ()) { // Send an empty payload for now
-                            log::error!("[Transcription] Failed to emit 'word_usage_updated' event: {}", e);
+                        Err(e) => {
+                            log::error!("[Transcription] Word usage update process failed: {}", e);
+                            // Propagate this error. This will become the error for transcribe_local_audio_impl
+                            // The frontend should receive this error message.
+                            // We still emit "word_usage_updated" because an attempt was made, and SettingsPage might want to refresh.
+                            log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend despite error (to allow UI refresh).");
+                            if let Err(ev_err) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
+                                log::error!("[Transcription] Failed to emit 'word_usage_updated' event after error: {}", ev_err);
+                            }
+                            return Err(e); // Return the error from execute_increment_word_usage_rpc
                         }
-                    });
+                    }
                 } else {
-                    log::info!("[Transcription] No words transcribed ({}) or tokens missing, skipping word usage update.", words_transcribed);
+                    log::info!("[Transcription] No words transcribed, skipping word count update.");
                 }
             } else {
-                log::info!("[Transcription] User not logged in (no user_id or access_token provided), skipping word usage update.");
+                log::warn!("[Transcription] User ID or Access Token is empty. Skipping word count update.");
             }
+        } else {
+            log::warn!("[Transcription] User ID or Access Token not found in settings (or not passed). Skipping word count update.");
         }
-        // End of new logic
+        // --- END SUPABASE WORD COUNT UPDATE ---
 
         // Return the text
         Ok(trimmed_output)

@@ -1,405 +1,398 @@
-// ... rest of your file
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
-import { RecordingState } from '../types'; // Assuming types.ts is in ../
-import RecordingPill from '../components/RecordingPill'; // Assuming RecordingPill is in ../components/
+import { RecordingState } from '../types';
+import RecordingPill from '../components/RecordingPill';
 import { toast } from "react-hot-toast";
 import { supabase } from '@/lib/supabaseClient';
+import { emit } from '@tauri-apps/api/event';
 
-// Define the structure for the state update payload from the backend
 interface StateUpdatePayload {
-    state: RecordingState | string; // Allow string initially for mapping
+    state: RecordingState | string;
     duration_ms: number;
     transcription_result: string | null;
     error_message: string | null;
 }
 
-// --- THIS IS THE CORRECTED PillPage COMPONENT ---
 function PillPage() {
-    // console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;"); // MOVED
     const [currentState, setCurrentState] = useState<RecordingState>(RecordingState.IDLE);
+    const currentStateRef = useRef(currentState);
     const [duration, setDuration] = useState<number>(0);
-    // Note: Removing transcription state from here as it's not directly displayed by the pill itself anymore
-    // const [transcription, setTranscription] = useState<string | null>(null);
     const [lastTranscriptionText, setLastTranscriptionText] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null); // For backend process errors
-    const [errorMessage, setErrorMessage] = useState<string | null>(null); // For dedicated error state display
+    const [error, setError] = useState<string | null>(null); 
+    const [errorMessage, setErrorMessage] = useState<string | null>(null); 
+    const [showUpgradePrompt, setShowUpgradePrompt] = useState<boolean>(false);
     const startTimeRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const editReadyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isEditSequenceActiveRef = useRef<boolean>(false); 
 
-    // MOVED TO THE TOP and SIMPLIFIED for diagnostics
-    // useEffect(() => {
-    //     console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC useEffect (first one) ENTERED", "background: lime; color: black; font-weight: bold;");
-    //     return () => {
-    //         console.log('%c[PillPage CRITICAL LOG] DIAGNOSTIC useEffect (first one) CLEANUP', "background: red; color: white; font-weight: bold;");
-    //     };
-    // }, []); // Empty dependency array
+    // Effect to keep currentStateRef updated
+    useEffect(() => {
+        currentStateRef.current = currentState;
+    }, [currentState]);
 
-    const handleErrorDismiss_MEMOIZED = useCallback(() => {
-        console.log(`%c[PillPage handleErrorDismiss_MEMOIZED CALLED] State: ${RecordingState[currentState]}, Error: ${error}, Message: ${errorMessage}`, "color: orange; font-weight: bold;");
-        if (errorTimeoutRef.current) {
-            clearTimeout(errorTimeoutRef.current);
-            errorTimeoutRef.current = null;
-            console.log("[PillPage handleErrorDismiss] Cleared errorTimeoutRef.");
+    // FIXED: Consolidated timeout management helpers with no dependencies
+    const clearEditSequenceTimeouts = useCallback(() => {
+        if (successTimeoutRef.current) {
+            clearTimeout(successTimeoutRef.current);
+            successTimeoutRef.current = null;
         }
         if (editReadyTimeoutRef.current) {
             clearTimeout(editReadyTimeoutRef.current);
             editReadyTimeoutRef.current = null;
-            console.log("[PillPage handleErrorDismiss] Cleared editReadyTimeoutRef.");
         }
+        console.log("[PillPage] Cleared edit sequence timeouts.");
+    }, []);
 
+    // FIXED: Enhanced endEditSequence to clear error state
+    const endEditSequence = useCallback(() => {
+        console.log("[PillPage] Ending edit sequence explicitly.");
+        clearEditSequenceTimeouts();
+        isEditSequenceActiveRef.current = false;
+        setCurrentState(RecordingState.IDLE);
+        setLastTranscriptionText(null);
+        setError(null); // FIXED: Clear error state too
+        setShowUpgradePrompt(false);
+    }, [clearEditSequenceTimeouts]);
+
+    const handleErrorDismiss_MEMOIZED = useCallback(() => {
+        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+        if (isEditSequenceActiveRef.current) {
+            console.log("[PillPage handleErrorDismiss] Edit sequence was active, ending it.");
+            endEditSequence();
+        } else {
+            setCurrentState(RecordingState.IDLE);
+        }
         setError(null);
         setErrorMessage(null);
-        setLastTranscriptionText(null); 
-        setCurrentState(RecordingState.IDLE);
-        console.log("[PillPage handleErrorDismiss] All frontend states reset to idle/null.");
+        setShowUpgradePrompt(false);
+        invoke('signal_reset_complete').catch(err => console.error("[PillPage handleErrorDismiss] Backend reset signal FAILED:", err));
+    }, [endEditSequence]);
 
-        invoke('signal_reset_complete')
-            .then(() => {
-                console.log("[PillPage handleErrorDismiss] Backend reset signal SUCCEEDED.");
-            })
-            .catch(err => {
-                console.error("[PillPage handleErrorDismiss] Backend reset signal FAILED:", err);
-            });
-    }, [setCurrentState, setError, setErrorMessage, setLastTranscriptionText]); // Added setLastTranscriptionText
-
-    // New useEffect for the robust global fallback - RESTORED with empty dependency array for now
     useEffect(() => {
-        // REMOVED: console.log("%c[PillPage CRITICAL LOG] Entering useEffect to define TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT", "background: yellow; color: black; font-weight: bold;");
         (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT = () => {
-            console.log(`%c[PillPage TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT CALLED!] CurrentState (at definition time): ${RecordingState[currentState]}`, "color: purple; font-size: 1.3em; font-weight: bold;");
-            // Note: currentState here will be stale due to the empty dependency array for this diagnostic step.
-            // The actual dismissal logic might need to be adapted or this effect reverted once the assignment issue is solved.
-            if (errorTimeoutRef.current) {
-                clearTimeout(errorTimeoutRef.current);
-                errorTimeoutRef.current = null;
-                console.log("[PillPage GlobalEffectFn] Cleared errorTimeoutRef.");
-            }
-            if (editReadyTimeoutRef.current) {
-                clearTimeout(editReadyTimeoutRef.current);
-                editReadyTimeoutRef.current = null;
-                console.log("[PillPage GlobalEffectFn] Cleared editReadyTimeoutRef.");
+            if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+            if (isEditSequenceActiveRef.current) {
+                endEditSequence();
+            } else {
+                setCurrentState(RecordingState.IDLE);
             }
             setError(null);
             setErrorMessage(null);
             setLastTranscriptionText(null);
-            setCurrentState(RecordingState.IDLE); // This will use the initial setCurrentState
-            console.log("[PillPage GlobalEffectFn] All frontend states reset to idle/null.");
-            invoke('signal_reset_complete')
-                .then(() => console.log("[PillPage GlobalEffectFn] Backend reset signal SUCCEEDED."))
-                .catch(err => console.error("[PillPage GlobalEffectFn] Backend reset signal FAILED:", err));
+            setShowUpgradePrompt(false);
+            invoke('signal_reset_complete').catch(err => console.error("[PillPage GlobalEffectFn] Backend reset signal FAILED:", err));
         };
-        console.log('[PillPage useEffect] Assigned (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT. Type:', typeof (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT);
-    
-        return () => {
-            delete (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT;
-            // REMOVED: console.log('%c[PillPage CRITICAL LOG] Cleaned up (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT', "background: orange; color: black; font-weight: bold;");
-        };
-    }, []); // Empty dependency array for now
+        return () => { delete (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT; };
+    }, [endEditSequence]); 
 
-    // --- Handler for Edit Icon Click ---
+    // FIXED: Stable handleEditClick that captures text at click time
     const handleEditClick = useCallback(() => {
         console.log("PillPage: Edit clicked!");
-        // Cancel timeout that would revert to IDLE
-        if (editReadyTimeoutRef.current) {
-            clearTimeout(editReadyTimeoutRef.current);
-            editReadyTimeoutRef.current = null;
-        }
-        if (lastTranscriptionText) {
-            console.log("PillPage: Invoking open_editor_window for:", lastTranscriptionText);
-            invoke('open_editor_window', { textToEdit: lastTranscriptionText })
-                .catch(err => console.error("PillPage: Failed to open editor window:", err));
+        
+        if (lastTranscriptionText) { // Use lastTranscriptionText directly from state
+            console.log("[PillPage] Emitting fethr-edit-latest-history for text:", lastTranscriptionText.substring(0,30) + "...");
+            emit('fethr-edit-latest-history', { text: lastTranscriptionText })
+                .then(() => console.log('[PillPage] Successfully emitted fethr-edit-latest-history.'))
+                .catch(err => console.error('[PillPage] Failed to emit fethr-edit-latest-history:', err));
+
+            console.log("[PillPage] Invoking show_settings_window_and_focus command...");
+            invoke('show_settings_window_and_focus')
+                .then(() => console.log('[PillPage] Successfully invoked show_settings_window_and_focus.'))
+                .catch(err => {
+                    console.error('[PillPage] Error invoking show_settings_window_and_focus:', err);
+                    toast.error('Could not open settings window.');
+                });
         } else {
-            console.error("PillPage: Edit clicked but no last transcription text found!");
+            console.warn("[PillPage] Edit clicked, but no lastTranscriptionText was available.");
         }
-        // Go back to standard IDLE immediately and signal reset
-        const finalIdleState = RecordingState.IDLE;
-        console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[finalIdleState]} (${finalIdleState}) after edit click`, "color: orange;");
-        setCurrentState(finalIdleState);
-        setLastTranscriptionText(null);
+
+        endEditSequence();
         invoke('signal_reset_complete').catch(err => console.error("PillPage: Failed to signal reset complete after edit click:", err));
-    }, [lastTranscriptionText]); // Dependency on lastTranscriptionText
+    }, [lastTranscriptionText, endEditSequence]); // CORRECTED: Add lastTranscriptionText to dependencies
 
-    // --- Handler for processing transcription results ---
+    // FIXED: Don't reset edit sequence flag prematurely
     const handleTranscriptionResult = useCallback((resultPromise: Promise<string>) => {
-        console.log("PillPage: Entering handleTranscriptionResult...");
-        setError(null);
-
+        console.log("[PillPage] handleTranscriptionResult called");
+        // FIXED: Don't reset edit sequence flag here - let the copy event handle it
+        
         resultPromise
             .then(resultText => {
                 if (!resultText || resultText.trim() === '') {
-                    console.warn("PillPage: Backend returned empty result");
+                    console.warn("[PillPage] Empty transcription result");
                     setError('Transcription empty');
                     setLastTranscriptionText(null);
                     setCurrentState(RecordingState.ERROR);
-
+                    setShowUpgradePrompt(false);
+                    // Only end edit sequence if one was active
+                    if (isEditSequenceActiveRef.current) {
+                        console.log("[PillPage] Ending edit sequence due to empty result");
+                        endEditSequence();
+                    }
                     if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
-                    editReadyTimeoutRef.current = setTimeout(() => {
-                        console.log("PillPage: Empty result/Error timeout. Reverting to IDLE.");
-                        handleErrorDismiss_MEMOIZED(); // Use central handler
-                    }, 3000);
+                    editReadyTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 3000);
                 } else {
-                    console.log("[PillPage RESULT] Got successful transcription. Storing text.");
+                    console.log("[PillPage] Successful transcription result:", resultText.substring(0, 50) + "...");
                     setError(null);
                     setLastTranscriptionText(resultText);
+                    // Don't change state here - let the copy event handle the sequence
                 }
             })
             .catch(errorObj => {
-                console.error("PillPage: stop_backend_recording promise rejected:", errorObj);
-                const errorMsg = `Transcription error: ${errorObj instanceof Error ? errorObj.message : String(errorObj)}`;
-                setError(errorMsg);
-                toast.error(errorMsg.substring(0, 100));
-                setLastTranscriptionText(null);
-                setCurrentState(RecordingState.ERROR);
-
+                console.error("[PillPage] Transcription error:", errorObj);
+                const errorString = errorObj instanceof Error ? errorObj.message : String(errorObj);
+                // End any active edit sequence on error
+                if (isEditSequenceActiveRef.current) {
+                    console.log("[PillPage] Ending edit sequence due to transcription error");
+                    endEditSequence();
+                }
+                setShowUpgradePrompt(false); 
+                if (errorString.includes("Word limit exceeded")) {
+                    setErrorMessage("Word limit reached!"); 
+                    setShowUpgradePrompt(true);
+                    setCurrentState(RecordingState.ERROR);
+                    toast.error("You've reached your transcription limit for this period."); 
+                } else if (errorString.includes("No active subscription found")) { 
+                    setErrorMessage("Subscription required"); 
+                    setShowUpgradePrompt(true);
+                    setCurrentState(RecordingState.ERROR);
+                    toast.error("An active subscription is required to continue.");
+                } else {
+                    setError(`Transcription error: ${errorString}`); 
+                    setErrorMessage(errorString); 
+                    toast.error(`Transcription error: ${errorString}`.substring(0, 100));
+                    setCurrentState(RecordingState.ERROR);
+                }
+                setLastTranscriptionText(null); 
                 if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
-                editReadyTimeoutRef.current = setTimeout(() => {
-                    console.log("PillPage: Transcription error timeout. Reverting to IDLE.");
-                    handleErrorDismiss_MEMOIZED(); // Use central handler
-                }, 3000);
-            })
-            .finally(() => {
-                console.log("PillPage: Transcription attempt complete (finally block).");
+                if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+                errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 7000); 
             });
-    }, [handleErrorDismiss_MEMOIZED]);
+    }, [handleErrorDismiss_MEMOIZED, endEditSequence]);
 
-    // --- Main useEffect for listeners ---
+    // FIXED: Main listener setup with minimal, stable dependencies
     useEffect(() => {
-        // REMOVED: console.log("%c[PillPage CRITICAL LOG] DIAGNOSTIC LOG INSIDE MAIN LISTENER useEffect", "background: cyan; color: black; font-weight: bold;");
-
-        console.log("PillPage: useEffect running - setting up listeners (External File - Corrected)");
-        let isMounted = true; // Add mount check flag
+        console.log("[PillPage] Setting up main event listeners");
+        let isMounted = true; 
         const unlisteners: Array<() => void> = [];
-
+        
         const setupListeners = async () => {
             try {
-                // --- Listener for Backend Errors ---
                 const handleErrorOccurred = (event: { payload: string }) => {
                     if (!isMounted) return;
-                    const errorMsg = event.payload;
-                    console.log(`PillPage: Received fethr-error-occurred: "${errorMsg}"`);
-                    if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
-                    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-                    editReadyTimeoutRef.current = null;
-                    successTimeoutRef.current = null;
+                    console.log("[PillPage] Error occurred:", event.payload);
+                    if (isEditSequenceActiveRef.current) {
+                        endEditSequence();
+                    }
                     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                    setErrorMessage(errorMsg || "An unknown error occurred.");
+                    setErrorMessage(event.payload || "An unknown error occurred.");
                     setCurrentState(RecordingState.ERROR);
-                    errorTimeoutRef.current = setTimeout(() => {
-                        if (!isMounted) return;
-                        console.log("PillPage: Backend error display timeout. Reverting to IDLE.");
-                        handleErrorDismiss_MEMOIZED(); // Use central handler
-                    }, 4000);
+                    errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 4000);
                 };
-                const unlistenError = await listen<string>('fethr-error-occurred', handleErrorOccurred);
-                unlisteners.push(unlistenError);
-                console.log("PillPage: Error listener setup.");
+                unlisteners.push(await listen<string>('fethr-error-occurred', handleErrorOccurred));
 
-                // --- Listener for Copy Success (Triggers SUCCESS -> IDLE_EDIT_READY) ---
-                 const unlistenCopied = await listen<void>('fethr-copied-to-clipboard', () => {
-                    if (!isMounted) return; // Check mount status
+                // FIXED: Enhanced clipboard event handler
+                const unlistenCopied = await listen<void>('fethr-copied-to-clipboard', () => {
+                    if (!isMounted) return; 
                     console.log("%c[PillPage EVENT LISTENER] <<< Received fethr-copied-to-clipboard! >>>", "color: lime; font-size: 1.2em; font-weight: bold;");
+                    
+                    // End any existing edit sequence first, then start new one
+                    if (isEditSequenceActiveRef.current) {
+                        console.log("[PillPage] Ending previous edit sequence before starting new one");
+                        clearEditSequenceTimeouts();
+                    }
+                    
+                    isEditSequenceActiveRef.current = true; // Claim the sequence
+                    
+                    setCurrentState(RecordingState.SUCCESS);
+                    console.log(`[PillPage STATE] Set to SUCCESS, isEditActive: ${isEditSequenceActiveRef.current}`);
 
-                     // Clear any previous timeouts
-                    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-                    if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
-                    successTimeoutRef.current = null;
-                    editReadyTimeoutRef.current = null;
-
-                    // Set state to SUCCESS
-                    const successState = RecordingState.SUCCESS;
-                    console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[successState]} (${successState}) from copy event`, "color: green;");
-                    setCurrentState(successState);
-
-                    // Set the first timeout (Success -> IdleEditReady)
                     successTimeoutRef.current = setTimeout(() => {
-                        if (!isMounted) return; // Check mount inside timeout
-                        const idleEditReadyState = RecordingState.IDLE_EDIT_READY;
-                        console.log("PillPage: Success timeout finished. Transitioning to Idle Edit Ready.");
-                        console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[idleEditReadyState]} (${idleEditReadyState})`, "color: blue;");
-                        setCurrentState(idleEditReadyState);
+                        if (!isMounted) return;
+                        if (!isEditSequenceActiveRef.current) {
+                            console.log("[PillPage] Edit sequence cancelled before success timeout fired.");
+                            return;
+                        }
+                        setCurrentState(RecordingState.IDLE_EDIT_READY);
+                        console.log(`[PillPage STATE] Set to IDLE_EDIT_READY, isEditActive: ${isEditSequenceActiveRef.current}`);
                         successTimeoutRef.current = null;
-
-                        // Set the second timeout (IdleEditReady -> Idle)
+                        
                         editReadyTimeoutRef.current = setTimeout(() => {
-                            if (!isMounted) return; // Check mount inside timeout
-                            const finalIdleState = RecordingState.IDLE;
-                            console.log("PillPage: Edit Ready timeout finished. Reverting to IDLE.");
-                            console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[finalIdleState]} (${finalIdleState})`, "color: orange;");
-                            setCurrentState(finalIdleState);
-                            setLastTranscriptionText(null); // Clear stored text
-                            // Signal backend reset ONLY after the full sequence completes
-                            invoke('signal_reset_complete').catch(err => console.error("PillPage: Failed to signal reset complete:", err));
-                            editReadyTimeoutRef.current = null;
-                        }, 7000); // 7 seconds in Edit Ready state (Adjusted from 10)
-
+                            if (!isMounted) return;
+                            if (!isEditSequenceActiveRef.current) {
+                                console.log("[PillPage] Edit sequence cancelled before editReady timeout fired.");
+                                return;
+                            }
+                            console.log("PillPage: Edit Ready timeout finished. Reverting to IDLE via endEditSequence.");
+                            endEditSequence();
+                            invoke('signal_reset_complete').catch(err => console.error("PillPage: Failed to signal reset complete from editReadyTimeout:", err));
+                        }, 7000); // 7 seconds in Edit Ready state
                     }, 1500); // 1.5 seconds in Success state
-                 });
-                 unlisteners.push(unlistenCopied);
-                 console.log("PillPage: Copied event listener setup.");
+                });
+                unlisteners.push(unlistenCopied);
 
-                // --- State Update Listener (Handles basic state changes from backend) ---
                 const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', (event) => {
                     if (!isMounted) return;
-                    console.log('PillPage: Received fethr-update-ui-state:', event.payload);
-                    const { state: receivedState } = event.payload; // Only need state here
-
+                    const { state: receivedState } = event.payload; 
                     let newTsState: RecordingState = RecordingState.IDLE;
+                    
                     if (typeof receivedState === 'string') {
                         const stateUppercase = receivedState.toUpperCase();
                          switch (stateUppercase) {
                             case "RECORDING": newTsState = RecordingState.RECORDING; break;
                             case "LOCKEDRECORDING": newTsState = RecordingState.LOCKED_RECORDING; break;
                             case "TRANSCRIBING": newTsState = RecordingState.TRANSCRIBING; break;
-                            case "IDLE": newTsState = RecordingState.IDLE; break; // Explicitly handle IDLE
-                            default: 
-                                console.warn(`PillPage: State listener received unknown state string: ${receivedState}. Defaulting to IDLE.`);
-                                newTsState = RecordingState.IDLE; // Default to IDLE for unknown states
-                                break;
+                            case "IDLE": newTsState = RecordingState.IDLE; break; 
+                            case "ERROR": newTsState = RecordingState.ERROR; break; 
+                            default: newTsState = RecordingState.IDLE; break;
                          }
-                    } else {
-                        console.error(`PillPage: Received non-string state type: ${typeof receivedState}. Defaulting to IDLE.`);
-                        newTsState = RecordingState.IDLE; // Default to IDLE for non-string states
+                    } else { 
+                        newTsState = RecordingState.IDLE; 
                     }
-                    console.log(`PillPage: Mapped received state "${receivedState}" to TS Enum value: ${RecordingState[newTsState]} (${newTsState})`);
 
-                    // Always set the state after mapping, allowing IDLE through
-                    console.log(`%c[PillPage STATE] Attempting to set state to: ${RecordingState[newTsState]} (${newTsState}) from backend update (IDLE state processed)`, "color: purple;");
-                    setCurrentState(newTsState);
+                    console.log(`[PillPage] Backend state update: ${RecordingState[newTsState]}, editActive: ${isEditSequenceActiveRef.current}`);
 
-                    // --- Timer Logic ---
+                    if (newTsState === RecordingState.IDLE) {
+                        if (isEditSequenceActiveRef.current) {
+                            console.log(`[PillPage STATE] Backend pushed IDLE, but edit sequence is active. IGNORING backend IDLE.`);
+                            // DO NOTHING - let the edit sequence timeouts or handleEditClick call endEditSequence()
+                            return;
+                        } else {
+                            console.log(`[PillPage STATE] Backend pushed IDLE. Edit sequence not active. Setting to clean IDLE.`);
+                            setCurrentState(RecordingState.IDLE);
+                            setLastTranscriptionText(null);
+                            setErrorMessage(null);
+                            setError(null); 
+                            setShowUpgradePrompt(false);
+                        }
+                    } else { // For non-IDLE states (RECORDING, TRANSCRIBING, ERROR etc.)
+                        if (isEditSequenceActiveRef.current) {
+                            console.log(`[PillPage STATE] Backend pushed ${RecordingState[newTsState]} during active edit sequence. Ending edit sequence.`);
+                            endEditSequence(); // Gracefully end the edit sequence
+                        }
+                        console.log(`[PillPage STATE] Setting state to: ${RecordingState[newTsState]} from backend update`);
+                        setCurrentState(newTsState);
+                        // Clear relevant state based on new state
+                        if (newTsState === RecordingState.ERROR) {
+                            setLastTranscriptionText(null); 
+                        } else {
+                            setLastTranscriptionText(null); 
+                            setErrorMessage(null);
+                            setError(null);
+                            setShowUpgradePrompt(false);
+                        }
+                    }
+
+                    // Timer management
                     const shouldBeRunning = newTsState === RecordingState.RECORDING || newTsState === RecordingState.LOCKED_RECORDING;
                     const isRunning = timerIntervalRef.current !== null;
-
                     if (shouldBeRunning && !isRunning) {
-                        console.log("PillPage: Starting timer");
                         startTimeRef.current = Date.now();
                         setDuration(0);
                         timerIntervalRef.current = setInterval(() => {
-                            if (startTimeRef.current) { setDuration(Date.now() - startTimeRef.current); }
-                            else { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
+                            if (startTimeRef.current) { 
+                                setDuration(Date.now() - startTimeRef.current); 
+                            } else { 
+                                if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); 
+                                timerIntervalRef.current = null; 
+                            }
                         }, 100);
                     } else if (!shouldBeRunning && isRunning) {
-                        console.log("PillPage: Stopping timer");
                         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
                         timerIntervalRef.current = null;
                         startTimeRef.current = null;
-                        // UPDATED Condition: Reset duration if timer shouldn't be running
-                        if (!shouldBeRunning) { 
-                            console.log(`PillPage: Resetting duration display for state: ${RecordingState[newTsState]}`);
-                            setDuration(0);
-                        }
+                        if (!shouldBeRunning) { setDuration(0); }
                     }
-                    // --- End Timer Logic ---
                 });
                 unlisteners.push(unlistenState);
-                console.log("PillPage: State Update listener setup.");
 
-                // --- Start/Stop Listeners ---
                 const unlistenStart = await listen<void>("fethr-start-recording", () => {
                     if (!isMounted) return;
-                    console.log("PillPage: Received fethr-start-recording. Invoking backend...");
-                    // REMOVED: setTranscription(null);
-                    setError(null); setLastTranscriptionText(null);
+                    console.log("PillPage: Received fethr-start-recording.");
+                    if (isEditSequenceActiveRef.current) {
+                        console.log("[PillPage] New recording starting during active edit sequence. Ending edit sequence first.");
+                        endEditSequence();
+                    }
+                    // Clear other relevant states for a new recording
+                    setErrorMessage(null);
+                    setShowUpgradePrompt(false);
+                    setLastTranscriptionText(null);
+                    setError(null);
+                    
                     invoke('start_backend_recording')
                         .then(() => console.log("PillPage: start_backend_recording invoked successfully."))
-                        .catch(err => { /* ... error handling ... */ });
+                        .catch(err => { 
+                            setError(`Start recording failed: ${err}`);
+                            setCurrentState(RecordingState.ERROR);
+                            toast.error(`Start recording failed: ${err}`);
+                        });
                 });
                 unlisteners.push(unlistenStart);
-                console.log("PillPage: Start Recording listener setup.");
 
-                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", 
-                // START OF MODIFIED ASYNC CALLBACK
-                async (event) => { 
+                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", async (event) => { 
                     if (!isMounted) return; 
-                    const autoPasteCurrentValue = event.payload;
-                    
-                    console.log(`[PillPage] Event: fethr-stop-and-transcribe. autoPaste: ${autoPasteCurrentValue}.`);
-                    console.log('[PillPage] Attempting to get Supabase session for stop_backend_recording...');
+                    console.log("PillPage: Received fethr-stop-and-transcribe.");
+                    if (isEditSequenceActiveRef.current) {
+                        console.log("[PillPage] Stop transcribe received during edit sequence. Ending edit sequence first.");
+                        endEditSequence();
+                    }
                     let userId = null;
                     let accessToken = null;
-
                     try {
-                        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-                        if (sessionError) {
-                            console.error('[PillPage] Error getting Supabase session:', sessionError.message);
-                        } else if (sessionData && sessionData.session) {
+                        const { data: sessionData } = await supabase.auth.getSession();
+                        if (sessionData && sessionData.session) {
                             userId = sessionData.session.user.id;
                             accessToken = sessionData.session.access_token;
-                            console.log('[PillPage] User ID obtained:', userId);
-                            console.log('[PillPage] Access Token obtained:', accessToken ? 'Yes' : 'No (session might be null or token not present)');
-                        } else {
-                            console.log('[PillPage] No active Supabase session found (sessionData.session is null). User might be logged out.');
                         }
-                    } catch (e: any) {
-                        console.error('[PillPage] Exception during supabase.auth.getSession():', e.message);
+                    } catch (e) { 
+                        console.error('[PillPage] Exception during supabase.auth.getSession():', e); 
                     }
-
-                    console.log(`[PillPage] Preparing to invoke 'stop_backend_recording' with payload:`, { args: { auto_paste: autoPasteCurrentValue, user_id: userId, access_token_present: !!accessToken } });
-
                     try {
-                        const stopPromise = invoke<string>('stop_backend_recording', {
-                            args: { // This key 'args' matches the Rust function's argument name for the StopRecordingPayloadArgs struct
-                                auto_paste: autoPasteCurrentValue,
-                                user_id: userId,        // From supabase.auth.getSession()
-                                access_token: accessToken // From supabase.auth.getSession()
+                        const stopPromise = invoke<string>('stop_backend_recording', { 
+                            args: { 
+                                auto_paste: event.payload, 
+                                user_id: userId, 
+                                access_token: accessToken 
                             }
                         });
-                        console.log('[PillPage] "stop_backend_recording" invoked.');
                         handleTranscriptionResult(stopPromise); 
                     } catch (invokeError: any) { 
-                        console.error('[PillPage] Error invoking "stop_backend_recording":', invokeError);
                         setError(`Failed to stop recording: ${invokeError.message}`);
                         setCurrentState(RecordingState.ERROR);
                         if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                        errorTimeoutRef.current = setTimeout(() => {
-                            handleErrorDismiss_MEMOIZED();
-                        }, 4000);
+                        errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 4000);
                     }
-                }
-                // END OF MODIFIED ASYNC CALLBACK
-                );
+                });
                 unlisteners.push(unlistenStop);
-                console.log("PillPage: Stop/Transcribe listener setup.");
-
-                console.log("PillPage: All listeners setup successful.");
-
             } catch (error) {
-                 console.error("PillPage: Error setting up Tauri listeners:", error);
                  setError(`Listener setup error: ${error}`);
                  toast.error(`Listener setup error: ${error}`);
             }
         };
-
+        
         setupListeners();
-
-        // Cleanup function
+        
         return () => {
-             console.log("PillPage: Main useEffect cleanup function running (External File - Corrected)");
+             console.log("[PillPage] Cleaning up main event listeners");
              isMounted = false;
-             console.log(`PillPage: Cleaning up ${unlisteners.length} listeners...`);
              unlisteners.forEach(unlisten => unlisten());
-             // Clear all timeouts on unmount
-             if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); }
-             if (errorTimeoutRef.current) { clearTimeout(errorTimeoutRef.current); }
-             if (successTimeoutRef.current) { clearTimeout(successTimeoutRef.current); }
-             if (editReadyTimeoutRef.current) { clearTimeout(editReadyTimeoutRef.current); }
+             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+             if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current); 
+             if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current); 
+             if (editReadyTimeoutRef.current) clearTimeout(editReadyTimeoutRef.current);
+             isEditSequenceActiveRef.current = false; 
         };
-    }, [handleTranscriptionResult]); // Add handleTranscriptionResult to dependencies
+    }, []); // FIXED: Empty dependency array - listeners only set up once
 
-    // Format duration
     const formatDuration = (ms: number): string => {
         if (ms <= 0) return "0s";
         return Math.floor(ms / 1000).toString() + "s";
     };
 
-    // Log state just before rendering
-    console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, error: ${error}, errorMessage: ${errorMessage}`, "color: magenta;");
+    console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, ref: ${RecordingState[currentStateRef.current]}, isEditActive: ${isEditSequenceActiveRef.current}`, "color: magenta;");
 
     return (
         <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
@@ -409,8 +402,10 @@ function PillPage() {
                 transcription={lastTranscriptionText || undefined}
                 error={error || undefined}
                 backendError={errorMessage || undefined}
+                showUpgradePrompt={showUpgradePrompt}
                 onEditClick={handleEditClick}
                 onErrorDismiss={handleErrorDismiss_MEMOIZED}
+                onUpgradeClick={() => { toast.success("Upgrade clicked! (TODO: Implement navigation)", { duration: 3000 }); }}
             />
         </div>
     );

@@ -7,16 +7,17 @@ use serde_json::json; // Added for RPC payload
 const SUPABASE_URL_PLACEHOLDER: &str = "https://dttwcuqlnfpsbkketppf.supabase.co";
 const SUPABASE_ANON_KEY_PLACEHOLDER: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g";
 
-const DEFAULT_FREE_TIER_WORD_LIMIT: i32 = 1500;
-const DEFAULT_FREE_TIER_NAME: &str = "Free";
-const DEFAULT_PRO_TIER_NAME: &str = "Pro"; // Fallback if not in price metadata
+// // const DEFAULT_FREE_TIER_WORD_LIMIT: i32 = 1500; // Removed unused constant
+// // const DEFAULT_FREE_TIER_NAME: &str = "Free"; // Removed unused constant
+// // const DEFAULT_PRO_TIER_NAME: &str = "Pro"; // Removed unused constant
+// Ensure these constants are fully removed if they were only commented out before
 
 // This is the struct that will be returned by the Tauri command
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserSubscriptionDetails {
     pub user_id: String,
-    pub email: Option<String>,
-    pub stripe_customer_id: Option<String>,
+    pub _email: Option<String>, // Prefixed unused field
+    pub _stripe_customer_id: Option<String>, // Prefixed unused field
     pub active_tier: String,
     pub subscription_id: Option<String>,
     pub subscription_status: Option<String>,
@@ -29,15 +30,15 @@ pub struct UserSubscriptionDetails {
 #[derive(Deserialize, Debug, Clone)]
 struct ProfileBaseData {
     // id: String, // Not strictly needed if we already have user_id
-    email: Option<String>,
-    stripe_customer_id: Option<String>,
+    _email: Option<String>, // Prefixed unused field
+    _stripe_customer_id: Option<String>, // Prefixed unused field
 }
 
 // For parsing metadata from the `prices` table
 #[derive(Deserialize, Debug, Clone)]
 struct PriceMetadata {
-    word_limit: Option<i32>,
-    tier_name: Option<String>,
+    _word_limit: Option<i32>, // Prefixed unused field
+    _tier_name: Option<String>, // Prefixed unused field
     // description: Option<String>, // Example, if you store it
 }
 
@@ -46,7 +47,7 @@ struct PriceMetadata {
 struct PriceEmbed {
     // id: Option<String>,
     // product_id: Option<String>,
-    metadata: Option<PriceMetadata>, // This will be the JSONB from prices.metadata
+    _metadata: Option<PriceMetadata>, // Prefixed unused field
     // Removed products field (and ProductEmbed) as they are not used in current logic
 }
 
@@ -63,16 +64,17 @@ struct SubscriptionWithJoins {
     // id: String, // Subscription's own UUID primary key
     // user_id: String,
     // price_id: String,
-    status: String, 
-    stripe_subscription_id: String,
-    current_period_end: String, // TIMESTAMPTZ comes as ISO 8601 string
-    word_usage_this_period: i32,
+    _status: String, // Prefixed unused field
+    _stripe_subscription_id: String, // Prefixed unused field
+    _current_period_end: String, // Prefixed unused field. TIMESTAMPTZ comes as ISO 8601 string
+    _word_usage_this_period: i32, // Prefixed unused field
     // word_limit_this_period: i32, // This is now derived from price metadata
 
     // Embedded data from JOINs specified in `select`
-    prices: Option<PriceEmbed>, 
+    _prices: Option<PriceEmbed>, // Prefixed unused field
 }
 
+/* // Commented out unused function
 pub async fn fetch_user_subscription_details_from_supabase(
     user_id: &str,
     access_token: &str,
@@ -107,7 +109,7 @@ pub async fn fetch_user_subscription_details_from_supabase(
                 println!("[RUST DEBUG SupabaseManager] Profile raw response: {}", body);
                 let profiles_vec: Vec<ProfileBaseData> = serde_json::from_str(&body)
                     .map_err(|e| format!("Parse profile data failed: {}. Resp: {}", e, body))?;
-                profiles_vec.first().map_or((None, None), |p| (p.email.clone(), p.stripe_customer_id.clone()))
+                profiles_vec.first().map_or((None, None), |p| (p._email.clone(), p._stripe_customer_id.clone()))
             } else {
                 let status = res.status();
                 let err_text = res.text().await.unwrap_or_default();
@@ -137,10 +139,11 @@ pub async fn fetch_user_subscription_details_from_supabase(
         let err_text = subs_res.text().await.unwrap_or_default();
         println!("[RUST DEBUG SupabaseManager ERROR] Error fetching subscriptions (Status: {}): {}", status, err_text);
         return Ok(UserSubscriptionDetails {
-            user_id: user_id.to_string(), email: profile_email, stripe_customer_id: profile_stripe_customer_id,
-            active_tier: DEFAULT_FREE_TIER_NAME.to_string(), subscription_id: None, subscription_status: None, current_period_end: None,
+            user_id: user_id.to_string(), _email: profile_email, _stripe_customer_id: profile_stripe_customer_id,
+            active_tier: "Free".to_string(), // Use string literal directly
+            subscription_id: None, subscription_status: None, current_period_end: None,
             word_usage_this_period: 0, 
-            word_limit_this_period: DEFAULT_FREE_TIER_WORD_LIMIT,
+            word_limit_this_period: 1500, // Use i32 literal directly
         });
     }
 
@@ -150,37 +153,40 @@ pub async fn fetch_user_subscription_details_from_supabase(
         .map_err(|e| format!("Parse subscriptions data failed: {}. Resp: {}", e, subs_body))?;
 
     if let Some(active_sub) = active_subscriptions.first().cloned() { 
-        let mut tier_name = DEFAULT_PRO_TIER_NAME.to_string(); 
-        let mut word_limit = DEFAULT_FREE_TIER_WORD_LIMIT * 1000; 
+        let mut tier_name = "Pro".to_string(); // Use string literal directly
+        let mut word_limit = 1500 * 1000; // Use i32 literal directly
 
-        if let Some(price_data) = active_sub.prices { 
-            if let Some(meta) = price_data.metadata { 
-                tier_name = meta.tier_name.unwrap_or(tier_name);
-                word_limit = meta.word_limit.unwrap_or(word_limit);
+        if let Some(price_data) = active_sub._prices { 
+            if let Some(meta) = price_data._metadata { 
+                tier_name = meta._tier_name.unwrap_or(tier_name);
+                word_limit = meta._word_limit.unwrap_or(word_limit);
             }
         }
         
-        println!("[RUST DEBUG SupabaseManager] Active subscription found. Tier: '{}', Limit: {}, Usage: {}", tier_name, word_limit, active_sub.word_usage_this_period);
+        println!("[RUST DEBUG SupabaseManager] Active subscription found. Tier: '{}', Limit: {}, Usage: {}", tier_name, word_limit, active_sub._word_usage_this_period);
         Ok(UserSubscriptionDetails {
-            user_id: user_id.to_string(), email: profile_email, stripe_customer_id: profile_stripe_customer_id,
+            user_id: user_id.to_string(), _email: profile_email, _stripe_customer_id: profile_stripe_customer_id,
             active_tier: tier_name,
-            subscription_id: Some(active_sub.stripe_subscription_id),
-            subscription_status: Some(active_sub.status),
-            current_period_end: Some(active_sub.current_period_end),
-            word_usage_this_period: active_sub.word_usage_this_period,
+            subscription_id: Some(active_sub._stripe_subscription_id),
+            subscription_status: Some(active_sub._status),
+            current_period_end: Some(active_sub._current_period_end),
+            word_usage_this_period: active_sub._word_usage_this_period,
             word_limit_this_period: word_limit,
         })
     } else {
         println!("[RUST DEBUG SupabaseManager] No active/trialing subscription found. Defaulting to free tier.");
         Ok(UserSubscriptionDetails {
-            user_id: user_id.to_string(), email: profile_email, stripe_customer_id: profile_stripe_customer_id,
-            active_tier: DEFAULT_FREE_TIER_NAME.to_string(), subscription_id: None, subscription_status: None, current_period_end: None,
+            user_id: user_id.to_string(), _email: profile_email, _stripe_customer_id: profile_stripe_customer_id,
+            active_tier: "Free".to_string(), // Use string literal directly
+            subscription_id: None, subscription_status: None, current_period_end: None,
             word_usage_this_period: 0, 
-            word_limit_this_period: DEFAULT_FREE_TIER_WORD_LIMIT,
+            word_limit_this_period: 1500, // Use i32 literal directly
         })
     }
 }
+*/
 
+/* // Commented out unused function
 #[tauri::command]
 pub async fn get_user_subscription_details(
     user_id: String,
@@ -194,8 +200,10 @@ pub async fn get_user_subscription_details(
         println!("[RUST DEBUG SupabaseManager CMD ERROR] {}",err_msg); 
         return Err(err_msg.to_string());
     }
-    fetch_user_subscription_details_from_supabase(&user_id, &access_token).await
+    // fetch_user_subscription_details_from_supabase(&user_id, &access_token).await // Also commented out the call
+    Err("Functionality temporarily disabled".to_string()) // Placeholder error
 }
+*/
 
 // New public async function containing the core RPC logic
 pub async fn execute_increment_word_usage_rpc(
@@ -225,75 +233,82 @@ pub async fn execute_increment_word_usage_rpc(
     // 1. Call get_user_subscription_limits
     println!("[RUST DEBUG SupabaseManager RPC] Attempting to fetch subscription limits for user_id: {}", user_id);
     let limits_rpc_url = format!(
-        "{}/rest/v1/rpc/get_user_subscription_limits", 
-        SUPABASE_URL_PLACEHOLDER
+        "{}{}",
+        SUPABASE_URL_PLACEHOLDER, "/rest/v1/rpc/get_user_subscription_limits"
     );
     let limits_payload = json!({ "p_user_id": user_id });
 
-    let limits_response = http_client
+    let limits_response_result = http_client
         .post(&limits_rpc_url)
-        .headers(headers.clone()) // Clone headers for this request
+        .headers(headers.clone()) 
         .json(&limits_payload)
         .send()
-        .await
-        .map_err(|e| {
-            println!("[RUST DEBUG SupabaseManager RPC ERROR] Network error calling get_user_subscription_limits: {:?}", e);
-            format!("Network error fetching subscription limits: {}", e)
-        })?;
+        .await;
 
-    let mut proceed_with_increment = true;
+    match limits_response_result {
+        Ok(limits_response) => { 
+            if limits_response.status().is_success() {
+                let limits_body = limits_response.text().await.map_err(|e| format!("Error reading limits response body: {}", e))?;
+                println!("[RUST DEBUG SupabaseManager RPC] get_user_subscription_limits raw response: {}", limits_body);
+                
+                let limits_vec: Vec<SubscriptionLimits> = serde_json::from_str(&limits_body)
+                    .map_err(|e| format!("Parse SubscriptionLimits failed: {}. Resp: {}", e, limits_body))?;
 
-    if limits_response.status().is_success() {
-        let limits_body = limits_response.text().await.map_err(|e| format!("Error reading limits response body: {}", e))?;
-        println!("[RUST DEBUG SupabaseManager RPC] get_user_subscription_limits raw response: {}", limits_body);
-        let limits_vec: Vec<SubscriptionLimits> = serde_json::from_str(&limits_body)
-            .map_err(|e| format!("Parse SubscriptionLimits failed: {}. Resp: {}", e, limits_body))?;
+                if let Some(limits_data) = limits_vec.first() {
+                    if limits_data.subscription_status == "active" || limits_data.subscription_status == "trialing" {
+                        println!("[RUST DEBUG SupabaseManager RPC] Fetched limits: Usage: {}, Limit: {}, Status: {}",
+                            limits_data.word_usage_this_period, limits_data.word_limit_this_period, limits_data.subscription_status);
 
-        if let Some(limits_data) = limits_vec.first() {
-            if limits_data.subscription_status == "active" || limits_data.subscription_status == "trialing" {
-                println!("[RUST DEBUG SupabaseManager RPC] Fetched limits: Usage: {}, Limit: {}, Status: {}",
-                    limits_data.word_usage_this_period, limits_data.word_limit_this_period, limits_data.subscription_status);
+                        let current_usage = limits_data.word_usage_this_period;
+                        let actual_limit = limits_data.word_limit_this_period;
 
-                let current_usage = limits_data.word_usage_this_period;
-                let actual_limit = limits_data.word_limit_this_period;
-
-                // Check if the limit is a "real" limit (not our placeholder for unlimited)
-                if actual_limit < 999_999_999 { // Assuming 999_999_999 is the "unlimited" marker
-                    if (current_usage + words_transcribed) > actual_limit {
-                        let error_message = format!(
-                            "Word limit exceeded. Usage: {}, Adding: {}, Limit: {}. Please upgrade your plan.",
-                            current_usage, words_transcribed, actual_limit
-                        );
+                        if actual_limit < 999_999_999 { // Check for "unlimited" marker
+                            if (current_usage + words_transcribed) > actual_limit {
+                                let error_message = format!(
+                                    "Word limit exceeded. Usage: {}, Adding: {}, Limit: {}. Please upgrade your plan.",
+                                    current_usage, words_transcribed, actual_limit
+                                );
+                                println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
+                                return Err(error_message);
+                            } else {
+                                println!("[RUST DEBUG SupabaseManager RPC] Word limit check passed.");
+                            }
+                        } else {
+                            println!("[RUST DEBUG SupabaseManager RPC] Tier has unlimited usage (limit: {}).", actual_limit);
+                        }
+                    } else { // Status is not 'active' or 'trialing'
+                        let error_message = format!("Subscription status is '{}'. An active subscription is required.", limits_data.subscription_status);
                         println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
-                        return Err(error_message); // Return an error immediately
-                    } else {
-                        println!("[RUST DEBUG SupabaseManager RPC] Word limit check passed.");
+                        return Err(error_message);
                     }
-                } else {
-                    println!("[RUST DEBUG SupabaseManager RPC] Tier has unlimited usage (limit: {}).", actual_limit);
+                } else { // No limits_data in the vec (RPC returned empty array `[]` for the user_id)
+                    let error_message = "No active subscription found. An active subscription is required to use this feature.".to_string();
+                    println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
+                    return Err(error_message);
                 }
-            } else {
-                println!("[RUST DEBUG SupabaseManager RPC WARN] User subscription status is '{}', not 'active' or 'trialing'. Proceeding without strict limit check, but usage will be recorded.", limits_data.subscription_status);
+            } else { // HTTP status from get_user_subscription_limits was not success
+                let status = limits_response.status();
+                let error_text = limits_response.text().await.unwrap_or_else(|_| "Could not read error body from get_user_subscription_limits".to_string());
+                let error_message = format!(
+                    "Failed to fetch subscription limits. Status: {}. Detail: {}",
+                    status, error_text
+                );
+                println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
+                return Err(error_message);
             }
-        } else {
-            println!("[RUST DEBUG SupabaseManager RPC WARN] No active/trialing subscription limits found for user. Proceeding to increment usage.");
         }
-    } else {
-        let status = limits_response.status();
-        let error_text = limits_response.text().await.unwrap_or_else(|_| "Could not read error body from get_user_subscription_limits".to_string());
-        println!(
-            "[RUST DEBUG SupabaseManager RPC ERROR] Error calling get_user_subscription_limits. Status: {}. Body: {}. Proceeding with increment attempt.",
-            status, error_text
-        );
-        // If fetching limits fails, we log a warning and proceed with the increment as per the current instruction.
-        // A stricter implementation might return Err here.
+        Err(e) => { // Network error during the HTTP request for limits
+            let error_message = format!("Network error fetching subscription limits: {}", e);
+            println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
+            return Err(error_message);
+        }
     }
 
-    // 3. If limit check passes (or was bypassed):
+    // If all checks passed, proceed to call increment_word_usage RPC.
     println!("[RUST DEBUG SupabaseManager RPC] Proceeding to call increment_word_usage RPC.");
     let increment_rpc_url = format!(
-        "{}/rest/v1/rpc/increment_word_usage", 
-        SUPABASE_URL_PLACEHOLDER
+        "{}{}",
+        SUPABASE_URL_PLACEHOLDER, "/rest/v1/rpc/increment_word_usage"
     );
     let increment_payload = json!({
         "p_user_id": user_id,          
@@ -327,15 +342,15 @@ pub async fn execute_increment_word_usage_rpc(
     }
 }
 
+// Remove the unused Tauri command wrapper for update_word_usage
+/*
 #[tauri::command]
 pub async fn update_word_usage(
     user_id: String,
     access_token: String,
     words_transcribed: i32,
 ) -> Result<(), String> {
-    // log::info!("[SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
-    // println!("[RUST DEBUG SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
-    println!("[RUST DEBUG SupabaseManager CMD Wrapper] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
-    // Call the new internal logic function
+    println!("[RUST DEBUG SupabaseManager CMD] update_word_usage called for user_id: {}, words: {}", user_id, words_transcribed);
     execute_increment_word_usage_rpc(user_id, access_token, words_transcribed).await
-} 
+}
+*/ 

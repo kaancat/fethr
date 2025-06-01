@@ -764,7 +764,8 @@ fn main() {
             dictionary_manager::get_dictionary,
             dictionary_manager::add_dictionary_word,
             dictionary_manager::delete_dictionary_word,
-            
+            dictionary_manager::save_dictionary_to_file,
+            dictionary_manager::load_dictionary_from_file,
             // --- ADD NEW COMMAND ---
             set_pill_visibility
         ])

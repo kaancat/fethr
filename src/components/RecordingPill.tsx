@@ -32,8 +32,10 @@ interface RecordingPillProps {
     transcription?: string; // Optional transcription text
     error?: string; // Optional error message
     backendError?: string | null; // Optional backend error message from Rust
+    showUpgradePrompt?: boolean; // New prop for showing upgrade UI
     onEditClick?: () => void; // <-- Add prop back
     onErrorDismiss?: () => void; // Make sure this prop exists
+    onUpgradeClick?: () => void; // Optional callback for the upgrade action
 }
 
 // Add edit_pending to variants
@@ -44,7 +46,7 @@ const pillContainerVariants = {
   idle: { 
     width: "28px", 
     height: "28px", 
-    padding: "4px", // This should result in a 28+4+4 = 36px total outer size if box-sizing is content-box, or 28px if border-box
+    padding: "4px",
     borderRadius: "50%", 
     backgroundColor: "rgba(10, 15, 26, 0.0)", 
     boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", 
@@ -66,8 +68,6 @@ const pillContainerVariants = {
     padding: "4px 8px", 
     borderRadius: "16px", 
     backgroundColor: "rgba(10, 15, 26, 0.9)", 
-    // boxShadow: "0 0 10px rgba(166, 246, 255, 0.4)", // <<< TEMPORARILY COMMENT OUT
-    // border: "1px solid rgba(166, 246, 255, 0.1)",    // <<< TEMPORARILY COMMENT OUT
     opacity: 1 
   },
   recording: { 
@@ -75,8 +75,6 @@ const pillContainerVariants = {
     padding: "4px 8px", 
     borderRadius: "16px",
     backgroundColor: "rgba(2, 4, 9, 1)", 
-    // boxShadow: "0 0 8px rgba(255, 77, 109, 0.26)", // <<< TEMPORARILY COMMENT OUT
-    // border: "1px solid rgba(255, 77, 109, 0.5)",    // <<< TEMPORARILY COMMENT OUT
     opacity: 1 
   },
   processing: { 
@@ -85,9 +83,16 @@ const pillContainerVariants = {
     border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1 
   },
   error: { 
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "100px", borderRadius: "16px",
-    backgroundColor: "rgba(194, 65, 12, 0.2)", boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
-    border: "1px solid rgba(249, 115, 22, 0.5)", opacity: 1 
+    width: "auto", 
+    height: "auto", // Allow height to adjust based on content
+    minHeight: "52px", // Increased minHeight to accommodate stacked content + padding
+    padding: "4px 8px", 
+    minWidth: "100px", 
+    borderRadius: "16px",
+    backgroundColor: "rgba(194, 65, 12, 0.2)", 
+    boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
+    border: "1px solid rgba(249, 115, 22, 0.5)", 
+    opacity: 1 
   }
 };
 
@@ -109,11 +114,11 @@ const contentAnimationVariants = {
 const featherIconPath = "/feather-logo.png";
 const editIconPath = "/Icons/edit icon.png";
 
-const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, onEditClick, onErrorDismiss }) => {
+const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, onEditClick, onErrorDismiss, onUpgradeClick }) => {
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
-    const isEditPending = currentState === RecordingState.SUCCESS_EDIT_PENDING;
+    const isEditPending = currentState === RecordingState.IDLE_EDIT_READY;
     const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
     const [isHovered, setIsHovered] = useState(false);
@@ -186,19 +191,54 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             );
             break;
         case 'error':
-            pillContent = (
-                <motion.div 
-                    key="error_content_block"
-                    variants={contentAnimationVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="flex items-center justify-start w-full h-full px-2 space-x-1.5"
-                >
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                    <span className={textClass}>Error</span>
-                </motion.div>
-            );
+            if (showUpgradePrompt) {
+                let buttonText = "Upgrade";
+                if (backendError === "Subscription required") {
+                    buttonText = "Subscribe";
+                }
+
+                pillContent = (
+                    <motion.div 
+                        key="error_prompt_content_block"
+                        variants={contentAnimationVariants}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="flex flex-col items-center justify-center w-full p-1 space-y-0.5 max-w-[180px]"
+                    >
+                        <div className="flex items-center space-x-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" /> 
+                            <span className="text-yellow-400 text-xs font-medium text-center break-words">
+                                {backendError}
+                            </span>
+                        </div>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation(); 
+                                console.log("Button clicked inside RecordingPill for prompt!");
+                                onUpgradeClick?.();
+                            }}
+                            className="px-2 py-0.5 bg-blue-500 text-white text-[10px] font-semibold rounded hover:bg-blue-600 transition-colors duration-150 whitespace-nowrap leading-tight"
+                        >
+                            {buttonText}
+                        </button>
+                    </motion.div>
+                );
+            } else {
+                pillContent = (
+                    <motion.div 
+                        key="error_generic_content_block"
+                        variants={contentAnimationVariants}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="flex flex-row items-center justify-start w-full h-full px-2 space-x-1.5"
+                    >
+                        <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                        <span className={`${textClass} text-xs`}>{backendError || error || "Error"}</span>
+                    </motion.div>
+                );
+            }
             break;
         case 'ready':
             pillContent = (

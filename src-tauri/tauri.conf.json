@@ -104,8 +104,8 @@
       {
         "label": "pill",
         "url": "http://localhost:5176/pill",
-        "width": 250,
-        "height": 40,
+        "width": 280,
+        "height": 75,
         "visible": true,
         "decorations": false,
         "transparent": true,
@@ -113,8 +113,8 @@
         "skipTaskbar": true,
         "resizable": false,
         "fullscreen": false,
-        "x": 1730,
-        "y": 980
+        "x": 1670,
+        "y": 961
       }
     ]
   }

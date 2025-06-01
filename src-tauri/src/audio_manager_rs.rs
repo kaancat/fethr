@@ -349,70 +349,67 @@ pub async fn stop_backend_recording(
 
     // --- Proceed with Transcription (if path is valid) ---
     match final_path_str_result {
-        Ok(temp_wav_path_clone) => {
+        Ok(temp_wav_path_str) => {
             info!(
                 "[RUST AUDIO STOP] Path is valid. Proceeding to transcribe: {}",
-                temp_wav_path_clone
+                temp_wav_path_str
             );
             // Correctly get the transcription state
-            // REMOVED: let ts_state = transcription_state.inner().clone(); // Clone the state if necessary or pass as is
+            // let ts_state = transcription_state.inner().clone(); // REMOVE THIS LINE
 
-            // Call transcribe_audio_file with the cloned path
-            let transcription_result = crate::transcription::transcribe_audio_file(
+            // Call transcribe_audio_file with the State wrapper directly
+            let transcription_result = transcription::transcribe_audio_file(
                 app_handle.clone(),
                 transcription_state, // Pass the State wrapper directly
-                temp_wav_path_clone,
+                temp_wav_path_str,
                 args.auto_paste,   // From the new struct
                 args.user_id,      // New argument
                 args.access_token, // New argument
             )
             .await;
 
+            let transcription_result_to_return: Result<String, String>;
+
             match transcription_result {
-                Ok(text) => {
-                    println!("[RUST AUDIO] Transcription successful, text length: {}", text.len());
+                Ok(transcribed_text) => {
+                    info!("[RUST AUDIO STOP] Transcription successful: {}", transcribed_text);
 
-                    // --- Always attempt to copy to clipboard, regardless of auto-paste setting ---
-                    match write_to_clipboard_internal(text.clone()) {
-                        Ok(_) => println!("[RUST AUDIO] Text written to clipboard successfully."),
-                        Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to write to clipboard: {}", e),
-                    }
+                    // Attempt to write to clipboard first
+                    match write_to_clipboard_internal(transcribed_text.clone()) {
+                        Ok(_) => {
+                            info!("[RUST AUDIO STOP] Successfully wrote to clipboard.");
+                            // Emit copied event *before* paste or final reset
+                            log::info!("[RUST AUDIO] Emitting 'fethr-copied-to-clipboard' to frontend.");
+                            if let Err(e) = app_handle.emit_all("fethr-copied-to-clipboard", ()) {
+                                log::error!("[RUST AUDIO] Failed to emit 'fethr-copied-to-clipboard': {}", e);
+                            }
 
-                    // --- Perform Paste ONLY if effective_auto_paste is true ---
-                    if effective_auto_paste {
-                        println!("[RUST AUDIO] Auto-paste is enabled. Simulating paste.");
-                        // Call async command for paste simulation (no need to pass text, using clipboard)
-                        match paste_text_to_cursor().await {
-                            Ok(_) => println!("[RUST AUDIO] Paste simulation successful."),
-                            Err(e) => eprintln!("[RUST AUDIO WARNING] Failed to simulate paste: {}", e),
+                            if effective_auto_paste {
+                                info!("[RUST AUDIO STOP] Auto-paste is enabled. Attempting paste.");
+                                if let Err(e) = paste_text_to_cursor().await {
+                                    error!("[RUST AUDIO STOP] Failed to paste text: {}. Transcription was: '{}'", e, transcribed_text);
+                                    // Don't return error for paste failure, just log it.
+                                    // Frontend will have the text on clipboard and can manage edit state.
+                                }
+                            } else {
+                                info!("[RUST AUDIO STOP] Auto-paste is disabled. Clipboard write was successful.");
+                            }
+                        },
+                        Err(e) => {
+                            error!("[RUST AUDIO STOP] Failed to write to clipboard: {}. Transcription was: '{}'", e, transcribed_text);
+                            // Even if clipboard write fails, we proceed to signal reset, but don't emit copied event.
+                            // The frontend will get the transcription result directly from this command's Ok().
                         }
-                    } else {
-                        println!("[RUST AUDIO] Auto-paste is disabled. Text copied to clipboard only.");
                     }
-                    
-                    // --- ADD: Trigger Backend State Reset --- 
-                    println!("[RUST AUDIO STOP] Transcription success. Triggering backend state reset...");
-                    let _ = crate::signal_reset_complete(app_handle.clone()); // Call reset internally
-                    // --- END ADD ---
-                    
-                    Ok(text) // Return the transcription text
+                    // Return the transcribed text regardless of clipboard/paste outcome
+                    transcription_result_to_return = Ok(transcribed_text);
                 },
                 Err(e) => {
-                    eprintln!("[RUST AUDIO ERROR] Transcription failed: {}", e);
-                    
-                    // Emit error event
-                    error!("[RUST Emit Error] Emitting fethr-error-occurred: {}", e);
-                    if let Err(emit_err) = app_handle.emit_all("fethr-error-occurred", e.clone()) {
-                        error!("[RUST ERROR] Failed to emit fethr-error-occurred event: {}", emit_err);
-                    }
-                    
-                    // Ensure we signal a reset to get back to IDLE state even on error
-                    println!("[RUST AUDIO STOP] Transcription failed. Triggering backend state reset...");
-                    let _ = crate::signal_reset_complete(app_handle.clone()); // Also reset on error path
-                    
-                    Err(format!("Transcription error: {}", e))
+                    error!("[RUST AUDIO STOP] Transcription failed: {}", e);
+                    transcription_result_to_return = Err(e.to_string());
                 }
             }
+            transcription_result_to_return
         },
         Err(e) => {
              eprintln!("[RUST AUDIO STOP ERROR] Failed to get audio path: {}. Cannot transcribe.", e);

@@ -424,65 +424,45 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         console.log("[Settings AI] User API Key cleared from local storage.");
     };
 
-    // Create Function to Fetch Profile:
-    const fetchProfile = useCallback(async (userId: string) => {
-        console.log("[Settings Profile] Fetching profile for user:", userId);
-        setLoadingProfile(true);
-        setProfile(null); // Clear previous profile
-        try {
-            const { data, error, status } = await supabase
-                .from('profiles') // The table name
-                .select(`id, email, subscription_status`) // Select desired columns
-                .eq('id', userId) // Filter for the current user's ID
-                .single(); // Expect only one row
-
-            if (error && status !== 406) { // 406 means no rows found, which might be okay if trigger hasn't run yet
-                console.error("[Settings Profile] Error fetching profile:", error);
-                toast({ variant: "destructive", title: "Error Loading Profile", description: error.message });
-                // Removed throw error as it might prevent UI from showing fallback
-            }
-
-            if (data) {
-                console.log("[Settings Profile] Profile data received:", data);
-                setProfile(data as UserProfile);
-            } else {
-                 console.log("[Settings Profile] No profile data found for user (might be new user/trigger delay?).");
-                 // Handle case where profile might not exist yet (e.g., show default 'free' status)
-                 setProfile({ id: userId, subscription_status: 'free' }); // Assume free if profile not found
-            }
-        } catch (error) {
-            console.error('[Settings Profile] Catched Error fetching profile:', error);
-            // Toast handled above or do additional handling
-            toast({ variant: "destructive", title: "Error Loading Profile", description: "An unexpected error occurred while fetching your profile." });
-        } finally {
-            setLoadingProfile(false);
-        }
-    }, [toast]); // Add toast to dependencies
-
-    // Call fetchProfile when User Logs In:
-    useEffect(() => {
-        // Fetch profile if user is logged in and profile hasn't been loaded yet or user changed
-        if (user && user.id && (!profile || profile.id !== user.id)) {
-            fetchProfile(user.id);
-        } else if (!user) {
-            // Clear profile if user logs out
+    // Function to fetch user's subscription and usage
+    const fetchSubscriptionUsage = useCallback(async () => {
+        if (!user) {
+            console.log("[SettingsPage] No user, skipping subscription usage fetch.");
             setProfile(null);
+            setWordUsage(null);
+            setWordLimit(null);
+            return;
         }
-    }, [user, fetchProfile, profile]); // Re-run if user object or fetchProfile function changes
 
-    // Fetch subscription usage
-    const fetchSubscriptionUsage = useCallback(async (currentUserId: string) => {
-        if (!currentUserId) return;
+        setLoadingProfile(true);
+        setLoadingUsage(true);
+        console.log("[SettingsPage] Fetching profile and subscription usage for user:", user.id);
 
-        setLoadingUsage(true); 
-        console.log('[SettingsPage] Fetching subscription usage for user:', currentUserId);
         try {
+            const currentUserId = user.id;
+
+            // Fetch profile data (if needed separately, or rely on subscription data)
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('id, email, subscription_status')
+                .eq('id', currentUserId)
+                .single();
+
+            if (profileError) {
+                console.error('[SettingsPage] Error fetching profile:', profileError.message);
+                // Don't toast error for profile, as subscription is the primary focus for usage
+            } else if (profileData) {
+                setProfile(profileData as UserProfile);
+                console.log('[SettingsPage] Profile data fetched:', profileData);
+            }
+
+            // Fetch subscription usage data
             const { data, error } = await supabase
                 .from('subscriptions')
-                .select('word_usage_this_period, word_limit_this_period')
+                .select('word_usage_this_period, word_limit_this_period, status, current_period_end') // Fetch status and current_period_end
                 .eq('user_id', currentUserId)
-                .eq('status', 'active') 
-                .single(); 
+                .in('status', ['active', 'trialing']) // Ensure we only get active or trialing subscriptions
+                .order('current_period_end', { ascending: false }); // Get the one ending latest first
 
             if (error) {
                 console.error('[SettingsPage] Error fetching subscription usage:', error.message);
@@ -493,34 +473,48 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                 });
                 setWordUsage(null);
                 setWordLimit(null);
-            } else if (data) {
-                console.log('[SettingsPage] Subscription usage data received:', data);
-                setWordUsage(data.word_usage_this_period);
-                setWordLimit(data.word_limit_this_period);
+            } else if (data && data.length > 0) {
+                if (data.length > 1) {
+                    console.warn('[SettingsPage] Multiple active/trialing subscriptions found for user. Using the first one based on current_period_end:', data);
+                    toast({
+                        title: "Account Warning",
+                        description: "Multiple active subscriptions found. Please contact support.",
+                        variant: "destructive"
+                    });
+                }
+                const primarySubscription = data[0]; // Take the first one (latest ending)
+                console.log('[SettingsPage] Subscription usage data (primary):', primarySubscription);
+                setWordUsage(primarySubscription.word_usage_this_period);
+                setWordLimit(primarySubscription.word_limit_this_period);
             } else {
-                console.log('[SettingsPage] No active subscription found for usage details.');
+                console.log('[SettingsPage] No active or trialing subscription found for usage details.');
                 setWordUsage(0); 
-                setWordLimit(0); 
+                setWordLimit(0); // Assuming 0 limit for no active subscription, or fetch free tier default
             }
-        } catch (e: any) {
-            console.error('[SettingsPage] Exception fetching subscription usage:', e.message);
+
+        } catch (err) {
+            console.error('[SettingsPage] Unexpected error in fetchSubscriptionUsage:', err);
+            const errorMsg = err instanceof Error ? err.message : String(err);
             toast({
                 variant: "destructive",
-                title: "Usage Fetch Exception",
-                description: `Exception: ${e.message}`,
+                title: "Account Details Error",
+                description: `Failed to load account details: ${errorMsg}`,
             });
+            setProfile(null);
+            setWordUsage(null);
+            setWordLimit(null);
         } finally {
-            setLoadingUsage(false); 
+            setLoadingProfile(false);
+            setLoadingUsage(false);
         }
-    }, [toast, setWordUsage, setWordLimit]); // Added toast, setWordUsage, setWordLimit as dependencies
+    }, [user, toast]); // Dependencies: user, toast
 
-    // Use effect for user profile and subscription
+    // Effect to fetch profile and usage when user object is available or changes
     useEffect(() => {
         if (user?.id) {
-            // fetchProfile(user.id); // fetchProfile is already called by its own useEffect
-            fetchSubscriptionUsage(user.id);
+            fetchSubscriptionUsage();
         } else {
-            // setProfile(null); // profile is already cleared by its own useEffect
+            setProfile(null);
             setWordUsage(null);
             setWordLimit(null);
         }
@@ -533,7 +527,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             console.log('%c[SettingsPage] EVENT RECEIVED: "word_usage_updated"!', 'color: green; font-weight: bold; font-size: 1.2em;', event);
             if (user?.id) {
                 console.log('%c[SettingsPage] REFRESHING USAGE from event for user:', 'color: green; font-weight: bold;', user.id);
-                fetchSubscriptionUsage(user.id);
+                fetchSubscriptionUsage();
             } else {
                 console.log('[SettingsPage] "word_usage_updated" event received, but no user logged in. Skipping refresh.');
             }

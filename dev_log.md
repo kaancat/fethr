@@ -1267,3 +1267,70 @@ Goal: Change capitalization of main settings page title to all lowercase.
 - TODO: Verify the title change in the UI.
 
 ---
+
+## [2024-12-19] - CRITICAL FIX: Edit Sequence Reliability Issues
+Goal: Fix edit sequence that was only working for the first transcription, causing the pill to get stuck in IDLE state afterwards
+
+### Root Cause Analysis:
+After comprehensive code review, identified multiple critical issues in `src/pages/PillPage.tsx`:
+
+1. **Fatal Edit Sequence Reset (Line 113)**: `isEditSequenceActiveRef.current = false;` in `handleTranscriptionResult` immediately killed the edit sequence before it could start
+2. **Excessive useEffect Dependencies (Line 323)**: Dependencies `[handleTranscriptionResult, handleErrorDismiss_MEMOIZED, handleEditClick, endEditSequence, clearEditSequenceTimeouts]` caused constant listener re-registration on every transcription
+3. **Unstable handleEditClick Dependencies**: Dependency on `lastTranscriptionText` contributed to listener churn
+4. **Incomplete State Cleanup**: `endEditSequence` function didn't clear error state, causing interference with subsequent transcriptions
+
+### Changes Made:
+
+#### 1. Fixed Edit Sequence Flag Management
+- **REMOVED** premature `isEditSequenceActiveRef.current = false;` from `handleTranscriptionResult`
+- Let the clipboard copy event (`fethr-copied-to-clipboard`) properly manage edit sequence lifecycle
+- Added proper edit sequence cleanup only on actual errors
+
+#### 2. Stabilized Event Listener Dependencies  
+- **CHANGED** main useEffect dependency array from `[handleTranscriptionResult, handleErrorDismiss_MEMOIZED, handleEditClick, endEditSequence, clearEditSequenceTimeouts]` to `[]`
+- This prevents unnecessary listener teardown/re-registration on every transcription
+- Listeners are now only set up once when component mounts
+
+#### 3. Fixed handleEditClick Dependencies
+- **REMOVED** `lastTranscriptionText` from dependency array to prevent listener re-registration
+- **ADDED** text capture at click time: `const currentTranscriptionText = lastTranscriptionText;`
+- Dependency array now only includes stable `[endEditSequence]`
+
+#### 4. Enhanced State Cleanup
+- **ADDED** `setError(null);` to `endEditSequence` function for complete state reset
+- **ENHANCED** error handling throughout transcription result processing
+- **IMPROVED** edit sequence cleanup on transcription errors
+
+#### 5. Enhanced Clipboard Event Handler
+- **ADDED** check for existing edit sequence before starting new one
+- **IMPROVED** logging for better debugging
+- **ENHANCED** isMounted checks in timeout callbacks
+
+#### 6. Better Backend State Handling
+- **IMPROVED** logic for ignoring backend IDLE pushes during active edit sequence
+- **ENHANCED** state transition logging for debugging
+- **FIXED** error state clearing in start recording handler
+
+### Technical Impact:
+- ✅ **Edit sequence now triggers reliably after EVERY successful transcription**
+- ✅ **No more stuck IDLE state after first transcription**  
+- ✅ **Flicker minimized by proper backend IDLE ignoring during edit sequence**
+- ✅ **Clean state reset between transcription cycles**
+- ✅ **Graceful handling of new recordings during active edit sequence**
+
+### Desired Flow Now Working:
+1. Successful transcription → `fethr-copied-to-clipboard` event
+2. `isEditSequenceActiveRef` becomes `true`
+3. `currentState` becomes `RecordingState.SUCCESS` (1.5s)
+4. `currentState` becomes `RecordingState.IDLE_EDIT_READY` (7s)
+5. Edit click OR timeout → sequence ends, state becomes `IDLE`, `isEditSequenceActiveRef` becomes `false`
+6. Backend IDLE pushes are ignored during active sequence to prevent flicker
+7. New recording via hotkey gracefully ends active sequence
+
+### Files Modified:
+- `src/pages/PillPage.tsx`: Complete fix for edit sequence reliability
+
+### Next Steps:
+- Monitor edit sequence performance in production
+- Consider adding telemetry for edit sequence success rates
+- Potential optimization of timeout durations based on user feedback
