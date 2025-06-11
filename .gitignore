@@ -31,3 +31,34 @@ Thumbs.db
 /src-tauri/app.db*
 /src-tauri/vendor/
 /window-state.json # Might be in %APPDATA% but good to ignore anyway
+
+# Additional build artifacts and large files
+*.rlib
+*.pdb
+*.rmeta
+*.bin
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ML model files and large binaries
+ggml-*.bin
+*.model
+*.weights
+
+# Temporary files and caches
+.cache/
+.temp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# Platform-specific ignores
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
