@@ -60,8 +60,11 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
         setTranscription('');
         setCurrentRecordingState(RecordingState.IDLE);
     }).finally(() => {
-        console.log(`%c[RecordingController INSTANCE: ${controllerInstanceId}] 🏁 Transcription attempt complete, setting FRONTEND state to IDLE in finally block`, 'color: #ddd;');
-        setCurrentRecordingState(RecordingState.IDLE);
+        console.log(`%c[RecordingController INSTANCE: ${controllerInstanceId}] 🏁 Transcription attempt complete`, 'color: #ddd;');
+        
+        // CRITICAL FIX: Don't force IDLE state here - let PillPage handle edit sequence transitions
+        // The edit sequence will handle state transitions properly without this unwanted IDLE flash
+        console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Skipping IDLE state set to prevent unwanted feather icon flash before edit mode`);
 
         console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Signaling backend to reset hotkey state...`);
         invoke('signal_reset_complete')

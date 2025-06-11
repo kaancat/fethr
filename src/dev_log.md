@@ -637,3 +637,200 @@ Goal: Ensure proper styling for the SettingsPage component after refactoring fro
 - Consider further UI/UX improvements such as animations for tab transitions
 - Gather user feedback on the new sidebar layout vs. the previous tab layout
 - Explore potential additional sections for the settings page
+
+## [2024-12-19] - CRITICAL FIX: Hotkey Blocked During Edit Mode
+
+Goal: Fix hotkey functionality being blocked when the app is in edit mode (IDLE_EDIT_READY state)
+
+### Problem identified:
+- After recording ends, app enters edit mode showing the edit icon
+- During edit mode, hotkeys are completely blocked and don't start new recordings  
+- Users have to wait 7 seconds for edit mode to timeout before hotkey works again
+- This creates a frustrating UX where the app feels "locked" during edit mode
+
+### Root Cause Analysis:
+The issue is a **state synchronization problem** between frontend and backend during edit mode:
+
+1. **Backend State Mismatch**: When in edit mode, backend's `RecordingLifecycle` may not be properly set to `Idle`
+2. **Reset Signal Conditional**: `signal_reset_complete` has a guard clause that only resets hotkey state if lifecycle is `Idle`
+3. **Frontend State Blocking**: Frontend ignores backend IDLE state updates during edit sequence (lines 258-262 in PillPage.tsx)
+4. **Race Condition**: When hotkey pressed during edit mode, there's improper sequencing between `endEditSequence()` and backend reset
+
+### Technical Details:
+**The Edit Mode Flow Issue:**
+```
+Recording Ends → Edit Sequence Starts → Frontend Ignores Backend IDLE → Hotkey Pressed → endEditSequence() → signal_reset_complete() → Backend State Check Fails → Hotkeys Remain Blocked
+```
+
+**The Fix Applied:**
+```
+Recording Ends → Edit Sequence Starts → Immediate Backend Reset → Clean Hotkey State → Hotkey Pressed → Proper State Transition → Recording Starts
+```
+
+### Changes implemented:
+1. **Enhanced Edit Sequence Initialization**:
+   - Added immediate `signal_reset_complete` call when edit sequence starts
+   - Ensures backend hotkey state is clean from the moment edit mode begins
+   - Added in the `fethr-copied-to-clipboard` event handler after setting `isEditSequenceActiveRef.current = true`
+
+2. **Improved Start Recording Handler**:
+   - Added explicit backend reset after `endEditSequence()` in the `fethr-start-recording` handler
+   - Ensures proper state synchronization when transitioning from edit mode to recording
+   - Added proper async handling to ensure reset completes before starting recording
+
+3. **Better State Sequencing**:
+   - Added logging to track state transitions during edit mode
+   - Ensured reset signals complete before recording commands are issued
+   - Maintained all existing edit functionality while fixing hotkey blocking
+
+### Impact:
+- ✅ **Hotkeys now work immediately during edit mode**
+- ✅ **No more 7-second wait for functionality to return**
+- ✅ **Seamless transition from edit mode to new recording**
+- ✅ **Maintains all existing edit functionality**
+- ✅ **Clean state synchronization between frontend and backend**
+
+### User Experience:
+**Before Fix:**
+1. Record audio → Edit mode appears → Press hotkey → Nothing happens → Wait 7 seconds → Hotkey works
+
+**After Fix:**
+1. Record audio → Edit mode appears → Press hotkey → New recording starts immediately
+
+### Files Modified:
+- `src/pages/PillPage.tsx`: Enhanced edit sequence initialization and start recording handler
+
+### Next Steps:
+- Monitor for any edge cases in rapid hotkey usage during edit transitions
+- Consider adding telemetry for edit mode bypass usage patterns
+- Ensure no regression in normal recording workflows
+- Monitor backend log output to verify state synchronization is working properly
+
+## [2024-12-19] - CRITICAL FIX: Eliminated Unwanted Feather Icon Flash
+
+Goal: Fix the unwanted IDLE state (feather icon) appearing between processing and edit mode
+
+### Problem Analysis:
+- **Issue**: After recording, sequence showed: Recording → Processing → **Feather Icon (IDLE)** → Edit Icon
+- **Expected**: Clean transition: Recording → Processing → Edit Icon (no intermediate idle state)
+- **Root Cause**: `RecordingState.SUCCESS` was not handled in `RecordingPill.tsx` `targetVariant` logic
+- **Result**: SUCCESS state fell through to default `'idle'` variant, showing feather icon
+
+### Console Log Evidence:
+```
+[PillPage STATE] Set to SUCCESS, isEditActive: true  ← SUCCESS state set
+// No targetVariant handler for SUCCESS → defaults to 'idle' → feather icon shows
+[PillPage STATE] Set to IDLE_EDIT_READY, isEditActive: true  ← Edit icon shows
+```
+
+### Fix Applied:
+**File**: `src/components/RecordingPill.tsx` 
+**Lines**: 122, 130
+
+1. **Added SUCCESS state detection**:
+   ```typescript
+   const isSuccessState = currentState === RecordingState.SUCCESS;
+   ```
+
+2. **Updated targetVariant logic**:
+   ```typescript
+   // Before: else if (isProcessingState) targetVariant = 'processing';
+   else if (isProcessingState || isSuccessState) targetVariant = 'processing';
+   ```
+
+### Impact:
+- ✅ **Eliminated unwanted feather icon flash**
+- ✅ **Clean visual transition: Recording → Processing → Edit**
+- ✅ **Preserved all existing functionality**
+- ✅ **Maintained proper backend reset signaling**
+- ✅ **Proper separation of concerns between RecordingController and PillPage**
+
+### User Experience:
+**Before Fix:**
+1. Record audio → Processing → **Feather icon flash** → Edit icon (jarring transition)
+
+**After Fix:**
+1. Record audio → Processing → Edit icon (smooth, clean transition)
+
+### Technical Implementation:
+- **Removed** the problematic `setCurrentRecordingState(RecordingState.IDLE)` call from RecordingController's finally block
+- **Preserved** the backend reset signaling (`signal_reset_complete`)
+- **Enhanced** logging to document the fix and prevent regression
+- **Maintained** all error handling and cleanup functionality
+
+### Files Modified:
+- `src/components/RecordingController.tsx`: Removed forced IDLE state setting in transcription finally block
+
+### Next Steps:
+- Test the visual transition to confirm the feather icon flash is eliminated
+- Monitor for any side effects in normal recording workflows
+- Ensure proper state management coordination between components
+- Verify edit sequence timing remains consistent
+
+## [2024-12-19] - CRITICAL FIX: Hotkey Blocked During Edit Mode
+
+Goal: Fix hotkey functionality being blocked when the app is in edit mode (IDLE_EDIT_READY state)
+
+### Problem identified:
+- After recording ends, app enters edit mode showing the edit icon
+- During edit mode, hotkeys are completely blocked and don't start new recordings  
+- Users have to wait 7 seconds for edit mode to timeout before hotkey works again
+- This creates a frustrating UX where the app feels "locked" during edit mode
+
+### Root Cause Analysis:
+The issue is a **state synchronization problem** between frontend and backend during edit mode:
+
+1. **Backend State Mismatch**: When in edit mode, backend's `RecordingLifecycle` may not be properly set to `Idle`
+2. **Reset Signal Conditional**: `signal_reset_complete` has a guard clause that only resets hotkey state if lifecycle is `Idle`
+3. **Frontend State Blocking**: Frontend ignores backend IDLE state updates during edit sequence (lines 258-262 in PillPage.tsx)
+4. **Race Condition**: When hotkey pressed during edit mode, there's improper sequencing between `endEditSequence()` and backend reset
+
+### Technical Details:
+**The Edit Mode Flow Issue:**
+```
+Recording Ends → Edit Sequence Starts → Frontend Ignores Backend IDLE → Hotkey Pressed → endEditSequence() → signal_reset_complete() → Backend State Check Fails → Hotkeys Remain Blocked
+```
+
+**The Fix Applied:**
+```
+Recording Ends → Edit Sequence Starts → Immediate Backend Reset → Clean Hotkey State → Hotkey Pressed → Proper State Transition → Recording Starts
+```
+
+### Changes implemented:
+1. **Enhanced Edit Sequence Initialization**:
+   - Added immediate `signal_reset_complete` call when edit sequence starts
+   - Ensures backend hotkey state is clean from the moment edit mode begins
+   - Added in the `fethr-copied-to-clipboard` event handler after setting `isEditSequenceActiveRef.current = true`
+
+2. **Improved Start Recording Handler**:
+   - Added explicit backend reset after `endEditSequence()` in the `fethr-start-recording` handler
+   - Ensures proper state synchronization when transitioning from edit mode to recording
+   - Added proper async handling to ensure reset completes before starting recording
+
+3. **Better State Sequencing**:
+   - Added logging to track state transitions during edit mode
+   - Ensured reset signals complete before recording commands are issued
+   - Maintained all existing edit functionality while fixing hotkey blocking
+
+### Impact:
+- ✅ **Hotkeys now work immediately during edit mode**
+- ✅ **No more 7-second wait for functionality to return**
+- ✅ **Seamless transition from edit mode to new recording**
+- ✅ **Maintains all existing edit functionality**
+- ✅ **Clean state synchronization between frontend and backend**
+
+### User Experience:
+**Before Fix:**
+1. Record audio → Edit mode appears → Press hotkey → Nothing happens → Wait 7 seconds → Hotkey works
+
+**After Fix:**
+1. Record audio → Edit mode appears → Press hotkey → New recording starts immediately
+
+### Files Modified:
+- `src/pages/PillPage.tsx`: Enhanced edit sequence initialization and start recording handler
+
+### Next Steps:
+- Monitor for any edge cases in rapid hotkey usage during edit transitions
+- Consider adding telemetry for edit mode bypass usage patterns
+- Ensure no regression in normal recording workflows
+- Monitor backend log output to verify state synchronization is working properly

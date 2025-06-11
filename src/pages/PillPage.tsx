@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
 import { RecordingState } from '../types';
@@ -207,6 +207,10 @@ function PillPage() {
                     
                     isEditSequenceActiveRef.current = true; // Claim the sequence
                     
+                    // CRITICAL FIX: Immediately signal backend reset to ensure hotkeys work during edit mode
+                    console.log("[PillPage] Edit sequence starting - ensuring backend hotkey state is clean for immediate hotkey functionality.");
+                    invoke('signal_reset_complete').catch(err => console.error("[PillPage] Failed to signal reset at edit sequence start:", err));
+                    
                     setCurrentState(RecordingState.SUCCESS);
                     console.log(`[PillPage STATE] Set to SUCCESS, isEditActive: ${isEditSequenceActiveRef.current}`);
 
@@ -309,13 +313,24 @@ function PillPage() {
                 });
                 unlisteners.push(unlistenState);
 
-                const unlistenStart = await listen<void>("fethr-start-recording", () => {
+                const unlistenStart = await listen<void>("fethr-start-recording", async () => {
                     if (!isMounted) return;
                     console.log("PillPage: Received fethr-start-recording.");
+                    
                     if (isEditSequenceActiveRef.current) {
                         console.log("[PillPage] New recording starting during active edit sequence. Ending edit sequence first.");
                         endEditSequence();
+                        
+                        // CRITICAL FIX: Ensure backend state is properly synchronized after ending edit sequence
+                        console.log("[PillPage] Forcing backend reset to ensure clean state for hotkey recording.");
+                        try {
+                            await invoke('signal_reset_complete');
+                            console.log("[PillPage] Backend reset completed, proceeding with recording start.");
+                        } catch (err) {
+                            console.error("[PillPage] Backend reset failed, proceeding anyway:", err);
+                        }
                     }
+                    
                     // Clear other relevant states for a new recording
                     setErrorMessage(null);
                     setShowUpgradePrompt(false);
