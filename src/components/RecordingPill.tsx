@@ -118,6 +118,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
+    const isSuccessState = currentState === RecordingState.SUCCESS; // CRITICAL FIX: Handle SUCCESS state
     const isEditPending = currentState === RecordingState.IDLE_EDIT_READY;
     const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
@@ -128,7 +129,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isEditPending) targetVariant = 'edit_pending';
     else if (isIdle && isHovered) targetVariant = 'ready';
     else if (isRecordingState) targetVariant = 'recording';
-    else if (isProcessingState) targetVariant = 'processing';
+    else if (isProcessingState || isSuccessState) targetVariant = 'processing'; // CRITICAL FIX: SUCCESS shows processing spinner
     else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
 
@@ -248,7 +249,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     initial="initial"
                     animate="animate"
                     exit="exit"
-                    className="flex items-center justify-between w-full h-full space-x-1.5 px-1.5"
+                    className="flex items-center justify-start w-full h-full space-x-2 pl-2 pr-6"
                 >
                     <img 
                         src={featherIconPath} 
@@ -272,14 +273,14 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     initial="initial"
                     animate="animate"
                     exit="exit"
-                    className="flex items-center justify-between w-full h-full space-x-1.5 px-1.5"
+                    className="flex items-center justify-start w-full h-full space-x-2 pl-2 pr-6"
                 >
                     <img 
                         src={featherIconPath} 
                         alt="Stop Recording" 
                         className={`${iconClass} filter drop-shadow-[0_0_4px_#FF4D6D]`}
                     />
-                    <div className="flex-grow h-[65%] min-w-[50px]">
+                    <div className="flex-grow h-[55%] min-w-[35px]">
                         <LiveWaveform barColor="#FF4D6D" idleHeight={10} barWidth={4} gap={2.5} isRecording={true} />
                     </div>
                     <span className={`tabular-nums flex-shrink-0`}>

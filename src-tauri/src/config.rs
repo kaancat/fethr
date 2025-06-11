@@ -15,6 +15,10 @@ pub struct AppSettings {
     pub auto_paste: bool,
     #[serde(default = "default_pill_enabled")]
     pub pill_enabled: bool,
+    #[serde(default = "default_supabase_url")]
+    pub supabase_url: String,
+    #[serde(default = "default_supabase_anon_key")]
+    pub supabase_anon_key: String,
 }
 
 fn default_model_name() -> String {
@@ -33,6 +37,14 @@ fn default_pill_enabled() -> bool {
     true
 }
 
+fn default_supabase_url() -> String {
+    "https://dttwcuqlnfpsbkketppf.supabase.co".to_string()
+}
+
+fn default_supabase_anon_key() -> String {
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -40,6 +52,8 @@ impl Default for AppSettings {
             language: default_language(),
             auto_paste: default_auto_paste(),
             pill_enabled: default_pill_enabled(),
+            supabase_url: default_supabase_url(),
+            supabase_anon_key: default_supabase_anon_key(),
         }
     }
 }

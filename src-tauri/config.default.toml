@@ -1,0 +1,6 @@
+model_name = "ggml-tiny.bin" # Or your actual default
+language = "en"             # Or your actual default
+auto_paste = true           # Or your actual default
+pill_enabled = true         # Or your actual default
+supabase_url = "https://dttwcuqlnfpsbkketppf.supabase.co"
+supabase_anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g"

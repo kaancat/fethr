@@ -67,7 +67,8 @@
         "signingIdentity": null
       },
       "resources": [
-        "vendor/models"
+        "vendor/models",
+        "config.default.toml"
       ],
       "shortDescription": "Voice transcription app",
       "targets": "all",

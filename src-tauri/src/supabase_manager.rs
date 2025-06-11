@@ -3,15 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json; // Added for RPC payload
 // use log::{info, error, debug, warn}; // Replaced with println!
 
-// Kaan: REPLACE THESE WITH YOUR ACTUAL SUPABASE URL AND ANON KEY
-const SUPABASE_URL_PLACEHOLDER: &str = "https://dttwcuqlnfpsbkketppf.supabase.co";
-const SUPABASE_ANON_KEY_PLACEHOLDER: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g";
-
-// // const DEFAULT_FREE_TIER_WORD_LIMIT: i32 = 1500; // Removed unused constant
-// // const DEFAULT_FREE_TIER_NAME: &str = "Free"; // Removed unused constant
-// // const DEFAULT_PRO_TIER_NAME: &str = "Pro"; // Removed unused constant
-// Ensure these constants are fully removed if they were only commented out before
-
 // This is the struct that will be returned by the Tauri command
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserSubscriptionDetails {
@@ -224,17 +215,27 @@ pub async fn execute_increment_word_usage_rpc(
         return Ok(());
     }
 
+    // Get Supabase configuration from global settings - use block scope to ensure guard is dropped
+    let (current_supabase_url, current_supabase_anon_key) = {
+        let settings_guard = crate::config::SETTINGS.lock().map_err(|e| format!("Failed to lock settings: {}", e))?;
+        (
+            settings_guard.supabase_url.clone(),
+            settings_guard.supabase_anon_key.clone()
+        )
+        // settings_guard is automatically dropped here when it goes out of scope
+    };
+
     let http_client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
-    headers.insert("apikey", HeaderValue::from_str(SUPABASE_ANON_KEY_PLACEHOLDER).map_err(|e| format!("Invalid anon key: {}",e))?);
+    headers.insert("apikey", HeaderValue::from_str(&current_supabase_anon_key).map_err(|e| format!("Invalid anon key: {}",e))?);
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", access_token)).map_err(|e| format!("Invalid access token: {}",e))?);
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
     // 1. Call get_user_subscription_limits
     println!("[RUST DEBUG SupabaseManager RPC] Attempting to fetch subscription limits for user_id: {}", user_id);
     let limits_rpc_url = format!(
-        "{}{}",
-        SUPABASE_URL_PLACEHOLDER, "/rest/v1/rpc/get_user_subscription_limits"
+        "{}/rest/v1/rpc/get_user_subscription_limits",
+        current_supabase_url
     );
     let limits_payload = json!({ "p_user_id": user_id });
 
@@ -307,8 +308,8 @@ pub async fn execute_increment_word_usage_rpc(
     // If all checks passed, proceed to call increment_word_usage RPC.
     println!("[RUST DEBUG SupabaseManager RPC] Proceeding to call increment_word_usage RPC.");
     let increment_rpc_url = format!(
-        "{}{}",
-        SUPABASE_URL_PLACEHOLDER, "/rest/v1/rpc/increment_word_usage"
+        "{}/rest/v1/rpc/increment_word_usage",
+        current_supabase_url
     );
     let increment_payload = json!({
         "p_user_id": user_id,          
