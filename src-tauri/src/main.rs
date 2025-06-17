@@ -35,6 +35,7 @@ mod custom_prompts; // <-- ADDED THIS LINE
 mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
 mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
 mod supabase_manager; // <<< ADDED THIS LINE
+mod stripe_manager; // <<< ADDED STRIPE MANAGER MODULE
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -766,6 +767,8 @@ fn main() {
             dictionary_manager::delete_dictionary_word,
             dictionary_manager::save_dictionary_to_file,
             dictionary_manager::load_dictionary_from_file,
+            // --- STRIPE COMMANDS ---
+            stripe_manager::create_stripe_checkout_session,
             // --- ADD NEW COMMAND ---
             set_pill_visibility
         ])

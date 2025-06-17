@@ -19,6 +19,12 @@ pub struct AppSettings {
     pub supabase_url: String,
     #[serde(default = "default_supabase_anon_key")]
     pub supabase_anon_key: String,
+    #[serde(default = "default_stripe_secret_key")]
+    pub stripe_secret_key: String,
+    #[serde(default = "default_stripe_success_url")]
+    pub stripe_success_url: String,
+    #[serde(default = "default_stripe_cancel_url")]
+    pub stripe_cancel_url: String,
 }
 
 fn default_model_name() -> String {
@@ -45,6 +51,18 @@ fn default_supabase_anon_key() -> String {
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g".to_string()
 }
 
+fn default_stripe_secret_key() -> String {
+    "sk_test_YOUR_STRIPE_SECRET_KEY_HERE".to_string()
+}
+
+fn default_stripe_success_url() -> String {
+    "https://your-app.com/success?session_id={CHECKOUT_SESSION_ID}".to_string()
+}
+
+fn default_stripe_cancel_url() -> String {
+    "https://your-app.com/cancel".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -54,6 +72,9 @@ impl Default for AppSettings {
             pill_enabled: default_pill_enabled(),
             supabase_url: default_supabase_url(),
             supabase_anon_key: default_supabase_anon_key(),
+            stripe_secret_key: default_stripe_secret_key(),
+            stripe_success_url: default_stripe_success_url(),
+            stripe_cancel_url: default_stripe_cancel_url(),
         }
     }
 }

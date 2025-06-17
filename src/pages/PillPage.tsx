@@ -173,6 +173,50 @@ function PillPage() {
             });
     }, [handleErrorDismiss_MEMOIZED, endEditSequence]);
 
+    // Subscription handler for upgrade/subscribe button
+    const handleInitiateSubscription = useCallback(async () => {
+        console.log("[PillPage] Initiating subscription...");
+        toast.loading("Redirecting to checkout...", { id: "stripe-checkout-toast" });
+
+        try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !sessionData?.session) {
+                toast.dismiss("stripe-checkout-toast");
+                toast.error("Please log in to subscribe.");
+                console.error("Error getting session or no session:", sessionError);
+                return;
+            }
+
+            const userId = sessionData.session.user.id;
+            const accessToken = sessionData.session.access_token;
+            const proStripePriceId = "price_1Rb5a0BuRI2wQm3rzVAK8vY9"; // Pro plan Price ID
+
+            console.log(`[PillPage] Calling create_stripe_checkout_session for user: ${userId}, price: ${proStripePriceId}`);
+            
+            const checkoutUrl = await invoke<string>('create_stripe_checkout_session', {
+                userId: userId,
+                accessToken: accessToken,
+                priceId: proStripePriceId 
+            });
+
+            toast.dismiss("stripe-checkout-toast");
+
+            if (checkoutUrl) {
+                console.log("[PillPage] Received checkout URL, opening:", checkoutUrl);
+                window.open(checkoutUrl, '_blank');
+            } else {
+                toast.error("Could not retrieve checkout session URL. Please try again.");
+                console.error("[PillPage] Checkout URL was null or empty.");
+            }
+        } catch (error: any) {
+            toast.dismiss("stripe-checkout-toast");
+            const errorMessage = error?.message || String(error);
+            toast.error(`Failed to start subscription: ${errorMessage.substring(0,100)}`);
+            console.error("[PillPage] Error initiating subscription:", error);
+        }
+    }, []);
+
     // FIXED: Main listener setup with minimal, stable dependencies
     useEffect(() => {
         console.log("[PillPage] Setting up main event listeners");
@@ -420,7 +464,7 @@ function PillPage() {
                 showUpgradePrompt={showUpgradePrompt}
                 onEditClick={handleEditClick}
                 onErrorDismiss={handleErrorDismiss_MEMOIZED}
-                onUpgradeClick={() => { toast.success("Upgrade clicked! (TODO: Implement navigation)", { duration: 3000 }); }}
+                onUpgradeClick={handleInitiateSubscription}
             />
         </div>
     );

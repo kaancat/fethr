@@ -41,6 +41,8 @@ crossbeam-channel = "0.5"
 lazy_static = "1.4.0"
 mpsc = "0.1"
 rdev = "0.5.3"
+# Stripe integration for subscription management
+async-stripe = { version = "0.31", features = ["runtime-tokio-hyper"] }
 # Added dependencies for configuration management
 directories = "5.0"      # For finding standard config/data directories
 toml = "0.8"             # For parsing TOML config files
