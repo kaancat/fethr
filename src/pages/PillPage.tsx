@@ -22,6 +22,7 @@ function PillPage() {
     const [error, setError] = useState<string | null>(null); 
     const [errorMessage, setErrorMessage] = useState<string | null>(null); 
     const [showUpgradePrompt, setShowUpgradePrompt] = useState<boolean>(false);
+    const [isResizing, setIsResizing] = useState<boolean>(false);
     const startTimeRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -29,10 +30,73 @@ function PillPage() {
     const editReadyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isEditSequenceActiveRef = useRef<boolean>(false); 
 
+    // Removed extensive debugging code that was causing dimension tooltips
+
     // Effect to keep currentStateRef updated
     useEffect(() => {
         currentStateRef.current = currentState;
     }, [currentState]);
+
+    // 🎯 DYNAMIC WINDOW RESIZING: Automatically resize window to match pill content
+    useEffect(() => {
+        const resizeWindowForState = async (state: RecordingState) => {
+            let width: number, height: number;
+            
+            switch (state) {
+                case RecordingState.IDLE:
+                    // Generous window for idle pill - allows hover expansion without constraint
+                    width = 140;
+                    height = 50;
+                    break;
+                case RecordingState.IDLE_EDIT_READY:
+                    // Same as idle - accommodates hover effects and natural pill behavior
+                    width = 140;
+                    height = 50;
+                    break;
+                case RecordingState.RECORDING:
+                case RecordingState.LOCKED_RECORDING:
+                case RecordingState.TRANSCRIBING:
+                case RecordingState.PASTING:
+                case RecordingState.SUCCESS:
+                    // Expanded window for recording states - prevents content cut-off
+                    width = 160;
+                    height = 60;
+                    break;
+                case RecordingState.ERROR:
+                    // Large window for error states with generous space for messages
+                    if (showUpgradePrompt) {
+                        width = 200;
+                        height = 100;
+                    } else {
+                        width = 180;
+                        height = 80;
+                    }
+                    break;
+                default:
+                    // Fallback to idle size
+                    width = 140;
+                    height = 50;
+                    break;
+            }
+            
+            try {
+                console.log(`🔧 [RESIZE] Starting resize for ${RecordingState[state]} -> ${width}×${height}`);
+                setIsResizing(true); // Block animations during resize
+                await invoke('resize_pill_window', { width, height });
+                console.log(`✅ [RESIZE] Backend resize completed for ${RecordingState[state]}`);
+                // Small additional delay to ensure everything is settled
+                await new Promise(resolve => setTimeout(resolve, 50));
+                console.log(`🎯 [RESIZE] Animation delay complete for ${RecordingState[state]}`);
+            } catch (e) {
+                console.error(`Failed to resize window for state ${RecordingState[state]}:`, e);
+            } finally {
+                setIsResizing(false); // Allow animations to proceed
+                console.log(`🎨 [RESIZE] Animations re-enabled for ${RecordingState[state]}`);
+            }
+        };
+        
+        resizeWindowForState(currentState);
+    }, [currentState, showUpgradePrompt]);
 
     // FIXED: Consolidated timeout management helpers with no dependencies
     const clearEditSequenceTimeouts = useCallback(() => {
@@ -451,10 +515,21 @@ function PillPage() {
         return Math.floor(ms / 1000).toString() + "s";
     };
 
-    console.log(`%c[PillPage Render] currentState: ${RecordingState[currentState]}, ref: ${RecordingState[currentStateRef.current]}, isEditActive: ${isEditSequenceActiveRef.current}`, "color: magenta;");
+    // Removed debug logging to prevent dimension tooltips
 
     return (
-        <div id="pill-container-restored" className="pill-container bg-transparent flex items-center justify-center h-screen w-screen select-none p-4">
+        <div 
+            id="pill-container-restored" 
+            className="pill-container bg-transparent fixed inset-0 flex items-start justify-center select-none pt-2"
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                padding: 0,
+                margin: 0
+            }}
+        >
              <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
@@ -462,6 +537,7 @@ function PillPage() {
                 error={error || undefined}
                 backendError={errorMessage || undefined}
                 showUpgradePrompt={showUpgradePrompt}
+                isResizing={isResizing}
                 onEditClick={handleEditClick}
                 onErrorDismiss={handleErrorDismiss_MEMOIZED}
                 onUpgradeClick={handleInitiateSubscription}

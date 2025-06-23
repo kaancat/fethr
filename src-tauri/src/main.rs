@@ -770,7 +770,13 @@ fn main() {
             // --- STRIPE COMMANDS ---
             stripe_manager::create_stripe_checkout_session,
             // --- ADD NEW COMMAND ---
-            set_pill_visibility
+            set_pill_visibility,
+            // New command
+            debug_window_info,
+            // New command
+            set_ignore_cursor_events,
+            // New command
+            resize_pill_window
         ])
         .run(context)
         .expect("Error while running Fethr application");
@@ -1042,5 +1048,157 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
     } else {
         log::error!("[CMD set_pill_visibility] Pill window with label 'pill' not found.");
         Err("Pill window not found.".to_string())
+    }
+}
+
+#[tauri::command]
+async fn debug_window_info(app_handle: AppHandle, window_label: String) -> Result<serde_json::Value, String> {
+    println!("=== 🔍 TAURI WINDOW DEBUG INFO ===");
+    println!("Debugging window with label: '{}'", window_label);
+    
+    if let Some(window) = app_handle.get_window(&window_label) {
+        let mut debug_info = serde_json::Map::new();
+        
+        // Window position
+        match window.outer_position() {
+            Ok(pos) => {
+                println!("🎯 Window outer position: x={}, y={}", pos.x, pos.y);
+                debug_info.insert("outer_position".to_string(), serde_json::json!({
+                    "x": pos.x,
+                    "y": pos.y
+                }));
+            }
+            Err(e) => {
+                println!("❌ Failed to get window outer position: {}", e);
+                debug_info.insert("outer_position_error".to_string(), serde_json::Value::String(e.to_string()));
+            }
+        }
+        
+        // Window size
+        match window.outer_size() {
+            Ok(size) => {
+                println!("📏 Window outer size: width={}, height={}", size.width, size.height);
+                debug_info.insert("outer_size".to_string(), serde_json::json!({
+                    "width": size.width,
+                    "height": size.height
+                }));
+            }
+            Err(e) => {
+                println!("❌ Failed to get window outer size: {}", e);
+                debug_info.insert("outer_size_error".to_string(), serde_json::Value::String(e.to_string()));
+            }
+        }
+        
+        // Inner size
+        match window.inner_size() {
+            Ok(size) => {
+                println!("📐 Window inner size: width={}, height={}", size.width, size.height);
+                debug_info.insert("inner_size".to_string(), serde_json::json!({
+                    "width": size.width,
+                    "height": size.height
+                }));
+            }
+            Err(e) => {
+                println!("❌ Failed to get window inner size: {}", e);
+                debug_info.insert("inner_size_error".to_string(), serde_json::Value::String(e.to_string()));
+            }
+        }
+        
+        // Window visibility
+        match window.is_visible() {
+            Ok(visible) => {
+                println!("👁️ Window visible: {}", visible);
+                debug_info.insert("visible".to_string(), serde_json::Value::Bool(visible));
+            }
+            Err(e) => {
+                println!("❌ Failed to check window visibility: {}", e);
+                debug_info.insert("visibility_error".to_string(), serde_json::Value::String(e.to_string()));
+            }
+        }
+        
+        // Window scale factor
+        match window.scale_factor() {
+            Ok(scale) => {
+                println!("🔍 Window scale factor: {}", scale);
+                debug_info.insert("scale_factor".to_string(), serde_json::Value::Number(
+                    serde_json::Number::from_f64(scale).unwrap_or(serde_json::Number::from(1))
+                ));
+            }
+            Err(e) => {
+                println!("❌ Failed to get window scale factor: {}", e);
+                debug_info.insert("scale_factor_error".to_string(), serde_json::Value::String(e.to_string()));
+            }
+        }
+        
+        // Check if window is resizable, minimizable, etc.
+        debug_info.insert("label".to_string(), serde_json::Value::String(window_label));
+        
+        println!("=== END TAURI WINDOW DEBUG ===");
+        Ok(serde_json::Value::Object(debug_info))
+    } else {
+        let error_msg = format!("Window with label '{}' not found", window_label);
+        println!("❌ {}", error_msg);
+        Err(error_msg)
+    }
+}
+
+#[tauri::command]
+async fn set_ignore_cursor_events(app_handle: AppHandle, ignore: bool) -> Result<(), String> {
+    println!("🔧 Setting ignore cursor events: {}", ignore);
+    
+    if let Some(window) = app_handle.get_window("pill") {
+        window.set_ignore_cursor_events(ignore)
+            .map_err(|e| {
+                println!("❌ Failed to set ignore cursor events: {}", e);
+                format!("Failed to set ignore cursor events: {}", e)
+            })?;
+        println!("✅ Successfully set ignore cursor events: {}", ignore);
+        Ok(())
+    } else {
+        let error_msg = "Window 'pill' not found".to_string();
+        println!("❌ {}", error_msg);
+        Err(error_msg)
+    }
+}
+
+#[tauri::command]
+async fn resize_pill_window(app_handle: AppHandle, width: u32, height: u32) -> Result<(), String> {
+    println!("🔧 Resizing pill window to: {}×{}", width, height);
+    
+    if let Some(window) = app_handle.get_window("pill") {
+        let logical_size = tauri::LogicalSize::new(width, height);
+        
+        // Perform the resize
+        window.set_size(logical_size)
+            .map_err(|e| {
+                println!("❌ Failed to resize pill window: {}", e);
+                format!("Failed to resize window: {}", e)
+            })?;
+        
+        // Wait for resize to complete (OS-level operation)
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Verify the resize completed by checking actual size
+        let mut retries = 0;
+        while retries < 5 {
+            match window.inner_size() {
+                Ok(current_size) => {
+                    if current_size.width == width && current_size.height == height {
+                        println!("✅ Resize confirmed: {}×{}", current_size.width, current_size.height);
+                        break;
+                    }
+                }
+                Err(_) => {}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            retries += 1;
+        }
+        
+        println!("✅ Window resize operation completed: {}×{}", width, height);
+        Ok(())
+    } else {
+        let error_msg = "Window 'pill' not found".to_string();
+        println!("❌ {}", error_msg);
+        Err(error_msg)
     }
 }

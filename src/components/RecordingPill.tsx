@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { RecordingState } from '../types';
@@ -33,6 +33,7 @@ interface RecordingPillProps {
     error?: string; // Optional error message
     backendError?: string | null; // Optional backend error message from Rust
     showUpgradePrompt?: boolean; // New prop for showing upgrade UI
+    isResizing?: boolean; // New prop to control animations during window resize
     onEditClick?: () => void; // <-- Add prop back
     onErrorDismiss?: () => void; // Make sure this prop exists
     onUpgradeClick?: () => void; // Optional callback for the upgrade action
@@ -51,7 +52,8 @@ const pillContainerVariants = {
     backgroundColor: "rgba(10, 15, 26, 0.0)", 
     boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", 
     border: "1px solid transparent", 
-    opacity: 1 
+    opacity: 1,
+    y: 0 // Explicit y position
   },
   edit_pending: { 
     width: "28px", 
@@ -61,38 +63,41 @@ const pillContainerVariants = {
     backgroundColor: "rgba(10, 15, 26, 0.0)", 
     boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", 
     border: "1px solid rgba(34, 197, 94, 0.3)", 
-    opacity: 1 
+    opacity: 1,
+    y: 0 // Explicit y position
   },
   ready: { 
     width: "120px", height: "32px", 
     padding: "4px 8px", 
     borderRadius: "16px", 
     backgroundColor: "rgba(10, 15, 26, 0.9)", 
-    opacity: 1 
+    opacity: 1,
+    y: 0 // Explicit y position
   },
   recording: { 
     width: "120px", height: "32px", 
     padding: "4px 8px", 
     borderRadius: "16px",
     backgroundColor: "rgba(2, 4, 9, 1)", 
-    opacity: 1 
+    opacity: 1,
+    y: 0 // Explicit y position
   },
   processing: { 
-    width: "auto", height: "32px", padding: "4px 8px", minWidth: "50px", borderRadius: "16px",
+    width: "36px", height: "36px", padding: "6px", borderRadius: "18px",
     backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", 
-    border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1 
+    border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1,
+    y: 0 // Explicit y position
   },
   error: { 
-    width: "auto", 
-    height: "auto", // Allow height to adjust based on content
-    minHeight: "52px", // Increased minHeight to accommodate stacked content + padding
+    width: "180px", 
+    height: "60px", 
     padding: "4px 8px", 
-    minWidth: "100px", 
     borderRadius: "16px",
     backgroundColor: "rgba(194, 65, 12, 0.2)", 
     boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
     border: "1px solid rgba(249, 115, 22, 0.5)", 
-    opacity: 1 
+    opacity: 1,
+    y: 0 // Explicit y position
   }
 };
 
@@ -114,7 +119,7 @@ const contentAnimationVariants = {
 const featherIconPath = "/feather-logo.png";
 const editIconPath = "/Icons/edit icon.png";
 
-const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, onEditClick, onErrorDismiss, onUpgradeClick }) => {
+const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
@@ -123,6 +128,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
     const [isHovered, setIsHovered] = useState(false);
+    const pillRef = useRef<HTMLDivElement>(null);
     
     let targetVariant: PillVariant = 'idle';
     if (backendError) targetVariant = 'error';
@@ -132,6 +138,21 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isProcessingState || isSuccessState) targetVariant = 'processing'; // CRITICAL FIX: SUCCESS shows processing spinner
     else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
+
+    // Add comprehensive logging for state transitions
+    console.log(`🎭 [PILL VARIANT] State: ${RecordingState[currentState]} → Variant: ${targetVariant} | isResizing: ${isResizing} | isHovered: ${isHovered}`);
+    
+    // Log variant dimension changes
+    const variantDimensions = pillContainerVariants[targetVariant];
+    console.log(`📐 [PILL DIMENSIONS] Variant ${targetVariant}: ${variantDimensions.width} × ${variantDimensions.height} | Y: ${variantDimensions.y}`);
+    
+    // Track DOM position changes
+    useEffect(() => {
+        if (pillRef.current) {
+            const rect = pillRef.current.getBoundingClientRect();
+            console.log(`📍 [DOM POSITION] State: ${RecordingState[currentState]} | Top: ${rect.top.toFixed(1)}px | Left: ${rect.left.toFixed(1)}px | Width: ${rect.width.toFixed(1)}px | Height: ${rect.height.toFixed(1)}px`);
+        }
+    }, [currentState, targetVariant, isResizing]);
 
     const handleContentAreaClick = (currentPillState: RecordingState) => {
         console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]}`);
@@ -250,6 +271,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     animate="animate"
                     exit="exit"
                     className="flex items-center justify-start w-full h-full space-x-2 pl-2 pr-6"
+                    style={{ transform: 'translateY(0px)' }} // Force consistent vertical alignment
                 >
                     <img 
                         src={featherIconPath} 
@@ -274,6 +296,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     animate="animate"
                     exit="exit"
                     className="flex items-center justify-start w-full h-full space-x-2 pl-2 pr-6"
+                    style={{ transform: 'translateY(0px)' }} // Force consistent vertical alignment
                 >
                     <img 
                         src={featherIconPath} 
@@ -323,13 +346,26 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
 
     return (
         <motion.div
+            ref={pillRef}
             data-tauri-drag-region
             variants={pillContainerVariants}
             initial={false}
-            animate={targetVariant}
-            onHoverStart={() => { if (isIdle) setIsHovered(true); }}
+            animate={isResizing ? false : targetVariant}
+            onHoverStart={() => { if (isIdle && !isResizing) setIsHovered(true); }}
             onHoverEnd={() => setIsHovered(false)}
-            transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
+            layout={false}  // Disable layout animations to prevent jumps
+            onAnimationStart={() => {
+                console.log(`🎬 [ANIMATION START] Variant: ${targetVariant} | isResizing: ${isResizing} | Duration: 0.3s`);
+            }}
+            onAnimationComplete={() => {
+                console.log(`🎬 [ANIMATION COMPLETE] Variant: ${targetVariant} | isResizing: ${isResizing}`);
+            }}
+            transition={{ 
+                type: "tween", 
+                duration: 0.3, 
+                ease: "easeInOut",
+                delay: isResizing ? 0.2 : 0  // Add delay when resizing
+            }}
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
             style={{ 

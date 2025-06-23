@@ -4,3 +4,6 @@ auto_paste = true           # Or your actual default
 pill_enabled = true         # Or your actual default
 supabase_url = "https://dttwcuqlnfpsbkketppf.supabase.co"
 supabase_anon_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY2Mzk5ODAsImV4cCI6MjA2MjIxNTk4MH0.PkcvR5uSlcXIpGP5E_jADVWDG0be5pTkqsbBxON8o8g"
+stripe_secret_key = "STRIPE_SK_PLACEHOLDER_DEFAULT_CONFIG" # A clear placeholder, NOT a real key
+stripe_success_url = "http://localhost:5176/payment_success_placeholder_default" # Placeholder
+stripe_cancel_url = "http://localhost:5176/payment_cancel_placeholder_default"   # Placeholder
