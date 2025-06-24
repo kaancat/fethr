@@ -37,64 +37,55 @@ function PillPage() {
         currentStateRef.current = currentState;
     }, [currentState]);
 
-    // 🎯 DYNAMIC WINDOW RESIZING: Automatically resize window to match pill content
-    useEffect(() => {
-        const resizeWindowForState = async (state: RecordingState) => {
-            let width: number, height: number;
-            
-            switch (state) {
-                case RecordingState.IDLE:
-                    // Generous window for idle pill - allows hover expansion without constraint
-                    width = 140;
-                    height = 50;
-                    break;
-                case RecordingState.IDLE_EDIT_READY:
-                    // Same as idle - accommodates hover effects and natural pill behavior
-                    width = 140;
-                    height = 50;
-                    break;
-                case RecordingState.RECORDING:
-                case RecordingState.LOCKED_RECORDING:
-                case RecordingState.TRANSCRIBING:
-                case RecordingState.PASTING:
-                case RecordingState.SUCCESS:
-                    // Expanded window for recording states - prevents content cut-off
-                    width = 160;
-                    height = 60;
-                    break;
-                case RecordingState.ERROR:
-                    // Large window for error states with generous space for messages
-                    if (showUpgradePrompt) {
-                        width = 200;
-                        height = 100;
-                    } else {
-                        width = 180;
-                        height = 80;
-                    }
-                    break;
-                default:
-                    // Fallback to idle size
-                    width = 140;
-                    height = 50;
-                    break;
-            }
-            
-            try {
-                console.log(`🔧 [RESIZE] Starting resize for ${RecordingState[state]} -> ${width}×${height}`);
-                setIsResizing(true); // Block animations during resize
-                await invoke('resize_pill_window', { width, height });
-                console.log(`✅ [RESIZE] Backend resize completed for ${RecordingState[state]}`);
-                // Small additional delay to ensure everything is settled
-                await new Promise(resolve => setTimeout(resolve, 50));
-                console.log(`🎯 [RESIZE] Animation delay complete for ${RecordingState[state]}`);
-            } catch (e) {
-                console.error(`Failed to resize window for state ${RecordingState[state]}:`, e);
-            } finally {
-                setIsResizing(false); // Allow animations to proceed
-                console.log(`🎨 [RESIZE] Animations re-enabled for ${RecordingState[state]}`);
-            }
-        };
+    // 🎯 DYNAMIC WINDOW RESIZING: Pre-resize window before state changes to prevent jumping
+    const resizeWindowForState = async (state: RecordingState) => {
+        let width: number, height: number;
         
+        switch (state) {
+            case RecordingState.IDLE:
+            case RecordingState.IDLE_EDIT_READY:
+                // Pre-size for hover expansion: ready variant is 120px wide + padding
+                // Need at least 160px window to accommodate hover without clipping
+                width = 160;
+                height = 60;
+                break;
+            case RecordingState.RECORDING:
+            case RecordingState.LOCKED_RECORDING:
+            case RecordingState.TRANSCRIBING:
+            case RecordingState.PASTING:
+            case RecordingState.SUCCESS:
+                width = 160;
+                height = 60;
+                break;
+            case RecordingState.ERROR:
+                if (showUpgradePrompt) {
+                    width = 200;
+                    height = 100;
+                } else {
+                    width = 180;
+                    height = 80;
+                }
+                break;
+            default:
+                // Default to hover-ready size
+                width = 160;
+                height = 60;
+                break;
+        }
+        
+        try {
+            console.log(`🔧 [RESIZE] Pre-resizing for ${RecordingState[state]} -> ${width}×${height}`);
+            setIsResizing(true);
+            await invoke('resize_pill_window', { width, height });
+            await new Promise(resolve => setTimeout(resolve, 100)); // Wait for resize to complete
+        } catch (e) {
+            console.error(`Failed to resize window for state ${RecordingState[state]}:`, e);
+        } finally {
+            setIsResizing(false);
+        }
+    };
+
+    useEffect(() => {
         resizeWindowForState(currentState);
     }, [currentState, showUpgradePrompt]);
 
@@ -303,7 +294,7 @@ function PillPage() {
                 unlisteners.push(await listen<string>('fethr-error-occurred', handleErrorOccurred));
 
                 // FIXED: Enhanced clipboard event handler
-                const unlistenCopied = await listen<void>('fethr-copied-to-clipboard', () => {
+                const unlistenCopied = await listen<void>('fethr-copied-to-clipboard', async () => {
                     if (!isMounted) return; 
                     console.log("%c[PillPage EVENT LISTENER] <<< Received fethr-copied-to-clipboard! >>>", "color: lime; font-size: 1.2em; font-weight: bold;");
                     
@@ -319,15 +310,19 @@ function PillPage() {
                     console.log("[PillPage] Edit sequence starting - ensuring backend hotkey state is clean for immediate hotkey functionality.");
                     invoke('signal_reset_complete').catch(err => console.error("[PillPage] Failed to signal reset at edit sequence start:", err));
                     
+                    // Pre-resize for SUCCESS state to prevent jumping
+                    await resizeWindowForState(RecordingState.SUCCESS);
                     setCurrentState(RecordingState.SUCCESS);
                     console.log(`[PillPage STATE] Set to SUCCESS, isEditActive: ${isEditSequenceActiveRef.current}`);
 
-                    successTimeoutRef.current = setTimeout(() => {
+                    successTimeoutRef.current = setTimeout(async () => {
                         if (!isMounted) return;
                         if (!isEditSequenceActiveRef.current) {
                             console.log("[PillPage] Edit sequence cancelled before success timeout fired.");
                             return;
                         }
+                        // Pre-resize for IDLE_EDIT_READY state to prevent jumping
+                        await resizeWindowForState(RecordingState.IDLE_EDIT_READY);
                         setCurrentState(RecordingState.IDLE_EDIT_READY);
                         console.log(`[PillPage STATE] Set to IDLE_EDIT_READY, isEditActive: ${isEditSequenceActiveRef.current}`);
                         successTimeoutRef.current = null;
@@ -346,7 +341,7 @@ function PillPage() {
                 });
                 unlisteners.push(unlistenCopied);
 
-                const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', (event) => {
+                const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', async (event) => {
                     if (!isMounted) return;
                     const { state: receivedState } = event.payload; 
                     let newTsState: RecordingState = RecordingState.IDLE;
@@ -374,6 +369,8 @@ function PillPage() {
                             return;
                         } else {
                             console.log(`[PillPage STATE] Backend pushed IDLE. Edit sequence not active. Setting to clean IDLE.`);
+                            // Pre-resize before state change
+                            await resizeWindowForState(RecordingState.IDLE);
                             setCurrentState(RecordingState.IDLE);
                             setLastTranscriptionText(null);
                             setErrorMessage(null);
@@ -386,6 +383,8 @@ function PillPage() {
                             endEditSequence(); // Gracefully end the edit sequence
                         }
                         console.log(`[PillPage STATE] Setting state to: ${RecordingState[newTsState]} from backend update`);
+                        // Pre-resize before state change
+                        await resizeWindowForState(newTsState);
                         setCurrentState(newTsState);
                         // Clear relevant state based on new state
                         if (newTsState === RecordingState.ERROR) {
@@ -530,7 +529,7 @@ function PillPage() {
                 margin: 0
             }}
         >
-             <RecordingPill
+            <RecordingPill
                 currentState={currentState}
                 duration={formatDuration(duration)}
                 transcription={lastTranscriptionText || undefined}

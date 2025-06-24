@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { RecordingState } from '../types';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
@@ -13,17 +12,6 @@ import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
  * What it does: Provides visual feedback about recording state
  * Why it exists: Users need to know when recording is active and what hotkey to use
  */
-
-// Example Placeholder Waveform (replace later with actual audio visualization)
-const WaveformPlaceholder = () => (
-     <div className="flex items-center space-x-0.5 h-3">
-         <span className="block w-0.5 h-1 bg-white rounded-full"></span>
-         <span className="block w-0.5 h-2 bg-white/80 rounded-full"></span>
-         <span className="block w-0.5 h-3 bg-white/90 rounded-full"></span>
-         <span className="block w-0.5 h-2 bg-white/80 rounded-full"></span>
-         <span className="block w-0.5 h-1 bg-white rounded-full"></span>
-     </div>
-);
 
 // Define the props the component will accept
 interface RecordingPillProps {
@@ -53,7 +41,8 @@ const pillContainerVariants = {
     boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", 
     border: "1px solid transparent", 
     opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   },
   edit_pending: { 
     width: "28px", 
@@ -64,7 +53,8 @@ const pillContainerVariants = {
     boxShadow: "0 0 6px rgba(34, 197, 94, 0.4)", 
     border: "1px solid rgba(34, 197, 94, 0.3)", 
     opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   },
   ready: { 
     width: "120px", height: "32px", 
@@ -72,7 +62,8 @@ const pillContainerVariants = {
     borderRadius: "16px", 
     backgroundColor: "rgba(10, 15, 26, 0.9)", 
     opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   },
   recording: { 
     width: "120px", height: "32px", 
@@ -80,13 +71,15 @@ const pillContainerVariants = {
     borderRadius: "16px",
     backgroundColor: "rgba(2, 4, 9, 1)", 
     opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   },
   processing: { 
     width: "36px", height: "36px", padding: "6px", borderRadius: "18px",
     backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", 
     border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   },
   error: { 
     width: "180px", 
@@ -97,23 +90,17 @@ const pillContainerVariants = {
     boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
     border: "1px solid rgba(249, 115, 22, 0.5)", 
     opacity: 1,
-    y: 0 // Explicit y position
+    x: 0,
+    y: 0
   }
 };
 
-const iconVariant = {
-  idle: { opacity: 1, scale: 1, x: 0 },
-  edit_pending: { opacity: 1, scale: 1, x: 0 },
-  ready: { opacity: 0.9, scale: 0.9, x: 0 }, // Keep icon in flow, don't translate
-  recording: { opacity: 0.9, scale: 0.9, x: 0 }, // Keep it in flow
-  processing: { opacity: 0.6, scale: 0.8, x: 0 }, // Centered when processing
-  error: { opacity: 1, scale: 0.9, x: 0 } // Centered on error
-};
-
-const contentAnimationVariants = { 
-    initial: { opacity: 0, scale: 0.9 }, 
-    animate: { opacity: 1, scale: 1, transition:{ duration: 0.2, ease: "circOut" } }, 
-    exit: { opacity:0, scale:0.9, transition:{ duration:0.1, ease: "circIn" }} 
+// Animation variants for the inner content; controls fade/scale transitions when the pill switches content blocks.
+// Why: Keeps content transitions smooth and visually consistent between states.
+const contentAnimationVariants = {
+    initial: { opacity: 0, scale: 0.9 },
+    animate: { opacity: 1, scale: 1, transition: { duration: 0.2, ease: "circOut" } },
+    exit: { opacity: 0, scale: 0.9, transition: { duration: 0.1, ease: "circIn" } }
 };
 
 const featherIconPath = "/feather-logo.png";
@@ -154,6 +141,8 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         }
     }, [currentState, targetVariant, isResizing]);
 
+    // Handle clicks on the pill depending on the current recording state
+    // Why: Centralizes the logic for starting/stopping recording via pill interaction.
     const handleContentAreaClick = (currentPillState: RecordingState) => {
         console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]}`);
         if (currentPillState === RecordingState.IDLE) {
@@ -342,7 +331,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             break;
     }
 
-    const basePillClasses = "flex items-center justify-center relative overflow-hidden outline outline-1 outline-transparent select-none";
+    const basePillClasses = "flex items-center justify-center relative outline outline-1 outline-transparent select-none";
 
     return (
         <motion.div
@@ -369,8 +358,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
             style={{ 
-                cursor: 'grab', 
-                overflow: "hidden"
+                cursor: 'grab'
             }}
             onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
             onMouseDown={(e) => {
