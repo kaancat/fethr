@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(timeout 10s npm run dev)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(rg:*)",
+      "Bash(cargo check:*)",
+      "Bash(find:*)",
+      "Bash(npm run tauri build:*)",
+      "Bash(rustc --version)",
+      "Bash(npm run tauri:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }

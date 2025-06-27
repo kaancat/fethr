@@ -10,6 +10,8 @@ import { Toaster } from "@/components/ui/toaster"; // Import shadcn/ui Toaster
 import { TooltipProvider } from "@/components/ui/tooltip"; // Import TooltipProvider
 import SettingsPage from './pages/SettingsPage';
 import PillPage from './pages/PillPage';
+import PaymentSuccessPage from './pages/PaymentSuccessPage';
+import PaymentCancelPage from './pages/PaymentCancelPage';
 import './index.css';
 import { supabase } from '@/lib/supabaseClient'; // Import the Supabase client
 import { Session, User } from '@supabase/supabase-js'; // Import Session and User types
@@ -85,6 +87,8 @@ function App() {
           {/* Pass Auth State to SettingsPage */}
           <Route path="/" element={<SettingsPage user={user} loadingAuth={loadingAuth} />} />
           <Route path="/pill" element={<PillPage />} />
+          <Route path="/payment/success" element={<PaymentSuccessPage />} />
+          <Route path="/payment/cancel" element={<PaymentCancelPage />} />
         </Routes>
       </MemoryRouter>
       <Toaster />

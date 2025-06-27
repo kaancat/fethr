@@ -6,6 +6,8 @@ import RecordingPill from '../components/RecordingPill';
 import { toast } from "react-hot-toast";
 import { supabase } from '@/lib/supabaseClient';
 import { emit } from '@tauri-apps/api/event';
+import { useSubscription } from '@/hooks/useSubscription';
+import { SubscriptionStatus } from '@/components/SubscriptionStatus';
 
 interface StateUpdatePayload {
     state: RecordingState | string;
@@ -23,6 +25,7 @@ function PillPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null); 
     const [showUpgradePrompt, setShowUpgradePrompt] = useState<boolean>(false);
     const [isResizing, setIsResizing] = useState<boolean>(false);
+    const [userId, setUserId] = useState<string | undefined>();
     const startTimeRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -31,6 +34,26 @@ function PillPage() {
     const isEditSequenceActiveRef = useRef<boolean>(false); 
 
     // Removed extensive debugging code that was causing dimension tooltips
+
+    // Get user ID from Supabase
+    useEffect(() => {
+        const fetchUser = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                setUserId(session.user.id);
+            }
+        };
+        fetchUser();
+    }, []);
+
+    // Use subscription hook
+    const { 
+        wordUsage, 
+        wordLimit, 
+        isUnlimited, 
+        hasActiveSubscription,
+        refetch: refetchSubscription 
+    } = useSubscription(userId);
 
     // Effect to keep currentStateRef updated
     useEffect(() => {
@@ -250,9 +273,9 @@ function PillPage() {
             console.log(`[PillPage] Calling create_stripe_checkout_session for user: ${userId}, price: ${proStripePriceId}`);
             
             const checkoutUrl = await invoke<string>('create_stripe_checkout_session', {
-                userId: userId,
-                accessToken: accessToken,
-                priceId: proStripePriceId 
+                user_id: userId,
+                access_token: accessToken,
+                price_id: proStripePriceId 
             });
 
             toast.dismiss("stripe-checkout-toast");
@@ -260,6 +283,21 @@ function PillPage() {
             if (checkoutUrl) {
                 console.log("[PillPage] Received checkout URL, opening:", checkoutUrl);
                 window.open(checkoutUrl, '_blank');
+                
+                // Set up a listener for when user returns from checkout
+                const handleFocus = () => {
+                    console.log("[PillPage] Window regained focus, checking subscription status...");
+                    setTimeout(() => {
+                        refetchSubscription();
+                    }, 2000); // Wait 2 seconds for webhook to process
+                };
+                
+                window.addEventListener('focus', handleFocus);
+                
+                // Clean up after 5 minutes
+                setTimeout(() => {
+                    window.removeEventListener('focus', handleFocus);
+                }, 300000);
             } else {
                 toast.error("Could not retrieve checkout session URL. Please try again.");
                 console.error("[PillPage] Checkout URL was null or empty.");
@@ -270,7 +308,7 @@ function PillPage() {
             toast.error(`Failed to start subscription: ${errorMessage.substring(0,100)}`);
             console.error("[PillPage] Error initiating subscription:", error);
         }
-    }, []);
+    }, [refetchSubscription]);
 
     // FIXED: Main listener setup with minimal, stable dependencies
     useEffect(() => {
@@ -529,18 +567,28 @@ function PillPage() {
                 margin: 0
             }}
         >
-            <RecordingPill
-                currentState={currentState}
-                duration={formatDuration(duration)}
-                transcription={lastTranscriptionText || undefined}
-                error={error || undefined}
-                backendError={errorMessage || undefined}
-                showUpgradePrompt={showUpgradePrompt}
-                isResizing={isResizing}
-                onEditClick={handleEditClick}
-                onErrorDismiss={handleErrorDismiss_MEMOIZED}
-                onUpgradeClick={handleInitiateSubscription}
-            />
+            <div className="relative">
+                <RecordingPill
+                    currentState={currentState}
+                    duration={formatDuration(duration)}
+                    transcription={lastTranscriptionText || undefined}
+                    error={error || undefined}
+                    backendError={errorMessage || undefined}
+                    showUpgradePrompt={showUpgradePrompt}
+                    isResizing={isResizing}
+                    onEditClick={handleEditClick}
+                    onErrorDismiss={handleErrorDismiss_MEMOIZED}
+                    onUpgradeClick={handleInitiateSubscription}
+                />
+                {currentState === RecordingState.IDLE && hasActiveSubscription && (
+                    <SubscriptionStatus
+                        wordUsage={wordUsage}
+                        wordLimit={wordLimit}
+                        isUnlimited={isUnlimited}
+                        hasActiveSubscription={hasActiveSubscription}
+                    />
+                )}
+            </div>
         </div>
     );
 }

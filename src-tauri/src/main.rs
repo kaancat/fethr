@@ -36,6 +36,7 @@ mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
 mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
 mod supabase_manager; // <<< ADDED THIS LINE
 mod stripe_manager; // <<< ADDED STRIPE MANAGER MODULE
+mod fuzzy_dictionary; // <<< ADDED FUZZY DICTIONARY MODULE
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -1163,7 +1164,7 @@ async fn set_ignore_cursor_events(app_handle: AppHandle, ignore: bool) -> Result
 
 #[tauri::command]
 async fn resize_pill_window(app_handle: AppHandle, width: u32, height: u32) -> Result<(), String> {
-    println!("🔧 Resizing pill window to: {}×{}", width, height);
+    // println!("🔧 Resizing pill window to: {}×{}", width, height);
     
     if let Some(window) = app_handle.get_window("pill") {
         let logical_size = tauri::LogicalSize::new(width, height);
@@ -1184,7 +1185,7 @@ async fn resize_pill_window(app_handle: AppHandle, width: u32, height: u32) -> R
             match window.inner_size() {
                 Ok(current_size) => {
                     if current_size.width == width && current_size.height == height {
-                        println!("✅ Resize confirmed: {}×{}", current_size.width, current_size.height);
+                        // println!("✅ Resize confirmed: {}×{}", current_size.width, current_size.height);
                         break;
                     }
                 }
@@ -1194,7 +1195,7 @@ async fn resize_pill_window(app_handle: AppHandle, width: u32, height: u32) -> R
             retries += 1;
         }
         
-        println!("✅ Window resize operation completed: {}×{}", width, height);
+        // println!("✅ Window resize operation completed: {}×{}", width, height);
         Ok(())
     } else {
         let error_msg = "Window 'pill' not found".to_string();
