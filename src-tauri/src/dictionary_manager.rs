@@ -35,8 +35,7 @@ fn load_dictionary_from_file_internal(app_handle: &AppHandle) -> Result<(), Stri
     } else {
         *cache = Vec::new(); // No file, so dictionary is empty
     }
-    // Ensure words are lowercase and sorted for consistency
-    cache.iter_mut().for_each(|word| *word = word.to_lowercase());
+    // Sort and remove duplicates while preserving case
     cache.sort_unstable();
     cache.dedup();
     println!("[DictionaryManager] Loaded {} words into cache.", cache.len());
@@ -101,7 +100,7 @@ pub fn get_dictionary(app_handle: AppHandle) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub fn add_dictionary_word(app_handle: AppHandle, word: String) -> Result<Vec<String>, String> {
-    let trimmed_word = word.trim().to_lowercase();
+    let trimmed_word = word.trim().to_string();
     if trimmed_word.is_empty() {
         return Err("Word cannot be empty".to_string());
     }

@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { LoginForm } from '@/components/LoginForm';
 import DictionarySettingsTab from '../components/settings/DictionarySettingsTab';
 import AppearanceSettingsTab from '../components/settings/AppearanceSettingsTab';
+import SettingsSection from '../components/SettingsSection';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -651,11 +652,11 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     </Button>
                 </div>
                 
-                {/* Content Area - Adjusted padding */}
-                <div className="flex-grow px-6 pt-2 pb-4"> {/* Adjusted py-4 to pt-2 pb-4 */}
+                {/* Content Area - Added height constraint for proper scrolling */}
+                <div className="flex-grow px-6 pt-2 pb-4 h-[calc(100vh-120px)] overflow-hidden">
                     {/* General Settings Section */}
                     {activeSection === 'general' && (
-                        <div>
+                        <SettingsSection>
                             <h2 className="text-lg font-semibold mb-4 text-white">General Settings</h2>
                             
                             {/* General Settings Content */}
@@ -754,15 +755,13 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     {isSaving ? "Saving..." : "Save"}
                                 </Button>
                             </div>
-                        </div>
+                        </SettingsSection>
                     )}
                     
                     {/* History Section */}
                     {activeSection === 'history' && (
-                        <div className="flex flex-col h-full">
-                            <h2 className="text-lg font-semibold mb-4 text-white flex-shrink-0">History Editor</h2>
-                            
-                            <ScrollArea className="h-full flex-grow pr-4 max-h-[calc(100vh-250px)]">
+                        <SettingsSection>
+                            <h2 className="text-lg font-semibold mb-4 text-white">History Editor</h2>
                                 <div className="space-y-4">
                                     {historyLoading && (
                                         <div className="flex items-center justify-center text-gray-400 py-8">
@@ -825,14 +824,12 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         </>
                                     )}
                                 </div>
-                            </ScrollArea>
-                        </div>
+                        </SettingsSection>
                     )}
 
                     {/* AI Actions Section */}
                     {activeSection === 'ai_actions' && (
-                        <ScrollArea className="h-full max-h-[calc(100vh-200px)] flex-grow pr-4">
-                            <div>
+                        <SettingsSection>
                                 <h2 className="text-lg font-semibold mb-4 text-white">AI Action Settings</h2>
                                 <p className="text-sm text-gray-400 mb-6">
                                     Configure your OpenRouter API key and customize the prompts used for AI actions.
@@ -960,27 +957,30 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         <p className="text-xs text-red-400 mt-1">The entered API key appears to be invalid.</p>
                                     )}
                                 </div>
-                            </div>
-                        </ScrollArea>
+                        </SettingsSection>
                     )}
 
                     {/* Dictionary Settings Section */}
                     {activeSection === 'dictionary' && (
-                        <DictionarySettingsTab currentModelName={settings?.model_name || ''} />
+                        <SettingsSection>
+                            <DictionarySettingsTab currentModelName={settings?.model_name || ''} />
+                        </SettingsSection>
                     )}
 
                     {/* Appearance Settings Section - NEW CASE */}
                     {activeSection === 'appearance' && (
-                        <AppearanceSettingsTab 
-                            settings={settings} 
-                            onSettingChange={handleSettingChange} 
-                        />
+                        <SettingsSection>
+                            <AppearanceSettingsTab 
+                                settings={settings} 
+                                onSettingChange={handleSettingChange} 
+                            />
+                        </SettingsSection>
                     )}
 
                     {/* Account Section */} 
                     {activeSection === 'account' && (
-                        <div className="flex flex-col h-full">
-                            <h2 className="text-lg font-semibold mb-6 text-white flex-shrink-0">
+                        <SettingsSection>
+                            <h2 className="text-lg font-semibold mb-6 text-white">
                                 Account
                             </h2>
 
@@ -1042,7 +1042,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     {/* --- End Login Form Area --- */}
                                 </div>
                             )}
-                        </div>
+                        </SettingsSection>
                     )}
                 </div>
             </div>

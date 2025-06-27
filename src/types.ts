@@ -12,11 +12,25 @@ export enum RecordingState {
   // CANCELLING might map to IDLE visually
 }
 
+export interface FuzzyCorrectionSettings {
+  enabled: boolean;
+  sensitivity: number;
+  max_corrections_per_text: number;
+  preserve_original_case: boolean;
+  correction_log_enabled: boolean;
+}
+
 export interface AppSettings {
   model_name: string;
   language: string;
   auto_paste: boolean;
   pill_enabled: boolean;
+  supabase_url: string;
+  supabase_anon_key: string;
+  stripe_secret_key: string;
+  stripe_success_url: string;
+  stripe_cancel_url: string;
+  fuzzy_correction: FuzzyCorrectionSettings;
 }
 
 // History entry for transcription results

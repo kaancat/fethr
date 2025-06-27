@@ -1,5 +1,81 @@
 # Dev Log
 
+## [2024-12-19] – Settings Page Scrolling Fix
+Goal: Fix scrolling issues across all settings tabs to eliminate content overflow problems
+
+### Problem Identified:
+- Dictionary and Appearance tabs had no scrolling capability, causing content overflow
+- Users had to resize the entire window to see hidden settings like "Preserve Original Casing"
+- Inconsistent layout structure - some tabs had ScrollArea wrappers, others didn't
+- Main content area lacked proper height constraints for viewport management
+
+### Root Cause Analysis:
+- **History section**: ✅ Had ScrollArea with `max-h-[calc(100vh-250px)]`
+- **AI Actions section**: ✅ Had ScrollArea with `max-h-[calc(100vh-200px)]`
+- **Dictionary section**: ❌ No ScrollArea wrapper - content overflowed
+- **Appearance section**: ❌ No ScrollArea wrapper - content overflowed  
+- **Account section**: ❌ Basic layout but no proper scrolling
+- **General section**: ❌ No ScrollArea wrapper
+
+### Solution Implemented:
+1. **Created SettingsSection wrapper component** (`src/components/SettingsSection.tsx`):
+   - Reusable ScrollArea wrapper with consistent `h-full pr-4` styling
+   - Provides uniform scrolling behavior across all settings tabs
+   - Includes proper spacing with `space-y-6` for content layout
+
+2. **Enhanced main content area** (`src/pages/SettingsPage.tsx`):
+   - Added `h-[calc(100vh-120px)] overflow-hidden` to establish proper viewport height
+   - Ensures consistent container dimensions for all tabs
+
+3. **Applied universal ScrollArea pattern**:
+   - Wrapped ALL settings sections with SettingsSection component
+   - Replaced inconsistent ScrollArea implementations with uniform pattern
+   - Maintained existing content structure while adding proper scrolling
+
+### Technical Details:
+```tsx
+// New SettingsSection component
+<SettingsSection>
+  <DictionarySettingsTab currentModelName={settings?.model_name || ''} />
+</SettingsSection>
+
+// Enhanced content area
+<div className="flex-grow px-6 pt-2 pb-4 h-[calc(100vh-120px)] overflow-hidden">
+```
+
+### Changes Made:
+- **Created**: `src/components/SettingsSection.tsx` with reusable ScrollArea wrapper
+- **Updated**: `src/pages/SettingsPage.tsx` to use SettingsSection for all tabs:
+  - General settings: Added SettingsSection wrapper
+  - History section: Replaced custom ScrollArea with SettingsSection
+  - AI Actions section: Replaced custom ScrollArea with SettingsSection  
+  - Dictionary section: Added SettingsSection wrapper
+  - Appearance section: Added SettingsSection wrapper
+  - Account section: Added SettingsSection wrapper
+- **Enhanced**: Main content container with proper height constraints
+
+### Impact:
+- All settings tabs now scroll properly within the viewport
+- Consistent user experience across all settings sections
+- No more need to resize window to access hidden settings
+- Clean, maintainable code with reusable SettingsSection component
+- Eliminated Dictionary tab content overflow (fuzzy correction settings now accessible)
+- Improved scalability for future settings additions
+
+### User Experience Improvement:
+- Users can now scroll within Dictionary tab to access "Preserve Original Casing" setting
+- All tabs maintain consistent scrolling behavior
+- Settings remain accessible regardless of window size
+- Professional, uniform interface across all settings sections
+
+### Architecture Benefits:
+- Reusable SettingsSection component promotes code consistency
+- Centralized scrolling logic makes future maintenance easier
+- Clear separation of concerns between content and layout
+- Follows established React component patterns
+
+---
+
 ## [2024-12-19] – Updated Dynamic Window Dimensions 
 Goal: Improve pill UX by implementing generous window dimensions that eliminate invisible boundary issues
 
