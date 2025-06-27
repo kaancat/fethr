@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/tauri';
+import { open } from '@tauri-apps/api/shell';
 import { RecordingState } from '../types';
 import RecordingPill from '../components/RecordingPill';
 import { toast } from "react-hot-toast";
@@ -266,23 +267,27 @@ function PillPage() {
                 return;
             }
 
-            const userId = sessionData.session.user.id;
-            const accessToken = sessionData.session.access_token;
-            const proStripePriceId = "price_1Rb5a0BuRI2wQm3rzVAK8vY9"; // Pro plan Price ID
+            const priceId = "price_pro_monthly_usd_7"; // Internal price ID
 
-            console.log(`[PillPage] Calling create_stripe_checkout_session for user: ${userId}, price: ${proStripePriceId}`);
+            console.log(`[PillPage] Calling Edge Function for user: ${sessionData.session.user.id}, price: ${priceId}`);
             
-            const checkoutUrl = await invoke<string>('create_stripe_checkout_session', {
-                user_id: userId,
-                access_token: accessToken,
-                price_id: proStripePriceId 
+            // Call Supabase Edge Function
+            const { data, error } = await supabase.functions.invoke('create-checkout', {
+                body: { priceId },
+                headers: {
+                    Authorization: `Bearer ${sessionData.session.access_token}`,
+                },
             });
 
             toast.dismiss("stripe-checkout-toast");
 
-            if (checkoutUrl) {
-                console.log("[PillPage] Received checkout URL, opening:", checkoutUrl);
-                window.open(checkoutUrl, '_blank');
+            if (error) {
+                throw new Error(error.message);
+            }
+
+            if (data?.url) {
+                console.log("[PillPage] Received checkout URL, opening:", data.url);
+                await open(data.url);
                 
                 // Set up a listener for when user returns from checkout
                 const handleFocus = () => {
