@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use once_cell::sync::Lazy; // Use Lazy for thread-safe static initialization
 use std::sync::Mutex;
+use toml;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
@@ -25,6 +26,23 @@ pub struct AppSettings {
     pub stripe_success_url: String,
     #[serde(default = "default_stripe_cancel_url")]
     pub stripe_cancel_url: String,
+    #[serde(default = "default_fuzzy_correction")]
+    pub fuzzy_correction: FuzzyCorrectionSettings,
+}
+
+/// Settings for fuzzy dictionary correction
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FuzzyCorrectionSettings {
+    #[serde(default = "default_fuzzy_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_fuzzy_sensitivity")]
+    pub sensitivity: f32,
+    #[serde(default = "default_fuzzy_max_corrections")]
+    pub max_corrections_per_text: usize,
+    #[serde(default = "default_fuzzy_preserve_case")]
+    pub preserve_original_case: bool,
+    #[serde(default = "default_fuzzy_correction_log")]
+    pub correction_log_enabled: bool,
 }
 
 fn default_model_name() -> String {
@@ -63,6 +81,42 @@ fn default_stripe_cancel_url() -> String {
     "https://your-app.com/cancel".to_string()
 }
 
+fn default_fuzzy_correction() -> FuzzyCorrectionSettings {
+    FuzzyCorrectionSettings::default()
+}
+
+fn default_fuzzy_enabled() -> bool {
+    true // Enable by default for better user experience 
+}
+
+fn default_fuzzy_sensitivity() -> f32 {
+    0.5 // Balanced sensitivity - aggressive enough for names but protects common words
+}
+
+fn default_fuzzy_max_corrections() -> usize {
+    10 // Reasonable limit to prevent over-correction
+}
+
+fn default_fuzzy_preserve_case() -> bool {
+    true // Preserve original casing
+}
+
+fn default_fuzzy_correction_log() -> bool {
+    false // Logging disabled by default
+}
+
+impl Default for FuzzyCorrectionSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_fuzzy_enabled(),
+            sensitivity: default_fuzzy_sensitivity(),
+            max_corrections_per_text: default_fuzzy_max_corrections(),
+            preserve_original_case: default_fuzzy_preserve_case(),
+            correction_log_enabled: default_fuzzy_correction_log(),
+        }
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -75,6 +129,7 @@ impl Default for AppSettings {
             stripe_secret_key: default_stripe_secret_key(),
             stripe_success_url: default_stripe_success_url(),
             stripe_cancel_url: default_stripe_cancel_url(),
+            fuzzy_correction: default_fuzzy_correction(),
         }
     }
 }
