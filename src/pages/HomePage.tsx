@@ -38,8 +38,8 @@ function HomePage() {
         // Get user statistics from Supabase
         try {
           const stats = await invoke<DashboardStats>('get_user_statistics', {
-            user_id: session.user.id,
-            access_token: session.access_token
+            userId: session.user.id,
+            accessToken: session.access_token
           });
           setStats(stats);
         } catch (error) {
