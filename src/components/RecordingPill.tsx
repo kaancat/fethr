@@ -141,18 +141,6 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         }
     }, [currentState, targetVariant, isResizing]);
 
-
-    // Context menu handler - right-click opens settings
-    const handleContextMenu = async (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-            await invoke('navigate_to_settings_section', { section: 'general' });
-        } catch (err) {
-            console.error('Failed to open settings:', err);
-        }
-    };
-
     // Handle clicks on the pill depending on the current recording state
     // Why: Centralizes the logic for starting/stopping recording via pill interaction.
     const handleContentAreaClick = (currentPillState: RecordingState) => {
@@ -348,18 +336,12 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     return (
         <motion.div
             ref={pillRef}
-            data-tauri-drag-region={!isHovered}
+            data-tauri-drag-region
             variants={pillContainerVariants}
             initial={false}
             animate={isResizing ? false : targetVariant}
-            onHoverStart={() => {
-                if (isIdle && !isResizing) {
-                    setIsHovered(true);
-                }
-            }}
-            onHoverEnd={() => {
-                setIsHovered(false);
-            }}
+            onHoverStart={() => { if (isIdle && !isResizing) setIsHovered(true); }}
+            onHoverEnd={() => setIsHovered(false)}
             layout={false}  // Disable layout animations to prevent jumps
             onAnimationStart={() => {
                 console.log(`🎬 [ANIMATION START] Variant: ${targetVariant} | isResizing: ${isResizing} | Duration: 0.3s`);
@@ -378,7 +360,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             style={{ 
                 cursor: 'grab'
             }}
-            onContextMenu={handleContextMenu}
+            onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
             onMouseDown={(e) => {
                 const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording' || currentState === RecordingState.ERROR;
                 const clickedInteractiveArea = (e.target as HTMLElement).closest('.pill-interactive-content-area');
@@ -436,25 +418,16 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                         targetVariant === 'recording'
                     ) ? 'pointer' : 'grab'
                 }}
-                // Removed title attribute as we're using Tooltip component now
+                title={ currentState === RecordingState.ERROR ? (error || backendError || 'Error - Click to dismiss') : 
+                        (targetVariant === 'edit_pending' ? 'Edit Last Transcription' : 
+                        (currentState === RecordingState.IDLE ? 'Click to Record' : 
+                        (currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING ? 'Click to Stop' : 'Fethr')))
+                      }
             >
                 <AnimatePresence mode='popLayout' initial={false}>
                     {pillContent}
                 </AnimatePresence>
             </div>
-            {/* Simple hint text that appears on hover - stays within bounds */}
-            <AnimatePresence>
-                {isIdle && isHovered && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="absolute inset-x-0 -bottom-5 text-center"
-                    >
-                        <span className="text-[9px] text-[#A6F6FF]/60">Click to dictate • Right-click for settings</span>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </motion.div>
     );
 };
