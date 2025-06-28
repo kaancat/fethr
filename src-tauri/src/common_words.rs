@@ -23,6 +23,7 @@ pub static COMMON_WORDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
         "its", "find", "long", "down", "day", "did", "get", "come", "made", "may",
         "part", "over", "new", "sound", "take", "only", "little", "work", "place",
         "year", "live", "me", "back", "give", "most", "very", "after", "thing",
+        "gonna", "ahead", "stuff", // User reported these as showing up incorrectly
         
         // Next 200 most common words (101-300)
         "our", "just", "name", "good", "sentence", "man", "think", "say", "great", "where",

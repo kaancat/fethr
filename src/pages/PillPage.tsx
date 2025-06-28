@@ -557,7 +557,7 @@ function PillPage() {
     return (
         <div 
             id="pill-container-restored" 
-            className="pill-container bg-transparent fixed inset-0 flex items-start justify-center select-none pt-2"
+            className="pill-container bg-transparent fixed inset-0 flex items-start justify-center select-none pt-4"
             style={{
                 position: 'fixed',
                 top: 0,

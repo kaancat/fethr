@@ -1,5 +1,10 @@
 # Fethr - Voice Transcription App
 
+## Important Development Guidelines
+- **ALWAYS commit changes after completing a set of tasks** - Use git to create commits when you finish implementing features or fixing bugs
+- Create meaningful commit messages that describe what was changed and why
+- Don't wait until everything is perfect - commit working increments
+
 ## Project Overview
 Fethr is a lightweight cross-platform voice transcription app built with Tauri (Rust backend) and React (TypeScript frontend). The app provides real-time voice transcription using local Whisper.cpp models with a clean, minimal UI featuring a floating pill interface.
 

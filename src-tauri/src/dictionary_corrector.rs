@@ -308,6 +308,7 @@ pub fn correct_text_with_dictionary(text: &str, dictionary_words: &[String]) -> 
     corrector.correct_text(&normalized_text)
 }
 
+
 /// Layer 1: Normalize common transcription noise before dictionary processing
 /// Handles common speech-to-text artifacts that create false negatives
 fn normalize_transcription_noise(text: &str) -> String {

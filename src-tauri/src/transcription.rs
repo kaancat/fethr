@@ -33,6 +33,16 @@ const MAX_HISTORY_ENTRIES: usize = 200;
 pub struct HistoryEntry {
     pub timestamp: DateTime<Utc>,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub corrections: Option<Vec<WordCorrection>>,
+}
+
+// Track individual word corrections for UI feedback
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WordCorrection {
+    pub original: String,
+    pub corrected: String,
+    pub position: usize,
 }
 
 // Status structure to report transcription progress
@@ -577,6 +587,7 @@ pub async fn transcribe_local_audio_impl(
             let new_entry = HistoryEntry {
                 timestamp: Utc::now(),
                 text: trimmed_output.clone(),
+                corrections: None, // No correction tracking for now
             };
             
             match get_history_path(&app_handle) {
@@ -661,18 +672,21 @@ pub async fn transcribe_local_audio_impl(
                 if words_transcribed > 0 {
                     let app_handle_clone_for_supabase = app_handle.clone(); // Clone for the async block
                     
-                    // Directly await the call here:
-                    match crate::supabase_manager::execute_increment_word_usage_rpc(user_id.clone(), access_token.clone(), words_transcribed).await {
-                        Ok(_) => {
-                            log::info!("[Transcription] Word usage update process reported success.");
+                    // Update both word usage and user statistics
+                    let usage_result = crate::supabase_manager::execute_increment_word_usage_rpc(user_id.clone(), access_token.clone(), words_transcribed).await;
+                    let stats_result = crate::user_statistics::sync_transcription_to_supabase(words_transcribed as i64, &user_id, &access_token).await;
+                    
+                    match (usage_result, stats_result) {
+                        (Ok(_), Ok(_)) => {
+                            log::info!("[Transcription] Word usage and statistics update process reported success.");
                             // Successfully updated or limit was fine, now emit event
                             log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend.");
                             if let Err(e) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
                                 log::error!("[Transcription] Failed to emit 'word_usage_updated' event: {}", e);
                             }
                         }
-                        Err(e) => {
-                            log::error!("[Transcription] Word usage update process failed: {}", e);
+                        (Err(usage_err), _) => {
+                            log::error!("[Transcription] Word usage update process failed: {}", usage_err);
                             // Propagate this error. This will become the error for transcribe_local_audio_impl
                             // The frontend should receive this error message.
                             // We still emit "word_usage_updated" because an attempt was made, and SettingsPage might want to refresh.
@@ -680,7 +694,15 @@ pub async fn transcribe_local_audio_impl(
                             if let Err(ev_err) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
                                 log::error!("[Transcription] Failed to emit 'word_usage_updated' event after error: {}", ev_err);
                             }
-                            return Err(e); // Return the error from execute_increment_word_usage_rpc
+                            return Err(usage_err); // Return the error from execute_increment_word_usage_rpc
+                        }
+                        (Ok(_), Err(stats_err)) => {
+                            // Usage update succeeded but stats update failed - log but don't fail the transcription
+                            log::error!("[Transcription] Statistics update failed: {}, but continuing", stats_err);
+                            log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend.");
+                            if let Err(e) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
+                                log::error!("[Transcription] Failed to emit 'word_usage_updated' event: {}", e);
+                            }
                         }
                     }
                 } else {

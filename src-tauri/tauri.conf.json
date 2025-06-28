@@ -92,8 +92,8 @@
       {
         "label": "main",
         "title": "fethr",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 850,
         "visible": false,
         "decorations": true,
         "transparent": false,

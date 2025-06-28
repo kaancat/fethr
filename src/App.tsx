@@ -8,10 +8,14 @@ import RecordingPill from './components/RecordingPill';
 import { toast } from "react-hot-toast"; // Keep react-hot-toast for now as it's still used for notifications
 import { Toaster } from "@/components/ui/toaster"; // Import shadcn/ui Toaster
 import { TooltipProvider } from "@/components/ui/tooltip"; // Import TooltipProvider
+import HomePage from './pages/HomePage';
+import DictionaryPage from './pages/DictionaryPage';
+import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import PillPage from './pages/PillPage';
 import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import PaymentCancelPage from './pages/PaymentCancelPage';
+import MainLayout from './components/MainLayout';
 import './index.css';
 import { supabase } from '@/lib/supabaseClient'; // Import the Supabase client
 import { Session, User } from '@supabase/supabase-js'; // Import Session and User types
@@ -84,8 +88,13 @@ function App() {
     <TooltipProvider>
       <MemoryRouter initialEntries={[initialPathname]}>
         <Routes>
-          {/* Pass Auth State to SettingsPage */}
-          <Route path="/" element={<SettingsPage user={user} loadingAuth={loadingAuth} />} />
+          {/* Main routes with layout */}
+          <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
+          <Route path="/dictionary" element={<MainLayout><DictionaryPage /></MainLayout>} />
+          <Route path="/history" element={<MainLayout><HistoryPage /></MainLayout>} />
+          <Route path="/settings" element={<MainLayout><SettingsPage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
+          
+          {/* Routes without layout */}
           <Route path="/pill" element={<PillPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />
           <Route path="/payment/cancel" element={<PaymentCancelPage />} />

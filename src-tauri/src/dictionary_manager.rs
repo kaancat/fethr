@@ -141,4 +141,113 @@ pub fn delete_dictionary_word(app_handle: AppHandle, word_to_delete: String) -> 
     }
     // Return the updated (or current) list
     Ok(DICTIONARY_CACHE.lock().unwrap().clone())
-} 
+}
+
+#[tauri::command]
+pub fn check_common_words(words: Vec<String>) -> Vec<bool> {
+    words.iter()
+        .map(|word| crate::common_words::is_common_word(word))
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_dictionary_stats(_app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    
+    println!("[DictionaryManager] get_dictionary_stats called.");
+    
+    let cache = DICTIONARY_CACHE.lock().unwrap();
+    let total_words = cache.len();
+    
+    // Get word length distribution
+    let mut length_distribution = std::collections::HashMap::new();
+    let mut longest_word = String::new();
+    let mut shortest_word = String::new();
+    
+    if !cache.is_empty() {
+        shortest_word = cache[0].clone();
+        
+        for word in cache.iter() {
+            let len = word.len();
+            *length_distribution.entry(len).or_insert(0) += 1;
+            
+            if word.len() > longest_word.len() {
+                longest_word = word.clone();
+            }
+            if word.len() < shortest_word.len() {
+                shortest_word = word.clone();
+            }
+        }
+    }
+    
+    // Calculate average word length
+    let total_length: usize = cache.iter().map(|w| w.len()).sum();
+    let avg_length = if total_words > 0 { 
+        total_length as f64 / total_words as f64 
+    } else { 
+        0.0 
+    };
+    
+    // Get recently added words (last 5)
+    let recent_words: Vec<String> = cache.iter()
+        .rev()
+        .take(5)
+        .cloned()
+        .collect();
+    
+    // Create stats object
+    let stats = json!({
+        "totalWords": total_words,
+        "averageLength": avg_length,
+        "longestWord": longest_word,
+        "shortestWord": shortest_word,
+        "lengthDistribution": length_distribution,
+        "recentlyAdded": recent_words
+    });
+    
+    Ok(stats)
+}
+
+#[tauri::command]
+pub fn export_dictionary(_app_handle: AppHandle) -> Result<String, String> {
+    println!("[DictionaryManager] export_dictionary called.");
+    
+    let cache = DICTIONARY_CACHE.lock().unwrap();
+    let json = serde_json::to_string_pretty(&*cache)
+        .map_err(|e| format!("Failed to serialize dictionary: {}", e))?;
+    
+    Ok(json)
+}
+
+#[tauri::command]
+pub fn import_dictionary(app_handle: AppHandle, json_content: String) -> Result<usize, String> {
+    println!("[DictionaryManager] import_dictionary called.");
+    
+    // Parse the JSON content
+    let imported_words: Vec<String> = serde_json::from_str(&json_content)
+        .map_err(|e| format!("Invalid dictionary format: {}", e))?;
+    
+    let mut cache = DICTIONARY_CACHE.lock().unwrap();
+    let original_count = cache.len();
+    
+    // Add imported words to existing dictionary
+    for word in imported_words {
+        let trimmed = word.trim().to_string();
+        if !trimmed.is_empty() && !cache.contains(&trimmed) {
+            cache.push(trimmed);
+        }
+    }
+    
+    // Sort and deduplicate
+    cache.sort_unstable();
+    cache.dedup();
+    
+    let new_count = cache.len();
+    let added_count = new_count - original_count;
+    
+    drop(cache); // Release lock before saving
+    save_dictionary_to_file_internal(&app_handle)?;
+    
+    println!("[DictionaryManager] Imported {} new words.", added_count);
+    Ok(added_count)
+}

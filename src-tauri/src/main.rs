@@ -39,6 +39,7 @@ mod dictionary_corrector; // <<< REPLACED: Simple dictionary correction module
 mod common_words; // <<< ADDED: Common words whitelist protection
 mod word_usage_tracker; // <<< ADDED: Track dictionary word usage
 mod whisper_variations; // <<< ADDED: Handle common Whisper transcription variations
+mod user_statistics; // User statistics tracking for Supabase
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -54,6 +55,20 @@ pub struct HistoryEntry {
     text: String,
 }
 // --- END HistoryEntry Struct ---
+
+// --- ADD Dashboard Stats Struct ---
+#[derive(Serialize, Debug)]
+pub struct DashboardStats {
+    total_words: usize,
+    total_transcriptions: usize,
+    weekly_streak: usize,
+    today_words: usize,
+    average_words_per_session: usize,
+    dictionary_size: usize,
+    most_active_hour: usize,
+    recent_transcriptions: Vec<HistoryEntry>,
+}
+// --- END Dashboard Stats Struct ---
 
 // --- ADD AI Action Structs ---
 /*
@@ -838,6 +853,7 @@ fn main() {
             transcription::transcribe_audio_file,
             transcription::get_history, // History command
             update_history_entry,
+            get_dashboard_stats,
             show_settings_window_and_focus,
             navigate_to_settings_section,
             edit_latest_transcription,
@@ -863,6 +879,10 @@ fn main() {
             dictionary_manager::get_dictionary,
             dictionary_manager::add_dictionary_word,
             dictionary_manager::delete_dictionary_word,
+            dictionary_manager::check_common_words,
+            dictionary_manager::get_dictionary_stats,
+            dictionary_manager::export_dictionary,
+            dictionary_manager::import_dictionary,
             dictionary_manager::save_dictionary_to_file,
             dictionary_manager::load_dictionary_from_file,
             // --- ADD NEW COMMAND ---
@@ -872,7 +892,9 @@ fn main() {
             // New command
             set_ignore_cursor_events,
             // New command
-            resize_pill_window
+            resize_pill_window,
+            // User statistics
+            user_statistics::get_user_statistics
         ])
         .run(context)
         .expect("Error while running Fethr application");
@@ -1082,6 +1104,100 @@ async fn update_history_entry(app_handle: AppHandle, timestamp: String, new_text
     Ok(()) // Return success
 }
 // --- END Update History Command ---
+
+// --- Dashboard Stats Command ---
+#[tauri::command]
+async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, String> {
+    use chrono::{DateTime, Utc, Duration, Datelike, Timelike};
+    use std::collections::HashSet;
+    
+    println!("[RUST CMD] get_dashboard_stats called");
+    
+    // Get history
+    let history_path = get_history_path(&app_handle)?;
+    let history_json = fs::read_to_string(&history_path).unwrap_or_else(|_| "[]".to_string());
+    let history: Vec<HistoryEntry> = serde_json::from_str(&history_json)
+        .map_err(|e| format!("Failed to parse history: {}", e))?;
+    
+    // Get dictionary size
+    let dictionary = dictionary_manager::get_dictionary(app_handle)?;
+    let dictionary_size = dictionary.len();
+    
+    // Calculate statistics
+    let now = Utc::now();
+    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let week_start = now - Duration::days(7);
+    
+    let mut total_words = 0;
+    let mut today_words = 0;
+    let mut hour_counts = vec![0; 24];
+    let mut week_days = HashSet::new();
+    
+    for entry in &history {
+        // Parse timestamp
+        let timestamp = DateTime::parse_from_rfc3339(&entry.timestamp)
+            .map(|dt| dt.with_timezone(&Utc))
+            .or_else(|_| entry.timestamp.parse::<DateTime<Utc>>())
+            .unwrap_or(now);
+        
+        // Count words
+        let word_count = entry.text.split_whitespace().count();
+        total_words += word_count;
+        
+        // Today's words
+        if timestamp >= today_start {
+            today_words += word_count;
+        }
+        
+        // Weekly streak - track unique days
+        if timestamp >= week_start {
+            let date_str = format!("{}-{}-{}", 
+                timestamp.year(), 
+                timestamp.month(), 
+                timestamp.day()
+            );
+            week_days.insert(date_str);
+        }
+        
+        // Hour distribution
+        hour_counts[timestamp.hour() as usize] += 1;
+    }
+    
+    // Find most active hour
+    let most_active_hour = hour_counts
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| *count)
+        .map(|(hour, _)| hour)
+        .unwrap_or(0);
+    
+    // Average words per session
+    let average_words_per_session = if history.is_empty() {
+        0
+    } else {
+        total_words / history.len()
+    };
+    
+    // Get recent transcriptions (last 5)
+    let recent_transcriptions = history
+        .iter()
+        .rev()
+        .take(5)
+        .cloned()
+        .collect();
+    
+    Ok(DashboardStats {
+        total_words,
+        total_transcriptions: history.len(),
+        weekly_streak: week_days.len(),
+        today_words,
+        average_words_per_session,
+        dictionary_size,
+        most_active_hour,
+        recent_transcriptions,
+    })
+}
+// --- END Dashboard Stats Command ---
 
 // --- Navigation Commands for System Tray Context Menu ---
 #[tauri::command]
