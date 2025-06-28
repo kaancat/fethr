@@ -337,6 +337,23 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     }, [setActiveSection, setEditingEntry]); // Update dependencies - we don't directly use historyEntries state *within* the listener logic anymore for finding the item, but loadHistory might be needed if it does more than just fetch. Let's keep it minimal for now.
     // --- END REFINED useEffect --- 
 
+    // Navigation event listener for system tray context menu
+    useEffect(() => {
+        console.log("[SettingsPage] Setting up listener for navigate-to-section.");
+
+        const unlistenNavigate = listen<string>('navigate-to-section', (event) => {
+            console.log("[SettingsPage] Received navigate-to-section event:", event.payload);
+            const section = event.payload as 'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary';
+            setActiveSection(section);
+        });
+
+        // Cleanup function
+        return () => {
+            console.log("[SettingsPage] Cleaning up navigate-to-section listener.");
+            unlistenNavigate.then(f => f());
+        };
+    }, [setActiveSection]);
+
     // Define DEFAULT_AI_ACTIONS
     const DEFAULT_AI_ACTIONS = [
         { id: 'written_form', name: 'Written Form', description: 'Converts spoken text to clean, written text while preserving tone.' },
