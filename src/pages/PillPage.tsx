@@ -59,36 +59,37 @@ function PillPage() {
     // 🎯 DYNAMIC WINDOW RESIZING: Pre-resize window before state changes to prevent jumping
     const resizeWindowForState = async (state: RecordingState) => {
         let width: number, height: number;
+        const PADDING = 24; // 12px padding on each side
         
         switch (state) {
             case RecordingState.IDLE:
             case RecordingState.IDLE_EDIT_READY:
                 // Pre-size for hover expansion: ready variant is 120px wide + padding
-                // Need at least 160px window to accommodate hover without clipping
-                width = 160;
-                height = 60;
+                // Need extra space to accommodate hover and glow
+                width = 160 + PADDING;
+                height = 60 + PADDING;
                 break;
             case RecordingState.RECORDING:
             case RecordingState.LOCKED_RECORDING:
             case RecordingState.TRANSCRIBING:
             case RecordingState.PASTING:
             case RecordingState.SUCCESS:
-                width = 160;
-                height = 60;
+                width = 160 + PADDING;
+                height = 60 + PADDING;
                 break;
             case RecordingState.ERROR:
                 if (showUpgradePrompt) {
-                    width = 200;
-                    height = 100;
+                    width = 200 + PADDING;
+                    height = 100 + PADDING;
                 } else {
-                    width = 180;
-                    height = 80;
+                    width = 180 + PADDING;
+                    height = 80 + PADDING;
                 }
                 break;
             default:
                 // Default to hover-ready size
-                width = 160;
-                height = 60;
+                width = 160 + PADDING;
+                height = 60 + PADDING;
                 break;
         }
         
@@ -560,13 +561,16 @@ function PillPage() {
     return (
         <div 
             id="pill-container-restored" 
-            className="pill-container bg-transparent fixed inset-0 flex items-start justify-center select-none pt-4"
+            className="pill-container bg-transparent fixed inset-0 flex items-start justify-center select-none"
             style={{
                 position: 'fixed',
                 top: 0,
                 left: 0,
                 right: 0,
-                padding: 0,
+                paddingTop: '12px',  // Increased from 0 to ensure glow is visible
+                paddingLeft: '12px',
+                paddingRight: '12px',
+                paddingBottom: '12px',
                 margin: 0
             }}
         >
