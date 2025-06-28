@@ -213,6 +213,15 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         }
     };
 
+    const handleLanguageSelect = async () => {
+        setShowContextMenu(false);
+        try {
+            await invoke('navigate_to_settings_section', { section: 'general' });
+        } catch (err) {
+            console.error('Failed to open settings:', err);
+        }
+    };
+
     // Handle clicks on the pill depending on the current recording state
     // Why: Centralizes the logic for starting/stopping recording via pill interaction.
     const handleContentAreaClick = (currentPillState: RecordingState) => {
@@ -406,17 +415,23 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const basePillClasses = "flex items-center justify-center relative outline outline-1 outline-transparent select-none";
 
     return (
-        <TooltipProvider>
-            <Tooltip>
+        <TooltipProvider delayDuration={300}>
+            <Tooltip open={isIdle && isHovered && !showContextMenu}>
                 <TooltipTrigger asChild>
                     <motion.div
             ref={pillRef}
-            data-tauri-drag-region
+            data-tauri-drag-region={!isHovered && !showContextMenu}
             variants={pillContainerVariants}
             initial={false}
             animate={isResizing ? false : targetVariant}
-            onHoverStart={() => { if (isIdle && !isResizing) setIsHovered(true); }}
-            onHoverEnd={() => setIsHovered(false)}
+            onHoverStart={() => {
+                if (isIdle && !isResizing && !showContextMenu) {
+                    setIsHovered(true);
+                }
+            }}
+            onHoverEnd={() => {
+                setIsHovered(false);
+            }}
             layout={false}  // Disable layout animations to prevent jumps
             onAnimationStart={() => {
                 console.log(`🎬 [ANIMATION START] Variant: ${targetVariant} | isResizing: ${isResizing} | Duration: 0.3s`);
@@ -501,57 +516,58 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             </div>
                     </motion.div>
                 </TooltipTrigger>
-                {isIdle && (
-                    <TooltipContent 
-                        side="top" 
-                        className="bg-neutral-900 border-neutral-800 text-neutral-100 px-3 py-2 text-sm"
-                    >
-                        Click to begin dictation
-                    </TooltipContent>
-                )}
+                <TooltipContent 
+                    side="bottom" 
+                    sideOffset={8}
+                    className="z-[9999] bg-[#0A0F1A]/95 backdrop-blur-md border border-[#A6F6FF]/20 text-[#A6F6FF] px-4 py-2 text-sm rounded-lg shadow-[0_0_20px_rgba(166,246,255,0.15)] animate-in fade-in-0 zoom-in-95"
+                >
+                    Click to begin dictation
+                </TooltipContent>
             </Tooltip>
             
             {/* Context Menu */}
             {showContextMenu && (
-                <DropdownMenu 
-                    className="fixed" 
+                <div 
+                    className="fixed z-[9999]" 
                     style={{ 
-                        top: `${contextMenuPosition.y}px`, 
-                        left: `${contextMenuPosition.x}px` 
+                        top: `${Math.min(contextMenuPosition.y, window.innerHeight - 300)}px`, 
+                        left: `${Math.min(contextMenuPosition.x, window.innerWidth - 200)}px` 
                     }}
                 >
-                    <DropdownMenuItem onClick={handleHideFor1Hour}>
-                        <EyeOff className="w-4 h-4 mr-2" />
-                        Hide for 1 hour
-                    </DropdownMenuItem>
-                    
-                    <DropdownMenuSeparator />
-                    
-                    <DropdownMenuItem onClick={handleOpenSettings}>
-                        <Settings className="w-4 h-4 mr-2" />
-                        Go to Settings
-                    </DropdownMenuItem>
-                    
-                    <DropdownMenuItem>
-                        <Globe className="w-4 h-4 mr-2" />
-                        Select Language
-                    </DropdownMenuItem>
-                    
-                    <DropdownMenuItem onClick={handleOpenHistory}>
-                        <History className="w-4 h-4 mr-2" />
-                        Transcription History
-                    </DropdownMenuItem>
-                    
-                    <DropdownMenuSeparator />
-                    
-                    <DropdownMenuItem 
-                        onClick={handlePasteLastTranscript}
-                        disabled={!lastTranscription}
-                    >
-                        <Clipboard className="w-4 h-4 mr-2" />
-                        Paste Last Transcript
-                    </DropdownMenuItem>
-                </DropdownMenu>
+                    <DropdownMenu>
+                        <DropdownMenuItem onClick={handleHideFor1Hour}>
+                            <EyeOff className="w-4 h-4 mr-2 opacity-70" />
+                            Hide for 1 hour
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={handleOpenSettings}>
+                            <Settings className="w-4 h-4 mr-2 opacity-70" />
+                            Go to Settings
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuItem onClick={handleLanguageSelect}>
+                            <Globe className="w-4 h-4 mr-2 opacity-70" />
+                            Select Language
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuItem onClick={handleOpenHistory}>
+                            <History className="w-4 h-4 mr-2 opacity-70" />
+                            Transcription History
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem 
+                            onClick={handlePasteLastTranscript}
+                            disabled={!lastTranscription}
+                        >
+                            <Clipboard className="w-4 h-4 mr-2 opacity-70" />
+                            Paste Last Transcript
+                        </DropdownMenuItem>
+                    </DropdownMenu>
+                </div>
             )}
         </TooltipProvider>
     );
