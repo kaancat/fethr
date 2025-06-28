@@ -30,28 +30,38 @@ pub async fn sync_transcription_to_supabase(
     user_id: &str,
     access_token: &str,
 ) -> Result<(), String> {
+    log::info!("[UserStatistics] sync_transcription_to_supabase called for user {} with {} words", user_id, word_count);
     let client = reqwest::Client::new();
     let supabase_url = "https://dttwcuqlnfpsbkketppf.supabase.co";
     
     // Call the increment_transcription_stats function via RPC
+    let payload = json!({
+        "p_user_id": user_id,
+        "p_word_count": word_count
+    });
+    
+    log::info!("[UserStatistics] Calling increment_transcription_stats RPC with payload: {:?}", payload);
+    
     let response = client
         .post(format!("{}/rest/v1/rpc/increment_transcription_stats", supabase_url))
         .header("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ2MzMyMzUsImV4cCI6MjA1MDIwOTIzNX0.R9P50xP1cEKrjpbFCGHkQQCQfKEwYkRdLe-0QBJwSao")
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json")
-        .json(&json!({
-            "p_user_id": user_id,
-            "p_word_count": word_count
-        }))
+        .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("Failed to sync stats: {}", e))?;
+        .map_err(|e| format!("Failed to send stats request: {}", e))?;
     
-    if !response.status().is_success() {
+    let status = response.status();
+    log::info!("[UserStatistics] increment_transcription_stats response status: {}", status);
+    
+    if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
+        log::error!("[UserStatistics] RPC failed with error: {}", error_text);
         return Err(format!("Failed to sync stats: {}", error_text));
     }
     
+    log::info!("[UserStatistics] Successfully synced transcription stats to Supabase");
     Ok(())
 }
 

@@ -229,6 +229,7 @@ pub async fn stop_backend_recording(
     args: StopRecordingPayloadArgs,
 ) -> Result<String, String> {
     info!("[RUST AUDIO STOP] Received stop command. Payload: {:?}", args);
+    info!("[RUST AUDIO STOP] User ID: {:?}, Access Token present: {}", args.user_id, args.access_token.is_some());
 
     // Get auto_paste setting from config if needed
     let effective_auto_paste = {

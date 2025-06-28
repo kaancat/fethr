@@ -188,6 +188,7 @@ pub async fn transcribe_audio_file(
     println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
     println!("[RUST DEBUG] Input audio path: {}", audio_path);
     println!("[RUST DEBUG] Auto paste flag (passed): {}", auto_paste);
+    println!("[RUST DEBUG] User ID present: {}, Access token present: {}", user_id_opt.is_some(), access_token_opt.is_some());
 
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
