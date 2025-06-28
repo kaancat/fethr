@@ -38,6 +38,7 @@ mod supabase_manager; // <<< ADDED THIS LINE
 mod dictionary_corrector; // <<< REPLACED: Simple dictionary correction module
 mod common_words; // <<< ADDED: Common words whitelist protection
 mod word_usage_tracker; // <<< ADDED: Track dictionary word usage
+mod whisper_variations; // <<< ADDED: Handle common Whisper transcription variations
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules

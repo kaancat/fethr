@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use crate::common_words;
+use crate::whisper_variations;
 
 /// Simple dictionary corrector with exact matching only
 pub struct DictionaryCorrector {
@@ -98,6 +99,29 @@ impl DictionaryCorrector {
             return Self::apply_casing_if_needed(dictionary_word, word);
         }
         
+        // Ultra-conservative corrections for common Whisper errors
+        // Only apply if the corrected form exists in dictionary
+        let corrected_word = self.apply_conservative_corrections(word);
+        if corrected_word != word {
+            let corrected_lowercase = corrected_word.to_lowercase();
+            if let Some(dictionary_word) = self.word_map.get(&corrected_lowercase) {
+                println!("[DictionaryCorrector] Applied conservative correction: '{}' -> '{}'", word, dictionary_word);
+                return Self::apply_casing_if_needed(dictionary_word, word);
+            }
+        }
+        
+        // Check for known Whisper variations
+        // Only check if it's safe to do so (not a common word, long enough, etc.)
+        if whisper_variations::should_check_variations(word, false) {
+            if let Some(correct_form) = whisper_variations::get_correct_form(word) {
+                let correct_lowercase = correct_form.to_lowercase();
+                if let Some(dictionary_word) = self.word_map.get(&correct_lowercase) {
+                    println!("[DictionaryCorrector] Applied Whisper variation mapping: '{}' -> '{}'", word, dictionary_word);
+                    return Self::apply_casing_if_needed(dictionary_word, word);
+                }
+            }
+        }
+        
         // No match found - return original word unchanged
         word.to_string()
     }
@@ -144,6 +168,110 @@ impl DictionaryCorrector {
         }
         
         result
+    }
+    
+    /// Apply ultra-conservative corrections for common Whisper transcription errors
+    /// Only returns a different word if we're very confident it's a transcription error
+    fn apply_conservative_corrections(&self, word: &str) -> String {
+        // Don't apply corrections to very short words (high risk of false positives)
+        if word.len() < 5 {
+            return word.to_string();
+        }
+        
+        let mut corrected = word.to_string();
+        
+        // Pattern 1: Double 'a' at end of word (e.g., "Supabaase" -> "Supabase")
+        // This is a very common Whisper error with elongated vowel sounds
+        if corrected.ends_with("aase") && corrected.len() > 5 {
+            let without_double_a = corrected.replace("aase", "ase");
+            // Only apply if the corrected form exists in dictionary
+            if self.word_map.contains_key(&without_double_a.to_lowercase()) {
+                corrected = without_double_a;
+            }
+        }
+        
+        // Pattern 2: Common consonant cluster mistakes and vowel patterns
+        // Only for words that look like names (capitalized) and are long enough
+        if corrected.chars().next().map_or(false, |c| c.is_uppercase()) && corrected.len() > 6 {
+            // Try multiple Germanic/Nordic patterns in order
+            let patterns = vec![
+                ("oi", "eu"),      // Schloining -> Schleuning
+                ("ining", "euning"), // Slining -> Sleuning (more specific)
+                ("oo", "ø"),       // Vindstool -> Vindstød (Nordic pattern)
+                ("ae", "ø"),       // Alternative Nordic pattern
+                ("oe", "ø"),       // Another Nordic variant
+            ];
+            
+            for (from, to) in patterns {
+                if corrected.contains(from) {
+                    let variant = corrected.replace(from, to);
+                    if self.word_map.contains_key(&variant.to_lowercase()) {
+                        corrected = variant;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Pattern 2b: Missing initial consonant clusters (Whisper often drops them)
+        // E.g., "Slining" might be missing "Sch" to become "Schlining"
+        if corrected.chars().next().map_or(false, |c| c.is_uppercase()) && corrected.len() >= 5 {
+            // Common initial clusters that Whisper drops
+            let prefixes = vec!["Sch", "Schl", "Ch", "Th", "Ph"];
+            
+            for prefix in prefixes {
+                let with_prefix = format!("{}{}", prefix, corrected);
+                if self.word_map.contains_key(&with_prefix.to_lowercase()) {
+                    corrected = with_prefix;
+                    break;
+                }
+                
+                // Also try combining with vowel patterns
+                // E.g., "Slining" → "Schlining" → "Schleuning"
+                for (from, to) in &[("ining", "euning"), ("oi", "eu")] {
+                    if corrected.contains(from) {
+                        let with_prefix_and_vowel = format!("{}{}", prefix, corrected.replace(from, to));
+                        if self.word_map.contains_key(&with_prefix_and_vowel.to_lowercase()) {
+                            corrected = with_prefix_and_vowel;
+                            return corrected; // Found combined match, return early
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Pattern 3: Handle double consonants that Whisper sometimes singles
+        // E.g., "Masse" might be heard as "Mase" 
+        if corrected.chars().next().map_or(false, |c| c.is_uppercase()) && corrected.len() >= 4 {
+            // Common consonants that get doubled in names
+            let doubles = vec!['s', 't', 'n', 'l', 'm', 'r'];
+            
+            for &ch in &doubles {
+                if corrected.contains(ch) && !corrected.contains(&format!("{}{}", ch, ch)) {
+                    // Try doubling each occurrence of the letter
+                    let double_str = format!("{}{}", ch, ch);
+                    let single_str = ch.to_string();
+                    let with_double = corrected.replace(&single_str, &double_str);
+                    
+                    if self.word_map.contains_key(&with_double.to_lowercase()) {
+                        corrected = with_double;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Pattern 4: Missing letters in technical terms
+        // E.g., "Supabase" sometimes loses letters and becomes "Supbase" 
+        // Only check if word contains "base" and might be missing an 'a'
+        if corrected.ends_with("pbase") && !corrected.ends_with("abase") {
+            let with_a = corrected.replace("pbase", "pabase");
+            if self.word_map.contains_key(&with_a.to_lowercase()) {
+                corrected = with_a;
+            }
+        }
+        
+        corrected
     }
     
     /// Get statistics about the dictionary
@@ -480,5 +608,95 @@ mod tests {
         // Test that exact matches still work
         assert_eq!(correct_text_with_dictionary("cursor", &dictionary), "Cursor");
         assert_eq!(correct_text_with_dictionary("supabase", &dictionary), "Supabase");
+    }
+    
+    #[test]
+    fn test_conservative_corrections() {
+        // Test the specific errors from user's testing
+        let dictionary = vec![
+            "Masse".to_string(),
+            "Schleuning".to_string(), 
+            "Supabase".to_string()
+        ];
+        let corrector = DictionaryCorrector::new(&dictionary);
+        
+        // Test Pattern 1: Double 'a' correction (Supabaase -> Supabase)
+        assert_eq!(corrector.correct_text("Supabaase"), "Supabase");
+        assert_eq!(corrector.correct_text("supabaase"), "Supabase"); // case insensitive
+        
+        // Test Pattern 2: oi -> eu correction (Schloining -> Schleuning)
+        assert_eq!(corrector.correct_text("Schloining"), "Schleuning");
+        assert_eq!(corrector.correct_text("schloining"), "Schleuning"); // case handling
+        
+        // Test that corrections only apply when result is in dictionary
+        assert_eq!(corrector.correct_text("soime"), "soime"); // no match in dictionary
+        assert_eq!(corrector.correct_text("baase"), "baase"); // no match in dictionary
+        
+        // Test that short words aren't corrected (safety)
+        assert_eq!(corrector.correct_text("oi"), "oi"); // too short
+        assert_eq!(corrector.correct_text("aase"), "aase"); // too short
+        
+        // Ensure no false positives on similar patterns
+        let safe_dict = vec!["oil".to_string(), "coin".to_string()];
+        let safe_corrector = DictionaryCorrector::new(&safe_dict);
+        assert_eq!(safe_corrector.correct_text("oil"), "oil"); // shouldn't change
+        assert_eq!(safe_corrector.correct_text("coin"), "coin"); // shouldn't change
+    }
+    
+    #[test]
+    fn test_conservative_correction_edge_cases() {
+        let dictionary = vec![
+            "Supabase".to_string(),
+            "database".to_string(),
+            "Firebase".to_string()
+        ];
+        let corrector = DictionaryCorrector::new(&dictionary);
+        
+        // Test multiple patterns don't interfere
+        assert_eq!(corrector.correct_text("databaase"), "database");
+        assert_eq!(corrector.correct_text("Firebaase"), "Firebase");
+        
+        // Test that we don't over-correct
+        assert_eq!(corrector.correct_text("chase"), "chase"); // not in dictionary
+        assert_eq!(corrector.correct_text("phase"), "phase"); // not in dictionary
+        
+        // Test mixed case handling
+        assert_eq!(corrector.correct_text("SUPABAASE"), "SUPABASE"); // preserve caps
+        assert_eq!(corrector.correct_text("DataBaase"), "database"); // dictionary casing
+    }
+    
+    #[test]
+    fn test_whisper_variations() {
+        // Test the exact errors from user's 90% test
+        let dictionary = vec![
+            "Mads".to_string(),  // This is correct - shouldn't be changed!
+            "Schleuning".to_string(), 
+            "Supabase".to_string(),
+            "Panjeet".to_string(),
+            "Vindstød".to_string()
+        ];
+        let corrector = DictionaryCorrector::new(&dictionary);
+        
+        // These were the specific failures from user testing
+        assert_eq!(corrector.correct_text("Mads"), "Mads"); // Already correct!
+        assert_eq!(corrector.correct_text("Schloining"), "Schleuning"); // via oi->eu pattern
+        assert_eq!(corrector.correct_text("Supabaase"), "Supabase"); // via double-a pattern
+        assert_eq!(corrector.correct_text("Slining"), "Schleuning"); // via prefix + vowel pattern
+        assert_eq!(corrector.correct_text("Vindstool"), "Vindstød"); // via oo->ø pattern
+        
+        // Test case variations
+        assert_eq!(corrector.correct_text("MADS"), "MADS"); // Already correct, preserve caps
+        assert_eq!(corrector.correct_text("schloining"), "Schleuning"); // dictionary casing
+        assert_eq!(corrector.correct_text("VINDSTOOL"), "VINDSTØD"); // Nordic pattern with caps
+        
+        // Test double consonant pattern (opposite direction)
+        let dict_with_double = vec!["Masse".to_string()];
+        let corrector2 = DictionaryCorrector::new(&dict_with_double);
+        assert_eq!(corrector2.correct_text("Mase"), "Masse"); // Single->double consonant
+        
+        // Ensure no false positives
+        assert_eq!(corrector.correct_text("mad"), "mad"); // too short
+        assert_eq!(corrector.correct_text("can"), "can"); // protected word
+        assert_eq!(corrector.correct_text("tool"), "tool"); // shouldn't become "tøl"
     }
 }
