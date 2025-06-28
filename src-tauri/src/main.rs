@@ -487,6 +487,8 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
 
 // --- Main Setup ---
 fn main() {
+    // Initialize logging
+    env_logger::init();
     println!("Fethr startup - v{}", env!("CARGO_PKG_VERSION"));
 
     // --- Define the System Tray with Context Menu ---
