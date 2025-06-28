@@ -35,7 +35,8 @@ mod custom_prompts; // <-- ADDED THIS LINE
 mod dictionary_manager; // <<< ADD THIS MODULE DECLARATION
 mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
 mod supabase_manager; // <<< ADDED THIS LINE
-mod fuzzy_dictionary; // <<< ADDED FUZZY DICTIONARY MODULE
+mod dictionary_corrector; // <<< REPLACED: Simple dictionary correction module
+mod common_words; // <<< ADDED: Common words whitelist protection
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
