@@ -58,6 +58,7 @@ pub async fn sync_transcription_to_supabase(
 /// Get user statistics from Supabase
 #[tauri::command]
 pub async fn get_user_statistics(
+    app_handle: tauri::AppHandle,
     user_id: String,
     access_token: String,
 ) -> Result<DashboardStats, String> {
@@ -86,7 +87,7 @@ pub async fn get_user_statistics(
         .map_err(|e| format!("Failed to parse stats: {}", e))?;
     
     // Get recent transcriptions from local history using the command
-    let recent_transcriptions = match crate::transcription::get_history() {
+    let recent_transcriptions = match crate::transcription::get_history(app_handle.clone()).await {
         Ok(history) => history.into_iter()
             .take(5)
             .map(|entry| json!({
@@ -98,7 +99,7 @@ pub async fn get_user_statistics(
     };
     
     // Get dictionary size using the public command
-    let dictionary_size = match crate::dictionary_manager::get_dictionary() {
+    let dictionary_size = match crate::dictionary_manager::get_dictionary(app_handle) {
         Ok(dict) => dict.len() as i64,
         Err(_) => 0,
     };
