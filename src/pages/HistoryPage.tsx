@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { format } from 'date-fns';
@@ -14,11 +14,22 @@ function HistoryPage() {
   const [historyLoading, setHistoryLoading] = useState<boolean>(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
+  const lastUpdateTimeRef = useRef(0);
 
   // Load history function
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    setHistoryError(null);
+  const loadHistory = useCallback(async (skipLoadingState = false) => {
+    // Debounce: Skip if we just updated less than 2 seconds ago
+    const now = Date.now();
+    if (skipLoadingState && now - lastUpdateTimeRef.current < 2000) {
+      console.log('[History] Skipping update - too soon since last update');
+      return;
+    }
+    
+    lastUpdateTimeRef.current = now;
+    if (!skipLoadingState) {
+      setHistoryLoading(true);
+      setHistoryError(null);
+    }
     console.log("[History] Fetching history from backend...");
     try {
       const fetchedHistory = await invoke<HistoryEntry[]>('get_history');
@@ -34,7 +45,9 @@ function HistoryPage() {
         description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
       });
     } finally {
-      setHistoryLoading(false);
+      if (!skipLoadingState) {
+        setHistoryLoading(false);
+      }
     }
   }, [toast]);
 
@@ -48,7 +61,7 @@ function HistoryPage() {
       console.log("[History] Setting up history update listener.");
       const unlistenHistoryUpdate = await listen<void>('fethr-history-updated', () => {
         console.log('[History] Received fethr-history-updated event. Fetching history...');
-        loadHistory();
+        setTimeout(() => loadHistory(true), 1500); // Skip loading state
       });
       
       // Listen for edit latest transcription event
