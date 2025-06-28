@@ -4,7 +4,7 @@
 )]
 
 // Core Tauri imports
-use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent};
+use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, CustomMenuItem};
 
 // Standard library imports
 use std::path::PathBuf;
@@ -471,10 +471,34 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
 fn main() {
     println!("Fethr startup - v{}", env!("CARGO_PKG_VERSION"));
 
-    // --- Define the System Tray ---
-    // We define it here, but the icon is set in tauri.conf.json
-    // We can add menu items here later if needed.
-    let system_tray = SystemTray::new(); // Basic tray with no menu for now
+    // --- Define the System Tray with Context Menu ---
+    // Create context menu items for easy access to key features
+    let open_settings = CustomMenuItem::new("open_settings".to_string(), "Open Settings");
+    let view_history = CustomMenuItem::new("view_history".to_string(), "View History");
+    let edit_dictionary = CustomMenuItem::new("edit_dictionary".to_string(), "Edit Dictionary");
+    let separator1 = SystemTrayMenuItem::Separator;
+    let edit_last = CustomMenuItem::new("edit_last".to_string(), "Edit Last Transcription");
+    let toggle_pill = CustomMenuItem::new("toggle_pill".to_string(), "Toggle Recording Pill");
+    let separator2 = SystemTrayMenuItem::Separator;
+    let ai_actions = CustomMenuItem::new("ai_actions".to_string(), "AI Actions");
+    let account = CustomMenuItem::new("account".to_string(), "Account & Usage");
+    let separator3 = SystemTrayMenuItem::Separator;
+    let quit = CustomMenuItem::new("quit".to_string(), "Quit Fethr");
+    
+    let tray_menu = SystemTrayMenu::new()
+        .add_item(open_settings)
+        .add_item(view_history)
+        .add_item(edit_dictionary)
+        .add_native_item(separator1)
+        .add_item(edit_last)
+        .add_item(toggle_pill)
+        .add_native_item(separator2)
+        .add_item(ai_actions)
+        .add_item(account)
+        .add_native_item(separator3)
+        .add_item(quit);
+    
+    let system_tray = SystemTray::new().with_menu(tray_menu);
 
     let context = tauri::generate_context!(); // Regenerate context
 
@@ -719,20 +743,75 @@ fn main() {
                 }
             }
             SystemTrayEvent::RightClick { position: _, size: _, .. } => {
-                println!("[Tray Event] Right click detected (No action defined).");
-                // TODO: Implement context menu if needed later
+                println!("[Tray Event] Right click detected - context menu should appear automatically.");
             }
             SystemTrayEvent::DoubleClick { position: _, size: _, .. } => {
                 println!("[Tray Event] Double click detected (No action defined).");
             }
-            // --- Handle Menu Items Later ---
-            // SystemTrayEvent::MenuItemClick { id, .. } => {
-            //   match id.as_str() {
-            //     "quit" => { std::process::exit(0); }
-            //     "show_settings" => { ... show main window ... }
-            //     _ => {}
-            //   }
-            // }
+            SystemTrayEvent::MenuItemClick { id, .. } => {
+                println!("[Tray Event] Menu item clicked: {}", id);
+                let app_handle = app.handle();
+                
+                // Handle menu item clicks using tokio::spawn for async operations
+                match id.as_str() {
+                    "open_settings" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "general".to_string()).await {
+                                eprintln!("[Tray Menu Error] Failed to open settings: {}", e);
+                            }
+                        });
+                    }
+                    "view_history" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "history".to_string()).await {
+                                eprintln!("[Tray Menu Error] Failed to open history: {}", e);
+                            }
+                        });
+                    }
+                    "edit_dictionary" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "dictionary".to_string()).await {
+                                eprintln!("[Tray Menu Error] Failed to open dictionary: {}", e);
+                            }
+                        });
+                    }
+                    "edit_last" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = edit_latest_transcription(app_handle).await {
+                                eprintln!("[Tray Menu Error] Failed to edit latest transcription: {}", e);
+                            }
+                        });
+                    }
+                    "toggle_pill" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = toggle_recording_pill_visibility(app_handle).await {
+                                eprintln!("[Tray Menu Error] Failed to toggle pill visibility: {}", e);
+                            }
+                        });
+                    }
+                    "ai_actions" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "ai_actions".to_string()).await {
+                                eprintln!("[Tray Menu Error] Failed to open AI actions: {}", e);
+                            }
+                        });
+                    }
+                    "account" => {
+                        tokio::spawn(async move {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "account".to_string()).await {
+                                eprintln!("[Tray Menu Error] Failed to open account: {}", e);
+                            }
+                        });
+                    }
+                    "quit" => {
+                        println!("[Tray Event] Quit requested via context menu");
+                        app.exit(0);
+                    }
+                    _ => {
+                        println!("[Tray Event] Unknown menu item: {}", id);
+                    }
+                }
+            }
             _ => {} // Handle other tray events if necessary
         })
         .invoke_handler(tauri::generate_handler![
@@ -744,6 +823,9 @@ fn main() {
             transcription::get_history, // History command
             update_history_entry,
             show_settings_window_and_focus,
+            navigate_to_settings_section,
+            edit_latest_transcription,
+            toggle_recording_pill_visibility,
             ai_actions_manager::perform_ai_action, // <<< ADD NEW ONE
             get_default_prompt_for_action,
             custom_prompts::save_custom_prompt,
@@ -984,6 +1066,62 @@ async fn update_history_entry(app_handle: AppHandle, timestamp: String, new_text
     Ok(()) // Return success
 }
 // --- END Update History Command ---
+
+// --- Navigation Commands for System Tray Context Menu ---
+#[tauri::command]
+async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: String) -> Result<(), String> {
+    // First show and focus the settings window
+    show_settings_window_and_focus(app_handle.clone()).await?;
+    
+    // Then emit an event to navigate to the specific section
+    if let Some(main_window) = app_handle.get_window("main") {
+        if let Err(e) = main_window.emit("navigate-to-section", &section) {
+            return Err(format!("Failed to emit navigation event: {}", e));
+        }
+        println!("[RUST CMD] Navigated to settings section: {}", section);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn edit_latest_transcription(app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Show settings window and navigate to history section
+    show_settings_window_and_focus(app_handle.clone()).await?;
+    
+    // Emit event to edit latest transcription (this event already exists in the frontend)
+    if let Some(main_window) = app_handle.get_window("main") {
+        if let Err(e) = main_window.emit("fethr-edit-latest-history", "") {
+            return Err(format!("Failed to emit edit-latest event: {}", e));
+        }
+        println!("[RUST CMD] Triggered edit latest transcription");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn toggle_recording_pill_visibility(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(pill_window) = app_handle.get_window("pill") {
+        match pill_window.is_visible() {
+            Ok(is_visible) => {
+                if is_visible {
+                    if let Err(e) = pill_window.hide() {
+                        return Err(format!("Failed to hide pill window: {}", e));
+                    }
+                    println!("[RUST CMD] Recording pill hidden");
+                } else {
+                    if let Err(e) = pill_window.show() {
+                        return Err(format!("Failed to show pill window: {}", e));
+                    }
+                    println!("[RUST CMD] Recording pill shown");
+                }
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to check pill window visibility: {}", e))
+        }
+    } else {
+        Err("Pill window not found".to_string())
+    }
+}
 
 // --- ADD Command to Show/Focus Settings Window ---
 #[tauri::command]

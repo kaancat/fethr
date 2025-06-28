@@ -59,8 +59,9 @@ serve(async (req) => {
         event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
         console.log(`[WEBHOOK] ✅ Successfully verified webhook signature for event: ${event.type}`);
       } catch (err) {
-        console.error('[WEBHOOK] ❌ Webhook signature verification failed:', err.message);
-        return new Response(`Webhook signature verification failed: ${err.message}`, { status: 400 });
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        console.error('[WEBHOOK] ❌ Webhook signature verification failed:', errorMessage);
+        return new Response(`Webhook signature verification failed: ${errorMessage}`, { status: 400 });
       }
     } else {
       console.warn('[WEBHOOK] ⚠️ No webhook secret configured - accepting webhook without verification');
@@ -101,8 +102,9 @@ serve(async (req) => {
     });
   } catch (err) {
     console.error('Webhook error:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     return new Response(
-      `Webhook Error: ${err.message}`,
+      `Webhook Error: ${errorMessage}`,
       { status: 400 }
     );
   }
@@ -255,9 +257,10 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     console.log(`[WEBHOOK] ✅ Checkout session processing completed successfully for user: ${userId}`);
     
   } catch (stripeError) {
+    const errorMessage = stripeError instanceof Error ? stripeError.message : 'Unknown error';
     console.error('[WEBHOOK] ❌ Error retrieving subscription from Stripe:', {
       subscription_id: subscriptionId,
-      error: stripeError.message
+      error: errorMessage
     });
   }
 }
