@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { toast } from 'sonner';
-import { PlusCircle, Trash2, Loader2, AlertTriangle, ListX, Settings, Info } from 'lucide-react';
+import { PlusCircle, Trash2, Loader2, AlertTriangle, ListX, Info, Search, BarChart3, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -19,17 +19,27 @@ import { ScrollArea } from '@/components/ui/scroll-area';
  * transcription accuracy or other text-processing features by recognizing specific terms.
  */
 
-// --- NEW: Define Props interface ---
-interface DictionarySettingsTabProps {
-  currentModelName: string;
+interface DictionaryStats {
+  totalWords: number;
+  averageLength: number;
+  longestWord: string;
+  shortestWord: string;
+  lengthDistribution: Record<number, number>;
+  recentlyAdded: string[];
 }
 
-const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentModelName }) => {
+const DictionarySettingsTab: React.FC = () => {
   const [dictionaryWords, setDictionaryWords] = useState<string[]>([]);
   const [newWord, setNewWord] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false); // For add/delete operations
   const [isListLoading, setIsListLoading] = useState<boolean>(true); // For initial list loading
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'alphabetical' | 'reverse'>('alphabetical');
+  const [stats, setStats] = useState<DictionaryStats | null>(null);
+  const [showStats, setShowStats] = useState<boolean>(false);
+  const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
 
   const loadDictionary = useCallback(async () => {
     setIsListLoading(true);
@@ -37,6 +47,15 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
     try {
       const words = await invoke<string[]>('get_dictionary');
       setDictionaryWords(words.sort((a, b) => a.localeCompare(b)));
+      
+      // Load stats after dictionary is loaded
+      try {
+        const statsData = await invoke<DictionaryStats>('get_dictionary_stats');
+        setStats(statsData);
+      } catch (statsErr) {
+        console.error('Failed to load dictionary stats:', statsErr);
+        // Don't show error for stats, they're optional
+      }
     } catch (err) {
       console.error('Failed to load dictionary:', err);
       setError('Failed to load dictionary. Please try again.');
@@ -96,13 +115,120 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedWords.size === 0) return;
+    
+    const confirmDelete = window.confirm(`Delete ${selectedWords.size} selected words?`);
+    if (!confirmDelete) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Delete each selected word
+      for (const word of selectedWords) {
+        await invoke('delete_dictionary_word', { wordToDelete: word });
+      }
+      
+      toast.success(`Deleted ${selectedWords.size} words`);
+      setSelectedWords(new Set());
+      setIsSelectionMode(false);
+      loadDictionary();
+    } catch (err) {
+      console.error('Failed to delete words:', err);
+      const errorMessage = (err instanceof Error) ? err.message : String(err);
+      setError(`Failed to delete words: ${errorMessage}`);
+      toast.error(`Failed to delete words: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  // --- NEW: Determine if the notification should be shown ---
-  const showTinyModelNotification = useMemo(() => {
-    // Ensure currentModelName is a string and not undefined/null before calling .includes()
-    const modelIsTiny = typeof currentModelName === 'string' && currentModelName.includes("ggml-tiny.bin");
-    return modelIsTiny && dictionaryWords.length > 0;
-  }, [currentModelName, dictionaryWords]);
+  const toggleWordSelection = (word: string) => {
+    const newSelection = new Set(selectedWords);
+    if (newSelection.has(word)) {
+      newSelection.delete(word);
+    } else {
+      newSelection.add(word);
+    }
+    setSelectedWords(newSelection);
+  };
+
+  const selectAll = () => {
+    setSelectedWords(new Set(filteredWords));
+  };
+
+  const clearSelection = () => {
+    setSelectedWords(new Set());
+  };
+
+  // Filter and sort dictionary words
+  const filteredWords = useMemo(() => {
+    let filtered = dictionaryWords;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(word => 
+        word.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    // Apply sorting
+    const sorted = [...filtered];
+    if (sortBy === 'alphabetical') {
+      sorted.sort((a, b) => a.localeCompare(b));
+    } else if (sortBy === 'reverse') {
+      sorted.sort((a, b) => b.localeCompare(a));
+    }
+    
+    return sorted;
+  }, [dictionaryWords, searchQuery, sortBy]);
+
+  const handleExport = async () => {
+    try {
+      const words = await invoke<string[]>('get_dictionary');
+      const textContent = words.join('\n');
+      const blob = new Blob([textContent], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fethr-dictionary-${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Dictionary exported successfully');
+    } catch (error) {
+      console.error('Failed to export dictionary:', error);
+      toast.error('Failed to export dictionary');
+    }
+  };
+
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      // Split by newlines and filter out empty lines
+      const words = content.split(/\r?\n/).filter(line => line.trim().length > 0);
+      const jsonContent = JSON.stringify(words);
+      const addedCount = await invoke<number>('import_dictionary', { jsonContent });
+      
+      if (addedCount > 0) {
+        toast.success(`Imported ${addedCount} new words`);
+        loadDictionary(); // Reload to show new words
+      } else {
+        toast.info('No new words to import');
+      }
+    } catch (error) {
+      console.error('Failed to import dictionary:', error);
+      toast.error('Failed to import dictionary. Please check the file format.');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  };
 
   return (
     <div className="space-y-6 text-neutral-100">
@@ -112,20 +238,126 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
         This list helps improve accuracy for your specific terminology.
       </p>
 
-      {showTinyModelNotification && (
-        <div 
-            className="p-3 mb-4 text-sm text-yellow-400 bg-yellow-700/30 border border-yellow-600/50 rounded-md" 
-            role="alert"
+      {/* Search and Sort Controls */}
+      <div className="flex items-center space-x-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-neutral-500" />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search dictionary..."
+            className="pl-10 bg-neutral-800 border-neutral-700 placeholder-neutral-500 text-neutral-100 focus:ring-fethr"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'alphabetical' | 'reverse')}
+          className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 text-sm focus:ring-fethr focus:border-fethr"
         >
-            <div className="flex items-center">
-                <AlertTriangle className="h-5 w-5 mr-2 text-yellow-400" />
-                <strong className="font-medium">Tiny Model Performance:</strong>
+          <option value="alphabetical">A → Z</option>
+          <option value="reverse">Z → A</option>
+        </select>
+      </div>
+
+      {/* Dictionary Statistics */}
+      {stats && dictionaryWords.length > 0 && (
+        <div className="bg-neutral-800/30 border border-neutral-700/50 rounded-md p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              Dictionary Statistics
+            </h3>
+            <button
+              onClick={() => setShowStats(!showStats)}
+              className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            >
+              {showStats ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          
+          {showStats && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-neutral-500">Total words:</span>
+                  <span className="ml-2 text-neutral-200">{stats.totalWords}</span>
+                </div>
+                <div>
+                  <span className="text-neutral-500">Average length:</span>
+                  <span className="ml-2 text-neutral-200">{stats.averageLength.toFixed(1)} chars</span>
+                </div>
+                <div>
+                  <span className="text-neutral-500">Shortest:</span>
+                  <span className="ml-2 text-neutral-200">{stats.shortestWord}</span>
+                </div>
+                <div>
+                  <span className="text-neutral-500">Longest:</span>
+                  <span className="ml-2 text-neutral-200 break-all">{stats.longestWord}</span>
+                </div>
+              </div>
+              
+              {stats.recentlyAdded.length > 0 && (
+                <div>
+                  <span className="text-neutral-500">Recently added:</span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {stats.recentlyAdded.map((word, index) => (
+                      <span key={index} className="px-2 py-1 bg-neutral-700/50 rounded text-xs text-neutral-300">
+                        {word}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <p className="ml-7 mt-1">
-                The 'Tiny' model may have difficulty recognizing custom vocabulary. For better dictionary support, consider using a larger model (e.g., Base, Small) in General Settings.
-            </p>
+          )}
         </div>
       )}
+
+      {/* Import/Export Controls */}
+      <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleExport}
+          disabled={dictionaryWords.length === 0}
+          className="flex items-center gap-2 bg-[#8B9EFF]/10 text-[#ADC2FF] hover:bg-[#8B9EFF]/20 hover:text-white focus-visible:ring-[#8B9EFF]"
+        >
+          <Download className="w-4 h-4" />
+          Export Dictionary
+        </Button>
+        
+        <div className="relative">
+          <input
+            type="file"
+            accept=".txt"
+            onChange={handleImport}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            disabled={isLoading || isListLoading}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isLoading || isListLoading}
+            className="flex items-center gap-2 bg-[#8B9EFF]/10 text-[#ADC2FF] hover:bg-[#8B9EFF]/20 hover:text-white focus-visible:ring-[#8B9EFF] pointer-events-none"
+          >
+            <Upload className="w-4 h-4" />
+            Import Dictionary
+          </Button>
+        </div>
+        
+        <span className="text-xs text-neutral-500 ml-auto">
+          Text file • One word per line • Merges with existing
+        </span>
+      </div>
 
       <form onSubmit={handleAddWord} className="flex items-stretch space-x-3">
         <Input
@@ -162,9 +394,68 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
       )}
 
       <div className="mt-6">
-        <h3 className="text-lg font-medium text-neutral-200 mb-3">
-          Your Dictionary ({dictionaryWords.length})
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-medium text-neutral-200">
+            Your Dictionary ({dictionaryWords.length}{searchQuery && ` • ${filteredWords.length} shown`})
+          </h3>
+          
+          {dictionaryWords.length > 0 && (
+            <div className="flex items-center gap-2">
+              {isSelectionMode ? (
+                <>
+                  <span className="text-sm text-neutral-400">
+                    {selectedWords.size} selected
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={selectAll}
+                    className="text-xs text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50"
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearSelection}
+                    className="text-xs text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50"
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleBatchDelete}
+                    disabled={selectedWords.size === 0 || isLoading}
+                    className="text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                  >
+                    Delete Selected
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setIsSelectionMode(false);
+                      setSelectedWords(new Set());
+                    }}
+                    className="text-xs text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsSelectionMode(true)}
+                  className="text-xs text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/50"
+                >
+                  Select Mode
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
         
         {/* Non-panicky warning for large dictionaries */}
         {dictionaryWords.length > 30 && (
@@ -193,22 +484,39 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
         ) : (
           <ScrollArea className="h-64 w-full border border-neutral-700/80 rounded-md bg-neutral-800/50">
             <div className="p-1">
-              {dictionaryWords.map((word, index) => (
+              {filteredWords.map((word, index) => (
                 <div
-                  key={index} 
-                  className="flex items-center justify-between p-2.5 hover:bg-neutral-700/60 rounded-md group"
+                  key={`${word}-${index}`} 
+                  className={`flex items-center justify-between p-2.5 hover:bg-neutral-700/60 rounded-md group ${
+                    isSelectionMode && selectedWords.has(word) ? 'bg-neutral-700/40' : ''
+                  }`}
+                  onClick={() => isSelectionMode && toggleWordSelection(word)}
+                  style={{ cursor: isSelectionMode ? 'pointer' : 'default' }}
                 >
-                  <span className="text-neutral-100 text-sm">{word}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteWord(word)}
-                    disabled={isLoading}
-                    className="text-neutral-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-2"
-                    aria-label={`Delete ${word}`}
-                  >
-                    {isLoading && dictionaryWords.includes(word) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    {isSelectionMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedWords.has(word)}
+                        onChange={() => toggleWordSelection(word)}
+                        className="w-4 h-4 rounded border-neutral-600 bg-neutral-700 text-fethr focus:ring-fethr focus:ring-offset-0"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    <span className="text-neutral-100 text-sm">{word}</span>
+                  </div>
+                  {!isSelectionMode && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteWord(word)}
+                      disabled={isLoading}
+                      className="text-neutral-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity px-2"
+                      aria-label={`Delete ${word}`}
+                    >
+                      {isLoading && dictionaryWords.includes(word) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -216,32 +524,6 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
         )}
       </div>
 
-      {/* Simple Dictionary Information */}
-      <div className="mt-8 pt-6 border-t border-neutral-700/60">
-        <div className="flex items-center space-x-2 mb-4">
-          <Settings className="h-5 w-5 text-neutral-400" />
-          <h3 className="text-lg font-medium text-neutral-200">Dictionary Correction</h3>
-        </div>
-        
-        <p className="text-sm text-neutral-400 mb-4 max-w-2xl">
-          Your dictionary automatically corrects mis-transcribed words during transcription. 
-          Works with all model sizes for improved accuracy on technical terms.
-        </p>
-
-        <div className="bg-neutral-800/50 border border-neutral-700/60 rounded-lg p-4">
-          <div className="flex items-center space-x-3">
-            <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-            <div>
-              <p className="text-sm font-medium text-neutral-200">
-                Dictionary correction is always enabled
-              </p>
-              <p className="text-xs text-neutral-500 mt-1">
-                Exact matching for your custom vocabulary
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
       
       {/* Custom scrollbar styling (applied globally or via a CSS file ideally) */}
       {/* This is a conceptual comment; actual styles would be in CSS. */}

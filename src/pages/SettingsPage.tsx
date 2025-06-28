@@ -13,13 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Loader2, Crown, RefreshCw, Copy } from 'lucide-react';
-import HistoryItemEditor from '../components/HistoryItemEditor';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { LoginForm } from '@/components/LoginForm';
-import DictionarySettingsTab from '../components/settings/DictionarySettingsTab';
-import AppearanceSettingsTab from '../components/settings/AppearanceSettingsTab';
 import SettingsSection from '../components/SettingsSection';
 
 // Language options for the dropdown
@@ -67,13 +64,9 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const [isSaving, setIsSaving] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     
-    // History state
-    const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
-    const [historyLoading, setHistoryLoading] = useState<boolean>(true);
-    const [historyError, setHistoryError] = useState<string | null>(null);
     
-    // Section state
-    const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary'>('general');
+    // Tab state
+    const [activeTab, setActiveTab] = useState<'general' | 'ai_actions' | 'account'>('general');
     const [lastPaymentCheck, setLastPaymentCheck] = useState<number>(0);
 
     // State for viewing AI action prompts
@@ -158,70 +151,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         }
     }, []);
 
-    // Define loadHistory function with useCallback
-    const loadHistory = useCallback(async () => {
-        setHistoryLoading(true);
-        setHistoryError(null);
-        console.log("[History] Fetching history from backend...");
-        try {
-            const fetchedHistory = await invoke<HistoryEntry[]>('get_history');
-            console.log(`[History] Fetched ${fetchedHistory.length} entries.`);
-            setHistoryEntries(fetchedHistory);
-        } catch (err) {
-            console.error('[History] Error loading history:', err);
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            setHistoryError(`Failed to load history: ${errorMsg}`);
-            toast({
-                variant: "destructive",
-                title: "History Load Failed",
-                description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
-            });
-        } finally {
-            setHistoryLoading(false);
-        }
-    }, [toast]); // Empty dependency array for useCallback
-
-    // Fetch history entries and set up update listener
-    useEffect(() => {
-        async function setupHistoryAndListener() {
-            // Initial history load
-            await loadHistory();
-            
-            // Set up listener for history updates
-            console.log("[History] Setting up history update listener.");
-            const unlistenHistoryUpdate = await listen<void>('fethr-history-updated', () => {
-                console.log('[SaveDebug] Received fethr-history-updated event. Fetching history...');
-                loadHistory(); // Call the existing load function
-            });
-            console.log("[History] History update listener setup.");
-            
-            // Return cleanup function
-            return () => {
-                console.log("[History] Cleaning up history update listener.");
-                unlistenHistoryUpdate();
-            };
-        }
-        
-        setupHistoryAndListener();
-    }, [loadHistory]); // Add loadHistory to dependency array
-
-    const copyHistoryItem = useCallback((text: string) => {
-        navigator.clipboard.writeText(text)
-            .then(() => {
-                toast({
-                    title: "Copied!",
-                    description: "Text copied to clipboard.",
-                });
-            })
-            .catch(err => {
-                console.error("Failed to copy history text:", err);
-                toast({
-                    variant: "destructive",
-                    title: "Copy Failed",
-                    description: "Could not copy text to clipboard.",
-                });
-            });
-    }, [toast]);
 
     const handleSettingChange = (key: keyof AppSettings, value: string | boolean) => {
         console.log(`Updating setting: ${key} = ${value}`);
@@ -263,78 +192,8 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         }
     };
 
-    const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
 
-    // --- ADD HANDLERS for Edit --- 
-    const handleCancelEdit = () => setEditingEntry(null);
-
-    // --- REPLACE handleSaveEdit with Debug Version ---
-    const handleSaveEdit = async (timestamp: string, newText: string) => {
-        if (!newText.trim()) {
-            toast({ variant: "destructive", title: "Save Error", description: "Transcription text cannot be empty." });
-            return;
-        }
-        // Removed toast.loading() call here
-        try {
-            await invoke('update_history_entry', { timestamp, newText });
-            toast({ title: "History Updated", description: "The history entry has been updated." });
-        } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            toast({ variant: "destructive", title: "Update Failed", description: `Failed to save update: ${errorMsg}` });
-        } finally {
-            setEditingEntry(null);
-        }
-    };
-    // --- END REPLACE ---
-
-    // --- Refined useEffect for Edit Latest Event --- 
-    useEffect(() => {
-        console.log("[SettingsPage] Setting up listener for fethr-edit-latest-history.");
-
-        // Make the callback async
-        const unlistenEditLatest = listen<void>('fethr-edit-latest-history', async (event) => {
-            console.log("[SettingsPage] Received fethr-edit-latest-history event!", event);
-
-            try {
-                // --- Fetch latest history DIRECTLY --- 
-                console.log("[SettingsPage] Event received. Fetching latest history BEFORE editing...");
-                // Invoke get_history directly for guaranteed freshness *within this callback scope*
-                const freshHistory = await invoke<HistoryEntry[]>('get_history');
-                console.log(`[SettingsPage] Fresh history fetched (${freshHistory.length} entries). Now finding latest...`);
-
-                // --- Now find the first entry (assuming newest first) --- 
-                if (freshHistory && freshHistory.length > 0) {
-                    const latestEntry = freshHistory[0]; // Get the newest entry
-                    console.log("[SettingsPage] Found latest entry to edit:", latestEntry.timestamp);
-                    setActiveSection('history'); // Switch to history tab
-                    setEditingEntry(latestEntry); // Set the SPECIFIC entry to edit
-                } else {
-                    console.warn("[SettingsPage] Received edit latest event, but FRESH history list is empty.");
-                    // Fallback: Just switch to history tab
-                    setActiveSection('history');
-                    setEditingEntry(null); // Ensure no previous edit state persists
-                }
-
-            } catch (error) {
-                 console.error("[SettingsPage] Error during immediate edit handling (fetching/finding entry):", error);
-                 setActiveSection('history'); // Still switch tab on error
-                 setEditingEntry(null);
-                 toast({
-                    variant: "destructive",
-                    title: "Load Error",
-                    description: "Failed to load entry for editing.",
-                 });
-            }
-        });
-
-        // Cleanup function
-        return () => {
-             console.log("[SettingsPage] Cleaning up fethr-edit-latest-history listener.");
-             unlistenEditLatest.then(f => f());
-        };
-
-    }, [setActiveSection, setEditingEntry]); // Update dependencies - we don't directly use historyEntries state *within* the listener logic anymore for finding the item, but loadHistory might be needed if it does more than just fetch. Let's keep it minimal for now.
-    // --- END REFINED useEffect --- 
+ 
 
     // Navigation event listener for system tray context menu
     useEffect(() => {
@@ -342,8 +201,8 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
         const unlistenNavigate = listen<string>('navigate-to-section', (event) => {
             console.log("[SettingsPage] Received navigate-to-section event:", event.payload);
-            const section = event.payload as 'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary';
-            setActiveSection(section);
+            const tab = event.payload as 'general' | 'ai_actions' | 'account';
+            setActiveTab(tab);
         });
 
         // Cleanup function
@@ -351,7 +210,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             console.log("[SettingsPage] Cleaning up navigate-to-section listener.");
             unlistenNavigate.then(f => f());
         };
-    }, [setActiveSection]);
+    }, [setActiveTab]);
 
     // Define DEFAULT_AI_ACTIONS
     const DEFAULT_AI_ACTIONS = [
@@ -577,7 +436,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
     // --- Force refresh when switching to account tab (backup mechanism) ---
     useEffect(() => {
-        if (activeSection === 'account' && user) {
+        if (activeTab === 'account' && user) {
             const now = Date.now();
             const timeSinceLastCheck = now - lastPaymentCheck;
             
@@ -589,7 +448,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             
             setLastPaymentCheck(now);
         }
-    }, [activeSection, user, fetchSubscriptionUsage, lastPaymentCheck]);
+    }, [activeTab, user, fetchSubscriptionUsage, lastPaymentCheck]);
 
     // Handle subscription upgrade
     const handleInitiateSubscription = useCallback(async () => {
@@ -650,106 +509,64 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
     // Render settings form (even if there was a non-fatal error during load/save)
     return (
-         <div className="flex flex-col items-center justify-start min-h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409] p-8 font-sans text-white relative shadow-lg shadow-[#A6F6FF]/5">
-            
-            {/* Replaced CardHeader - Removed max-width */}
-            <div className="pt-6 w-full mx-auto mb-4"> 
-                {/* Replaced CardTitle */}
-                <h1 className="text-xl font-semibold text-white tracking-wide flex items-center">
-                    fethr settings
-                </h1>
-                {/* Replaced CardDescription */}
-                <p className="text-gray-400">
-                    Configure transcription model, language, and behavior.
-                </p>
-            </div>
-            
-            {/* Flex container for sidebar and content - Removed max-width */}
-            <div className="flex w-full mx-auto">
-                {/* Sidebar Navigation */}
-                <div className="w-48 flex-shrink-0 border-r border-[#A6F6FF]/10 pt-2 px-4 space-y-2">
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('general')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'general'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                    >
-                        General
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('history')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'history'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                    >
-                        History Editor
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('ai_actions')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'ai_actions'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                    >
-                        AI Actions
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('dictionary')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'dictionary'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                    >
-                        Dictionary
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('account')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'account'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                    >
-                        Account
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => setActiveSection('appearance')}
-                        className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
-                            activeSection === 'appearance'
-                                ? 'bg-[#A6F6FF]/10 text-white'
-                                : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
-                        }`}
-                        title="Appearance Settings"
-                    >
-                        Appearance
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        disabled
-                        onClick={() => {/* Placeholder */}}
-                        className="w-full justify-start text-left px-3 py-2 rounded bg-transparent text-gray-600 cursor-not-allowed"
-                        title="Coming soon"
-                    >
-                        Audio
-                    </Button>
+        <div className="h-full flex flex-col p-8">
+            <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
+                <div>
+                    <h1 className="text-2xl font-semibold text-white mb-2">Settings</h1>
+                    <p className="text-neutral-400">
+                        Configure your Fethr experience
+                    </p>
                 </div>
                 
-                {/* Content Area - Added height constraint for proper scrolling */}
-                <div className="flex-grow px-6 pt-2 pb-4 h-[calc(100vh-120px)] overflow-hidden">
-                    {/* General Settings Section */}
-                    {activeSection === 'general' && (
+                {/* Tab Navigation */}
+                <div className="border-b border-neutral-800">
+                    <nav className="flex space-x-8">
+                        <button
+                            onClick={() => setActiveTab('general')}
+                            className={`py-2 px-1 relative font-medium text-sm transition-colors ${
+                                activeTab === 'general'
+                                    ? 'text-white'
+                                    : 'text-neutral-400 hover:text-neutral-200'
+                            }`}
+                        >
+                            General
+                            {activeTab === 'general' && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('ai_actions')}
+                            className={`py-2 px-1 relative font-medium text-sm transition-colors ${
+                                activeTab === 'ai_actions'
+                                    ? 'text-white'
+                                    : 'text-neutral-400 hover:text-neutral-200'
+                            }`}
+                        >
+                            AI & Actions
+                            {activeTab === 'ai_actions' && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('account')}
+                            className={`py-2 px-1 relative font-medium text-sm transition-colors ${
+                                activeTab === 'account'
+                                    ? 'text-white'
+                                    : 'text-neutral-400 hover:text-neutral-200'
+                            }`}
+                        >
+                            Account
+                            {activeTab === 'account' && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                            )}
+                        </button>
+                    </nav>
+                </div>
+                
+                {/* Tab Content - Scrollable area */}
+                <div className="mt-6 flex-1 overflow-y-auto">
+                    {/* General Tab */}
+                    {activeTab === 'general' && (
                         <SettingsSection>
                             <h2 className="text-lg font-semibold mb-4 text-white">General Settings</h2>
                             
@@ -825,6 +642,42 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         />
                                     ) : <p className="text-gray-400">...</p>}
                                 </div>
+                                
+                                {/* Appearance Settings */}
+                                <div className="pt-6 mt-6 border-t border-neutral-800">
+                                    <h3 className="text-md font-semibold mb-4 text-neutral-200">Appearance</h3>
+                                    <div className="flex items-center justify-between">
+                                        <Label htmlFor="pill-enabled-switch" className="text-gray-300 flex flex-col">
+                                            <span>Show Recording Pill</span>
+                                            <span className="text-xs text-gray-400">Toggle the visibility of the always-on recording pill.</span>
+                                        </Label>
+                                        {settings ? (
+                                            <Switch
+                                                id="pill-enabled-switch"
+                                                checked={settings.pill_enabled}
+                                                onCheckedChange={(checked: boolean) => handleSettingChange('pill_enabled', checked)}
+                                                disabled={isLoading || isSaving}
+                                                className="data-[state=checked]:bg-[#A6F6FF]/80 data-[state=unchecked]:bg-gray-600"
+                                            />
+                                        ) : <p className="text-gray-400">...</p>}
+                                    </div>
+                                </div>
+                                
+                                {/* Audio Settings (Placeholder) */}
+                                <div className="pt-6 mt-6 border-t border-neutral-800">
+                                    <h3 className="text-md font-semibold mb-4 text-neutral-200">Audio</h3>
+                                    <div className="space-y-4">
+                                        <div className="opacity-50">
+                                            <Label className="text-gray-300">Microphone Input</Label>
+                                            <Select disabled>
+                                                <SelectTrigger className="w-full bg-[#0A0F1A] border border-[#A6F6FF]/30 text-gray-500">
+                                                    <SelectValue placeholder="Default Microphone (Coming Soon)" />
+                                                </SelectTrigger>
+                                            </Select>
+                                        </div>
+                                        <p className="text-xs text-gray-500">Audio device selection will be available in a future update.</p>
+                                    </div>
+                                </div>
                             </div>
                             
                             {/* Footer Buttons - No longer CardFooter */}
@@ -851,78 +704,9 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                             </div>
                         </SettingsSection>
                     )}
-                    
-                    {/* History Section */}
-                    {activeSection === 'history' && (
-                        <SettingsSection>
-                            <h2 className="text-lg font-semibold mb-4 text-white">History Editor</h2>
-                                <div className="space-y-4">
-                                    {historyLoading && (
-                                        <div className="flex items-center justify-center text-gray-400 py-8">
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading history...
-                                        </div>
-                                    )}
-                                    {historyError && (
-                                        <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-2 rounded border border-[#FF4D6D]/30">{historyError}</p>
-                                    )}
-                                    
-                                    {!historyLoading && !historyError && (
-                                        <>
-                                          {editingEntry ? (
-                                            <HistoryItemEditor
-                                                key={editingEntry.timestamp}
-                                                entry={editingEntry}
-                                                onSave={handleSaveEdit}
-                                                onCancel={handleCancelEdit}
-                                            />
-                                          ) : (
-                                            historyEntries.length > 0 ? (
-                                                historyEntries.map((entry) => (
-                                                    <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
-                                                        <div className="flex justify-between items-center">
-                                                            <span className="text-xs text-gray-400 font-mono">
-                                                                {format(new Date(entry.timestamp), 'yyyy-MM-dd HH:mm:ss')}
-                                                            </span>
-                                                            <div className="flex space-x-1 flex-shrink-0">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="w-6 h-6 text-gray-400 hover:text-green-400 hover:bg-green-900/30"
-                                                                    onClick={() => {
-                                                                        setEditingEntry(entry);
-                                                                    }}
-                                                                    title="Edit Transcription"
-                                                                >
-                                                                    <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5" />
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
-                                                                    onClick={() => copyHistoryItem(entry.text)}
-                                                                    title="Copy Transcription"
-                                                                >
-                                                                    <Copy className="w-3 h-3" />
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                        <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
-                                                            {entry.text}
-                                                        </p>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <p className="text-center text-gray-400 py-8">No transcription history yet.</p>
-                                            )
-                                          )}
-                                        </>
-                                    )}
-                                </div>
-                        </SettingsSection>
-                    )}
 
                     {/* AI Actions Section */}
-                    {activeSection === 'ai_actions' && (
+                    {activeTab === 'ai_actions' && (
                         <SettingsSection>
                                 <h2 className="text-lg font-semibold mb-4 text-white">AI Action Settings</h2>
                                 <p className="text-sm text-gray-400 mb-6">
@@ -1051,25 +835,10 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                         </SettingsSection>
                     )}
 
-                    {/* Dictionary Settings Section */}
-                    {activeSection === 'dictionary' && (
-                        <SettingsSection>
-                            <DictionarySettingsTab currentModelName={settings?.model_name || ''} />
-                        </SettingsSection>
-                    )}
 
-                    {/* Appearance Settings Section - NEW CASE */}
-                    {activeSection === 'appearance' && (
-                        <SettingsSection>
-                            <AppearanceSettingsTab 
-                                settings={settings} 
-                                onSettingChange={handleSettingChange} 
-                            />
-                        </SettingsSection>
-                    )}
 
                     {/* Account Section */} 
-                    {activeSection === 'account' && (
+                    {activeTab === 'account' && (
                         <SettingsSection>
                             <h2 className="text-lg font-semibold mb-6 text-white">
                                 Account & Subscription
@@ -1225,13 +994,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     )}
                 </div>
             </div>
-            
-            {/* Positioned Icon */}
-            <img
-                src="/feather-logo.png" // Make sure this path is correct relative to your public folder
-                alt="fethr icon"
-                className="absolute bottom-6 left-6 w-6 h-6 opacity-30 filter drop-shadow-[0_0_3px_#A6F6FF]" // Adjust size, position, opacity
-            />
         </div>
     );
 }

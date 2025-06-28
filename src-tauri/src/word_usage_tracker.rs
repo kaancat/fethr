@@ -64,7 +64,7 @@ impl WordUsageTracker {
         let recent_cutoff = Utc::now() - Duration::days(RECENT_DAYS);
         
         // Create a map of lowercase dictionary words to their original casing
-        let dict_map: HashMap<String, &String> = dictionary_words.iter()
+        let _dict_map: HashMap<String, &String> = dictionary_words.iter()
             .map(|w| (w.to_lowercase(), w))
             .collect();
         
