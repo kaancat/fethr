@@ -119,10 +119,10 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
         >
             <div className="flex items-center">
                 <AlertTriangle className="h-5 w-5 mr-2 text-yellow-400" />
-                <strong className="font-medium">Note for '{currentModelName}' Model Users:</strong>
+                <strong className="font-medium">Tiny Model Performance:</strong>
             </div>
             <p className="ml-7 mt-1">
-                To ensure stability, dictionary prompts are currently disabled when using the 'Tiny' model variants. For full dictionary support, please select a larger model (e.g., Base, Small) in General Settings.
+                The 'Tiny' model may have difficulty recognizing custom vocabulary. For better dictionary support, consider using a larger model (e.g., Base, Small) in General Settings.
             </p>
         </div>
       )}
@@ -222,7 +222,7 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
                 Dictionary correction is always enabled
               </p>
               <p className="text-xs text-neutral-500 mt-1">
-                Simple, reliable correction with zero configuration required
+                Exact matching for your custom vocabulary
               </p>
             </div>
           </div>

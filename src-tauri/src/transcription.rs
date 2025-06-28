@@ -251,8 +251,38 @@ pub async fn transcribe_local_audio_impl(
     };
 
     let initial_prompt_string = if !dictionary_words.is_empty() {
-        let prompt = dictionary_words.join(". ") + ".";
-        log::info!("[Transcription] Using initial prompt from dictionary: \"{}\"", prompt);
+        // Enhanced prompt strategy with better context
+        // Group words by likely type for better recognition
+        let mut names = Vec::new();
+        let mut tech_terms = Vec::new();
+        let mut other = Vec::new();
+        
+        for word in &dictionary_words {
+            // Simple heuristic: capitalized words are likely names
+            if word.chars().next().map_or(false, |c| c.is_uppercase()) {
+                names.push(word.clone());
+            } else if word.len() > 6 {
+                // Longer words are often technical terms
+                tech_terms.push(word.clone());
+            } else {
+                other.push(word.clone());
+            }
+        }
+        
+        let mut prompt_parts = Vec::new();
+        
+        if !names.is_empty() {
+            prompt_parts.push(format!("Names: {}", names.join(", ")));
+        }
+        if !tech_terms.is_empty() {
+            prompt_parts.push(format!("Technical terms: {}", tech_terms.join(", ")));
+        }
+        if !other.is_empty() {
+            prompt_parts.push(format!("Words: {}", other.join(", ")));
+        }
+        
+        let prompt = prompt_parts.join(". ") + ".";
+        log::info!("[Transcription] Using enhanced prompt from dictionary: \"{}\"", prompt);
         prompt
     } else {
         String::new()
@@ -442,35 +472,16 @@ pub async fn transcribe_local_audio_impl(
     
     command.arg("-nt"); // No Timestamps flag - RETAINED
 
-    // --- RE-ENABLE PROMPT ADDITION ---
+    // --- ENHANCED PROMPT ADDITION ---
     if !initial_prompt_string.is_empty() {
-        // Get the current model name from your config settings
-        // model_name_string is already fetched and in scope
-        let current_model_name_str = &model_name_string; 
-
-        let mut use_this_prompt = true; 
-
-        // Conditional logic based on model name
-        if current_model_name_str.contains("ggml-tiny.bin") {
-            log::warn!( 
-                "[Transcription] Tiny model selected. Initial prompt from dictionary will be SKIPPED to ensure stability. Select a larger model (e.g., base) to use dictionary prompts. Original prompt was ({} chars): \"{}\"",
-                initial_prompt_string.chars().count(),
-                initial_prompt_string 
-            );
-            use_this_prompt = false;
-        }
-        // For non-tiny models, use_this_prompt remains true, so the prompt will be used.
-
-        if use_this_prompt {
-            log::info!(
-                "[Transcription] Using initial prompt ({} chars) for model '{}': \"{}\"", 
-                initial_prompt_string.chars().count(),
-                current_model_name_str,
-                initial_prompt_string 
-            ); 
-            command.arg("--prompt").arg(&initial_prompt_string);
-        }
-        // No 'else' needed here as the log for skipping tiny is specific enough.
+        // Always use prompts for all models - removing tiny model restriction
+        log::info!(
+            "[Transcription] Using initial prompt ({} chars) for model '{}': \"{}\"", 
+            initial_prompt_string.chars().count(),
+            model_name_string,
+            initial_prompt_string 
+        ); 
+        command.arg("--prompt").arg(&initial_prompt_string);
     } else {
         log::info!("[Transcription] Dictionary is empty or failed to load; no prompt will be passed.");
     }
@@ -705,7 +716,8 @@ fn whisper_output_trim(output: &str, app_handle: &AppHandle) -> String {
     // Apply simple dictionary correction if dictionary is available
     match dictionary_manager::get_dictionary(app_handle.clone()) {
         Ok(dict) if !dict.is_empty() => {
-            println!("[RUST DEBUG] Applying simple dictionary correction with {} words", dict.len());
+            // Use the simple dictionary corrector for now
+            println!("[RUST DEBUG] Applying simple dictionary correction with {} dictionary words", dict.len());
             crate::dictionary_corrector::correct_text_with_dictionary(&cleaned, &dict)
         },
         Ok(_) => {

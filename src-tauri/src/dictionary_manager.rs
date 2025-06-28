@@ -60,8 +60,7 @@ pub fn save_dictionary_to_file(app_handle: AppHandle, words: Vec<String>) -> Res
     println!("[DictionaryManager CMD] save_dictionary_to_file called with {} words.", words.len());
     let mut cache = DICTIONARY_CACHE.lock().unwrap();
     *cache = words;
-    // Ensure new words are also processed (lowercase, sorted, deduped)
-    cache.iter_mut().for_each(|word| *word = word.to_lowercase());
+    // Sort and remove duplicates while preserving original case
     cache.sort_unstable();
     cache.dedup();
     drop(cache); // Release lock before calling internal save which also locks
