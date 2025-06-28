@@ -752,52 +752,52 @@ fn main() {
                 println!("[Tray Event] Menu item clicked: {}", id);
                 let app_handle = app.app_handle();
                 
-                // Handle menu item clicks using tokio::spawn for async operations
+                // Handle menu item clicks using tauri::async_runtime for async operations
                 match id.as_str() {
                     "open_settings" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = navigate_to_settings_section(app_handle, "general".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open settings: {}", e);
                             }
                         });
                     }
                     "view_history" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = navigate_to_settings_section(app_handle, "history".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open history: {}", e);
                             }
                         });
                     }
                     "edit_dictionary" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = navigate_to_settings_section(app_handle, "dictionary".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open dictionary: {}", e);
                             }
                         });
                     }
                     "edit_last" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = edit_latest_transcription(app_handle).await {
                                 eprintln!("[Tray Menu Error] Failed to edit latest transcription: {}", e);
                             }
                         });
                     }
                     "toggle_pill" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = toggle_recording_pill_visibility(app_handle).await {
                                 eprintln!("[Tray Menu Error] Failed to toggle pill visibility: {}", e);
                             }
                         });
                     }
                     "ai_actions" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = navigate_to_settings_section(app_handle, "ai_actions".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open AI actions: {}", e);
                             }
                         });
                     }
                     "account" => {
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             if let Err(e) = navigate_to_settings_section(app_handle, "account".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open account: {}", e);
                             }
