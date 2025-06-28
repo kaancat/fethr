@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
+import { emit } from '@tauri-apps/api/event';
 
 export default function PaymentSuccessPage() {
     const navigate = useNavigate();
@@ -18,8 +19,8 @@ export default function PaymentSuccessPage() {
                     return;
                 }
 
-                // Wait a moment for webhook to process
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                // Wait longer for webhook to process (Stripe webhooks can take a few seconds)
+                await new Promise(resolve => setTimeout(resolve, 3000));
 
                 // Check subscription status
                 const { data: subscription, error } = await supabase
@@ -36,18 +37,27 @@ export default function PaymentSuccessPage() {
                     setSubscriptionStatus('active');
                     toast.success('Welcome to Fethr Pro!');
                     
-                    // Redirect to main app after 3 seconds
+                    // Emit subscription refresh events to update UI across the app
+                    try {
+                        await emit('subscription-updated', { userId: session.user.id });
+                        await emit('word_usage_updated', { userId: session.user.id });
+                        console.log('✅ Subscription refresh events emitted successfully');
+                    } catch (error) {
+                        console.error('❌ Failed to emit subscription events:', error);
+                    }
+                    
+                    // Redirect to main app after 4 seconds (giving more time to see success message)
                     setTimeout(() => {
                         navigate('/');
-                    }, 3000);
+                    }, 4000);
                 } else {
                     // Subscription might still be processing
                     setSubscriptionStatus('pending');
                     
-                    // Try again in a few seconds
+                    // Try again with longer interval (webhooks can be slow)
                     setTimeout(() => {
                         verifySubscription();
-                    }, 3000);
+                    }, 5000);
                 }
             } catch (error) {
                 console.error('Error in verification:', error);

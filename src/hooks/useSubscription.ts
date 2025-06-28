@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { listen } from '@tauri-apps/api/event';
 
 interface Subscription {
     id: string;
@@ -89,11 +90,22 @@ export function useSubscription(userId: string | undefined): UseSubscriptionRetu
 
         setRealtimeChannel(channel);
 
+        // Listen for subscription update events (e.g., from payment success)
+        const subscriptionUpdateListener = listen('subscription-updated', (event) => {
+            console.log('🔄 Subscription update event received:', event);
+            const payload = event.payload as { userId: string };
+            if (payload.userId === userId) {
+                console.log('✅ Refetching subscription data due to update event');
+                fetchSubscription();
+            }
+        });
+
         // Cleanup
         return () => {
             if (channel) {
                 supabase.removeChannel(channel);
             }
+            subscriptionUpdateListener.then(unlisten => unlisten());
         };
     }, [userId]);
 
