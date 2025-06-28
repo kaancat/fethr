@@ -16,7 +16,6 @@ use chrono::{DateTime, Utc}; // For timestamp in history entries
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
 use crate::dictionary_manager;
-use crate::fuzzy_dictionary;
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -693,7 +692,7 @@ fn cleanup_files(original_temp_wav: &Path, converted_temp_wav: Option<&Path>) {
     }
 }
 
-// Helper to clean up the output from Whisper and apply fuzzy dictionary correction
+// Helper to clean up the output from Whisper and apply simple dictionary correction
 fn whisper_output_trim(output: &str, app_handle: &AppHandle) -> String {
     // First, apply basic cleanup
     let cleaned = output.trim()
@@ -703,45 +702,23 @@ fn whisper_output_trim(output: &str, app_handle: &AppHandle) -> String {
         .trim()
         .to_string();
     
-    // Apply fuzzy dictionary correction if enabled and dictionary is available
-    if should_apply_fuzzy_correction() {
-        match dictionary_manager::get_dictionary(app_handle.clone()) {
-            Ok(dict) if !dict.is_empty() => {
-                println!("[RUST DEBUG] Applying fuzzy dictionary correction with {} words", dict.len());
-                // Use panic-safe fuzzy correction with comprehensive error handling
-                match std::panic::catch_unwind(|| {
-                    fuzzy_dictionary::correct_text_with_dictionary(&cleaned, &dict)
-                }) {
-                    Ok(corrected_text) => corrected_text,
-                    Err(_) => {
-                        println!("[RUST ERROR] Fuzzy dictionary correction panicked, falling back to original text");
-                        cleaned
-                    }
-                }
-            },
-            Ok(_) => {
-                println!("[RUST DEBUG] Dictionary is empty, skipping fuzzy correction");
-                cleaned
-            },
-            Err(e) => {
-                println!("[RUST DEBUG] Failed to load dictionary for fuzzy correction: {}", e);
-                cleaned
-            }
+    // Apply simple dictionary correction if dictionary is available
+    match dictionary_manager::get_dictionary(app_handle.clone()) {
+        Ok(dict) if !dict.is_empty() => {
+            println!("[RUST DEBUG] Applying simple dictionary correction with {} words", dict.len());
+            crate::dictionary_corrector::correct_text_with_dictionary(&cleaned, &dict)
+        },
+        Ok(_) => {
+            println!("[RUST DEBUG] Dictionary is empty, skipping correction");
+            cleaned
+        },
+        Err(e) => {
+            println!("[RUST DEBUG] Failed to load dictionary: {}", e);
+            cleaned
         }
-    } else {
-        println!("[RUST DEBUG] Fuzzy correction disabled, using cleaned text");
-        cleaned
     }
 }
 
-// Helper to determine if fuzzy correction should be applied
-fn should_apply_fuzzy_correction() -> bool {
-    if let Ok(settings) = config::SETTINGS.lock() {
-        settings.fuzzy_correction.enabled
-    } else {
-        false // Default to disabled if settings can't be read
-    }
-}
 
 // Command to retrieve transcription history
 #[tauri::command]

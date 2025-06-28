@@ -41,135 +41,349 @@ npm run lint
 npm run typecheck
 ```
 
-## Planned Feature: Fuzzy Dictionary Correction
+## Current Issues with Dictionary Correction
 
 ### Problem Statement
-Dictionary mode currently only works with larger Whisper models (small/medium/large) due to stability issues with tiny models. Users want accurate technical term transcription without the performance penalty of larger models.
+The current dictionary correction implementation is producing severe false positives, making the app unusable when dictionary mode is enabled. Common words like "can" and "con" are being incorrectly corrected to random names from the dictionary (e.g., "can" → "Kaan"). This breaks user trust and makes transcriptions worse rather than better.
 
-### Proposed Solution
-Implement post-processing fuzzy matching to correct transcription errors using the existing dictionary, working with all model sizes including tiny.
+### Root Causes
+1. **Overly aggressive fuzzy matching**: Current Levenshtein implementation lacks proper safeguards
+2. **No common word protection**: Frequent English words are being "corrected" unnecessarily
+3. **Poor confidence scoring**: Algorithm can't distinguish between valid corrections and false positives
+4. **Performance issues**: Current implementation is slow and resource-intensive
+
+---
+
+## Planned Solution: SymSpell + Harper Integration
+
+### Overview
+Replace the current broken dictionary correction system with a dual-layer approach:
+1. **SymSpell**: Fast, accurate spelling correction with proven algorithms
+2. **Harper**: Grammar checking and context-aware corrections
+
+This combination will provide both spelling and grammar correction while maintaining privacy and performance.
+
+### Why SymSpell + Harper?
+
+**SymSpell Advantages:**
+- **1000x faster** than traditional Levenshtein distance approaches
+- **Proven algorithm** with extensive real-world usage
+- **Configurable edit distance** for better control over corrections
+- **Compound word support** for technical terms
+- **Low memory footprint** with pre-calculated deletions
+
+**Harper Advantages:**
+- **Grammar-aware corrections** beyond simple spelling
+- **Millisecond performance** for real-time usage
+- **Privacy-first**: All processing happens locally
+- **Lightweight**: Uses 1/50th the memory of LanguageTool
+- **Context understanding**: Can detect grammatical errors spelling checkers miss
 
 ### Implementation Plan
 
-#### 1. Core Algorithm Design
-- **Location**: New module `src-tauri/src/fuzzy_dictionary.rs`
-- **Integration Point**: Modify `whisper_output_trim()` in `transcription.rs:520`
-- **Algorithm**: Custom Levenshtein distance with confidence scoring
+#### Phase 1: SymSpell Integration (6-8 hours)
 
-#### 2. Distance Thresholds (Conservative)
-```rust
-// Word length → Max edit distance, Min confidence
-4-5 chars → distance 1, confidence 0.8
-6-8 chars → distance 2, confidence 0.7  
-9+ chars → distance 3, confidence 0.6
-1-3 chars → exact match only (too risky for fuzzy)
+##### 1.1 Add Dependencies
+```toml
+# In Cargo.toml
+[dependencies]
+symspell = "0.4"  # Fast spelling correction
 ```
 
-#### 3. Confidence Scoring
+##### 1.2 Create SymSpell Module
 ```rust
-confidence = base_score * length_penalty * position_bonus * frequency_boost
+// src-tauri/src/symspell_correction.rs
+pub struct SymSpellCorrector {
+    symspell: SymSpell<UnicodeStringStrategy>,
+    user_dictionary: Vec<String>,
+    common_words_protection: bool,
+}
+
+impl SymSpellCorrector {
+    pub fn new(dictionary_words: Vec<String>) -> Self {
+        // Initialize with user dictionary
+        // Add frequency data for better corrections
+        // Configure edit distance (max 2 for conservative corrections)
+    }
+    
+    pub fn correct_text(&self, text: &str) -> CorrectionResult {
+        // Use lookup() for single words
+        // Use lookup_compound() for full sentences
+        // Return both corrected text and confidence scores
+    }
+}
 ```
 
-#### 4. Critical Edge Cases
-- **Short word protection**: No fuzzy matching for words ≤3 characters
-- **Number preservation**: All numeric tokens unchanged
-- **Punctuation handling**: Match word cores, preserve punctuation
-- **Case sensitivity**: Case-insensitive matching, preserve original casing
-- **Common word whitelist**: Protect frequent English words from incorrect corrections
+##### 1.3 Frequency Dictionary Integration
+- Download and integrate English frequency dictionary
+- Merge with user's custom dictionary
+- Assign appropriate frequencies to custom terms
 
-#### 5. Performance Optimizations
-- **Pre-indexing**: Dictionary grouped by length and first character
-- **Early termination**: Skip words with length difference >2 characters
-- **LRU caching**: Cache recent corrections (100 entries)
-- **Timeout protection**: Abort after 200ms for very long texts
+##### 1.4 Common Word Protection
+- Implement whitelist of 10,000 most common English words
+- Never correct words on this list unless explicitly in user dictionary
+- Prevents "can" → "Kaan" type errors
 
-#### 6. Integration Points
+#### Phase 2: Harper Integration (4-6 hours)
 
-**Backend Changes:**
+##### 2.1 Add Harper Dependency
+```toml
+# In Cargo.toml
+[dependencies]
+harper-core = "0.10"  # Grammar checking engine
+```
+
+##### 2.2 Create Grammar Module
 ```rust
-// In transcription.rs
-fn whisper_output_trim(output: &str) -> String {
+// src-tauri/src/grammar_correction.rs
+pub struct GrammarChecker {
+    harper: Harper,
+    enabled_rules: Vec<RuleType>,
+}
+
+impl GrammarChecker {
+    pub fn new() -> Self {
+        // Initialize Harper with appropriate rules
+        // Configure for technical writing style
+    }
+    
+    pub fn check_grammar(&self, text: &str) -> Vec<GrammarSuggestion> {
+        // Run Harper linting
+        // Filter suggestions by confidence
+        // Return actionable corrections
+    }
+}
+```
+
+##### 2.3 Grammar Rules Configuration
+- Enable rules appropriate for transcription
+- Disable overly strict style rules
+- Focus on clear grammatical errors
+
+#### Phase 3: Unified Correction Pipeline (4-5 hours)
+
+##### 3.1 Create Pipeline Module
+```rust
+// src-tauri/src/correction_pipeline.rs
+pub struct CorrectionPipeline {
+    symspell: SymSpellCorrector,
+    harper: Option<GrammarChecker>,
+    config: CorrectionConfig,
+}
+
+impl CorrectionPipeline {
+    pub fn process(&self, text: &str) -> CorrectionResult {
+        // Step 1: SymSpell spelling correction
+        let spelling_corrected = self.symspell.correct_text(text);
+        
+        // Step 2: Harper grammar correction (if enabled)
+        let final_text = if let Some(harper) = &self.harper {
+            self.apply_grammar_corrections(spelling_corrected.text)
+        } else {
+            spelling_corrected.text
+        };
+        
+        // Step 3: Return with metadata about corrections
+        CorrectionResult {
+            original: text.to_string(),
+            corrected: final_text,
+            spelling_changes: spelling_corrected.changes,
+            grammar_changes: grammar_changes,
+            confidence: overall_confidence,
+        }
+    }
+}
+```
+
+##### 3.2 Integration with Transcription
+```rust
+// Update transcription.rs
+fn whisper_output_trim(output: &str, app_handle: &AppHandle) -> String {
     let cleaned = /* existing cleanup */;
     
-    if should_apply_fuzzy_correction() {
-        match dictionary_manager::get_dictionary() {
-            Ok(dict) if !dict.is_empty() => {
-                fuzzy_dictionary::correct_text_with_dictionary(&cleaned, &dict)
-            },
-            _ => cleaned
+    // Use new correction pipeline
+    if let Ok(pipeline) = get_correction_pipeline(app_handle) {
+        let result = pipeline.process(&cleaned);
+        
+        // Log corrections for debugging
+        if result.has_corrections() {
+            log_corrections(&result);
         }
+        
+        result.corrected
     } else {
         cleaned
     }
 }
 ```
 
-**Configuration:**
+##### 3.3 Performance Optimization
+- Implement timeout (50ms max for entire pipeline)
+- Cache correction results for repeated phrases
+- Use parallel processing where possible
+- Skip correction for very long texts (>1000 words)
+
+#### Phase 4: Configuration & UI (3-4 hours)
+
+##### 4.1 Configuration Structure
 ```rust
-// Add to config.rs
-pub struct FuzzyCorrectionSettings {
-    pub enabled: bool,                    // Default: false (opt-in)
-    pub sensitivity: f32,                // 0.6-0.9, default: 0.7
-    pub max_corrections_per_text: usize, // Default: 10
-    pub preserve_original_case: bool,    // Default: true
-    pub correction_log_enabled: bool,    // For debugging
+pub struct CorrectionConfig {
+    // SymSpell settings
+    pub spelling_enabled: bool,
+    pub max_edit_distance: i64,  // 1-3, default 2
+    pub include_unknown: bool,    // Correct unknown words
+    pub min_word_length: usize,   // Skip short words
+    
+    // Harper settings
+    pub grammar_enabled: bool,
+    pub grammar_rules: Vec<String>,
+    pub grammar_sensitivity: f32,
+    
+    // Pipeline settings
+    pub timeout_ms: u64,          // Max processing time
+    pub debug_mode: bool,         // Log all corrections
 }
 ```
 
-**UI Integration:**
-- Add fuzzy correction controls to `DictionarySettingsTab.tsx`
-- Enable/disable toggle
-- Sensitivity slider (0.6-0.9)
-- Debug panel showing recent corrections
+##### 4.2 UI Updates
+- Replace fuzzy correction toggle with SymSpell/Harper controls
+- Add correction transparency (show what was corrected)
+- Implement correction history for debugging
+- Add performance metrics display
 
-#### 7. Error Handling Strategy
-- **Dictionary load failure**: Fall back to original text, log warning
-- **Fuzzy matching crash**: Catch panic, return original text, disable temporarily
-- **Performance timeout**: Abort after 200ms, return partial corrections
-- **Memory protection**: Skip correction for texts >1000 words
+#### Phase 5: Migration & Testing (3-4 hours)
 
-#### 8. Testing Strategy
-- **Unit tests**: Algorithm correctness, edge cases, performance
-- **Integration tests**: Full transcription pipeline
-- **Test datasets**: Programming terms, technical vocabulary, common false positives
-- **Validation metrics**: Precision, recall, speed, false positive rate
+##### 5.1 Migration Strategy
+1. Keep existing dictionary management system
+2. Remove `fuzzy_dictionary.rs` and `dictionary_corrector.rs`
+3. Update all references to use new pipeline
+4. Migrate user settings to new configuration
 
-#### 9. Implementation Timeline
-- **Phase 1** (4 hours): Core algorithm + basic integration
-- **Phase 2** (2 hours): Performance optimization + caching
-- **Phase 3** (2 hours): Configuration system + UI
-- **Phase 4** (2 hours): Testing + edge case handling
-- **Total**: 10-12 hours for production-ready implementation
+##### 5.2 Comprehensive Testing
+```rust
+#[cfg(test)]
+mod tests {
+    // Test no false positives on common words
+    #[test]
+    fn test_common_word_protection() {
+        let corrector = create_test_corrector();
+        assert_eq!(corrector.correct("can"), "can");  // Not "Kaan"
+        assert_eq!(corrector.correct("the"), "the");
+    }
+    
+    // Test valid corrections work
+    #[test]
+    fn test_technical_corrections() {
+        let corrector = create_test_corrector();
+        assert_eq!(corrector.correct("javscript"), "javascript");
+        assert_eq!(corrector.correct("pyton"), "python");
+    }
+    
+    // Test performance constraints
+    #[test]
+    fn test_performance_timeout() {
+        let corrector = create_test_corrector();
+        let start = Instant::now();
+        corrector.correct(LARGE_TEXT);
+        assert!(start.elapsed() < Duration::from_millis(50));
+    }
+}
+```
 
-#### 10. Dependencies
-- No new crates required - custom Levenshtein implementation
-- Existing dictionary_manager.rs provides dictionary access
-- Existing config system for settings storage
+##### 5.3 Real-world Validation
+- Test with actual transcription outputs
+- Verify no regression in correction quality
+- Ensure performance meets targets
+- Validate with user's problematic examples
 
-### Expected Benefits
-- **Tiny model compatibility**: Dictionary correction works with all model sizes
-- **Improved accuracy**: 70-90% correction rate for technical terms
-- **No API costs**: Completely local processing
-- **Fast processing**: <100ms overhead for typical transcriptions
-- **User control**: Configurable sensitivity and enable/disable options
+### Expected Improvements
+
+1. **Elimination of False Positives**
+   - Common words protected by default
+   - Configurable correction thresholds
+   - Better confidence scoring
+
+2. **Performance Gains**
+   - 1000x faster than current implementation
+   - Sub-50ms total processing time
+   - Lower memory usage
+
+3. **Better Corrections**
+   - Compound word support for technical terms
+   - Grammar checking for more natural output
+   - Context-aware corrections
+
+4. **User Control**
+   - Granular configuration options
+   - Correction transparency
+   - Debug mode for troubleshooting
 
 ### Risk Mitigation
-- **Conservative thresholds**: Prioritize precision over recall to minimize false positives
-- **Opt-in feature**: Disabled by default, user must explicitly enable
-- **Extensive testing**: Focus on false positive detection and prevention
-- **Performance monitoring**: Timeout protection and resource limits
-- **Graceful degradation**: Always fall back to original text on any error
+
+1. **Gradual Rollout**
+   - Keep feature behind experimental flag initially
+   - Allow users to switch between old/new systems
+   - Collect feedback before full migration
+
+2. **Fallback Mechanism**
+   - If SymSpell/Harper fail, return original text
+   - Never make transcription worse than input
+   - Log all errors for debugging
+
+3. **Performance Guarantees**
+   - Hard timeout on correction pipeline
+   - Skip correction for edge cases
+   - Monitor resource usage
+
+### Implementation Timeline
+
+- **Week 1**: SymSpell integration and testing
+- **Week 2**: Harper integration and unified pipeline
+- **Week 3**: UI updates and configuration
+- **Week 4**: Testing, optimization, and migration
+
+Total estimated time: 20-27 hours
 
 ### Next Steps
-1. Create `fuzzy_dictionary.rs` module with core algorithm
-2. Implement Levenshtein distance with confidence scoring
-3. Add configuration settings and UI controls
-4. Integrate with existing transcription pipeline
-5. Create comprehensive test suite
-6. Performance testing and optimization
-7. User acceptance testing with real transcriptions
+
+1. **Immediate Actions**
+   - Add symspell dependency to Cargo.toml
+   - Create basic SymSpell corrector module
+   - Test with problematic examples ("can", "con", etc.)
+
+2. **Validation**
+   - Ensure SymSpell solves false positive issues
+   - Benchmark performance improvements
+   - Test with user's dictionary
+
+3. **Gradual Integration**
+   - Start with SymSpell only
+   - Add Harper once spelling correction is stable
+   - Roll out to users with clear migration path
+
+---
+
+## Technical Notes
+
+### SymSpell Configuration
+- Use `UnicodeStringStrategy` for international support
+- Set max_edit_distance to 2 (conservative)
+- Use verbosity mode `Closest` for best match only
+- Enable compound word splitting for technical terms
+
+### Harper Configuration
+- Disable style rules (focus on grammar only)
+- Use technical writing preset if available
+- Configure for American English by default
+- Allow user to toggle specific rule categories
+
+### Performance Targets
+- Spelling correction: <10ms for typical input
+- Grammar checking: <40ms for typical input
+- Total pipeline: <50ms including overhead
+- Memory usage: <50MB additional
 
 ---
 
 ## Project Context
-This fuzzy dictionary correction feature addresses a key user pain point: the trade-off between transcription speed (tiny models) and accuracy (larger models with dictionary support). By implementing post-processing correction, users can achieve both fast transcription and accurate technical term recognition.
+This SymSpell + Harper integration addresses the critical false positive issues in the current dictionary system while providing superior performance and accuracy. By combining a proven spelling correction algorithm with grammar checking, users get better transcriptions without the current system's flaws.
