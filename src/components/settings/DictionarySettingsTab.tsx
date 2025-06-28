@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { toast } from 'sonner';
-import { PlusCircle, Trash2, Loader2, AlertTriangle, ListX, Settings } from 'lucide-react';
+import { PlusCircle, Trash2, Loader2, AlertTriangle, ListX, Settings, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -165,6 +165,20 @@ const DictionarySettingsTab: React.FC<DictionarySettingsTabProps> = ({ currentMo
         <h3 className="text-lg font-medium text-neutral-200 mb-3">
           Your Dictionary ({dictionaryWords.length})
         </h3>
+        
+        {/* Non-panicky warning for large dictionaries */}
+        {dictionaryWords.length > 30 && (
+          <div className="mb-4 p-3 bg-neutral-800/50 border border-neutral-700/50 rounded-md">
+            <div className="flex items-start space-x-2">
+              <Info className="h-4 w-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-neutral-400">
+                Large dictionary ({dictionaryWords.length} words) may affect recognition speed. 
+                Most frequently used words are prioritized automatically.
+              </p>
+            </div>
+          </div>
+        )}
+        
         {isListLoading ? (
           <div className="flex items-center justify-center text-neutral-400 py-8">
             <Loader2 className="mr-2 h-6 w-6 animate-spin" />

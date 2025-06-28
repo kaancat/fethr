@@ -1,10 +1,10 @@
 // src-tauri/src/dictionary_corrector.rs
 //
 // Simple, reliable dictionary correction for Fethr
-// Phase 1: Exact matching with case-insensitive lookup and preserved casing
+// Exact matching only with case-insensitive lookup and preserved casing
 //
-// This module replaces the overly complex fuzzy_dictionary.rs with a simple,
-// production-ready approach that prioritizes reliability over aggressive correction.
+// This module provides safe dictionary correction without false positives
+// by using only exact matches and protecting common English words.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -78,7 +78,7 @@ impl DictionaryCorrector {
         result
     }
     
-    /// Correct a single word using exact matching first, then conservative fuzzy matching
+    /// Correct a single word using exact matching only
     fn correct_word(&self, word: &str) -> String {
         // CRITICAL: Protect common words from correction to prevent false positives
         if common_words::should_protect_from_correction(word) {
@@ -93,90 +93,14 @@ impl DictionaryCorrector {
         
         let lowercase_word = word.to_lowercase();
         
-        // First try exact match lookup
+        // Only use exact match lookup (case-insensitive)
         if let Some(dictionary_word) = self.word_map.get(&lowercase_word) {
             return Self::apply_casing_if_needed(dictionary_word, word);
-        }
-        
-        // If no exact match, try conservative fuzzy matching
-        if let Some(best_match) = self.find_fuzzy_match(&lowercase_word) {
-            return Self::apply_casing_if_needed(&best_match, word);
         }
         
         // No match found - return original word unchanged
         word.to_string()
     }
-    
-    /// Find the best fuzzy match using conservative Levenshtein distance
-    fn find_fuzzy_match(&self, word: &str) -> Option<String> {
-        let word_len = word.len();
-        
-        // BALANCED distance thresholds - conservative but allows user's corrections
-        let max_distance = match word_len {
-            0..=3 => return None, // No fuzzy matching for short words (3 chars or less)
-            4..=5 => 2,           // Conservative for short words
-            6..=7 => 4,           // Moderate for medium words
-            8..=10 => 6,          // Allow more for longer words
-            _ => 7,               // Max distance 7 for very long words
-        };
-        
-        // Simple Levenshtein distance matching (proven to work)
-        let mut best_match: Option<String> = None;
-        let mut best_distance = max_distance + 1;
-        
-        // Check all dictionary words for fuzzy matches
-        for (dict_word_lower, dict_word_original) in &self.word_map {
-            // Skip if length difference is too large (optimization)
-            let len_diff = (word_len as i32 - dict_word_lower.len() as i32).abs() as usize;
-            if len_diff > max_distance {
-                continue;
-            }
-            
-            let distance = Self::levenshtein_distance(word, dict_word_lower);
-            if distance <= max_distance && distance < best_distance {
-                best_distance = distance;
-                best_match = Some(dict_word_original.clone());
-            }
-        }
-        
-        best_match
-    }
-    
-    /// Calculate Levenshtein distance between two strings
-    fn levenshtein_distance(s1: &str, s2: &str) -> usize {
-        let chars1: Vec<char> = s1.chars().collect();
-        let chars2: Vec<char> = s2.chars().collect();
-        let len1 = chars1.len();
-        let len2 = chars2.len();
-        
-        // Create a matrix to store distances
-        let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
-        
-        // Initialize first row and column
-        for i in 0..=len1 {
-            matrix[i][0] = i;
-        }
-        for j in 0..=len2 {
-            matrix[0][j] = j;
-        }
-        
-        // Fill the matrix
-        for i in 1..=len1 {
-            for j in 1..=len2 {
-                let cost = if chars1[i - 1] == chars2[j - 1] { 0 } else { 1 };
-                matrix[i][j] = std::cmp::min(
-                    std::cmp::min(
-                        matrix[i - 1][j] + 1,     // deletion
-                        matrix[i][j - 1] + 1,     // insertion
-                    ),
-                    matrix[i - 1][j - 1] + cost,  // substitution
-                );
-            }
-        }
-        
-        matrix[len1][len2]
-    }
-    
     
     /// Apply casing from transcription if appropriate, otherwise use dictionary casing
     fn apply_casing_if_needed(dictionary_word: &str, transcribed_word: &str) -> String {
@@ -251,7 +175,7 @@ pub fn correct_text_with_dictionary(text: &str, dictionary_words: &[String]) -> 
     // Layer 1: Character normalization (preprocessing)
     let normalized_text = normalize_transcription_noise(text);
     
-    // Layer 2: Dictionary correction with fuzzy matching
+    // Layer 2: Dictionary correction with exact matching only
     let corrector = DictionaryCorrector::new(dictionary_words);
     corrector.correct_text(&normalized_text)
 }
@@ -375,7 +299,7 @@ mod tests {
     }
     
     #[test]
-    fn test_production_fuzzy_matching() {
+    fn test_production_exact_matching() {
         let dictionary = vec![
             "Cursor".to_string(), 
             "Kaan".to_string(), 
@@ -386,13 +310,17 @@ mod tests {
         ];
         let corrector = DictionaryCorrector::new(&dictionary);
         
-        // Test production fuzzy matches for user's specific examples
+        // Test exact matches only (fuzzy matching removed for safety)
         assert_eq!(corrector.correct_text("cursor"), "Cursor"); // exact match
-        // Note: "con" should be protected by common words, not corrected to "Kaan"
-        assert_eq!(corrector.correct_text("pungit"), "Panjeet"); // fuzzy match
-        assert_eq!(corrector.correct_text("shlining"), "Schleuning"); // fuzzy match
         assert_eq!(corrector.correct_text("supabase"), "Supabase"); // exact match
-        assert_eq!(corrector.correct_text("vinstool"), "Vindstød"); // fuzzy match
+        
+        // These won't be corrected anymore (no fuzzy matching)
+        assert_eq!(corrector.correct_text("pungit"), "pungit"); // no match
+        assert_eq!(corrector.correct_text("shlining"), "shlining"); // no match
+        assert_eq!(corrector.correct_text("vinstool"), "vinstool"); // no match
+        
+        // Common words remain protected
+        assert_eq!(corrector.correct_text("con"), "con"); // protected
     }
     
     #[test]
@@ -514,9 +442,10 @@ mod tests {
         assert_eq!(correct_text_with_dictionary("I can do this", &dictionary), "I can do this");
         assert_eq!(correct_text_with_dictionary("can you help", &dictionary), "can you help");
         
-        // But non-common words should still be corrected
+        // Exact matches still work
         assert_eq!(correct_text_with_dictionary("cursor", &dictionary), "Cursor");
-        assert_eq!(correct_text_with_dictionary("pungit", &dictionary), "Panjeet"); // Should work with fuzzy matching
+        // No fuzzy matching anymore for safety
+        assert_eq!(correct_text_with_dictionary("pungit", &dictionary), "pungit");
         
         // Test that case variations of common words are protected
         assert_eq!(correct_text_with_dictionary("Can", &dictionary), "Can");
@@ -539,10 +468,10 @@ mod tests {
         let input = "I can do this with cursor and Kaan tries pungit and shlining with supabase and vinstool";
         let result = correct_text_with_dictionary(input, &dictionary);
         
-        // "can" should be protected, other words should be corrected
+        // "can" should be protected, exact matches should be corrected
         assert!(result.contains("can")); // NOT "Kaan" 
         assert!(result.contains("Cursor")); // corrected from "cursor"
-        // Note: fuzzy matching for pungit->Panjeet etc. depends on distance thresholds
+        // Note: No fuzzy matching anymore - only exact matches work
         
         // Test individual problematic words
         assert_eq!(correct_text_with_dictionary("can", &dictionary), "can"); // CRITICAL: no false positive
