@@ -251,13 +251,16 @@ pub async fn transcribe_local_audio_impl(
     };
 
     let initial_prompt_string = if !dictionary_words.is_empty() {
+        // Use smart prompt rotation based on usage
+        let (prompt_words, total_words) = crate::word_usage_tracker::UsageTracker::get_prompt_words(&dictionary_words);
+        
         // Enhanced prompt strategy with better context
         // Group words by likely type for better recognition
         let mut names = Vec::new();
         let mut tech_terms = Vec::new();
         let mut other = Vec::new();
         
-        for word in &dictionary_words {
+        for word in &prompt_words {
             // Simple heuristic: capitalized words are likely names
             if word.chars().next().map_or(false, |c| c.is_uppercase()) {
                 names.push(word.clone());
@@ -282,6 +285,13 @@ pub async fn transcribe_local_audio_impl(
         }
         
         let prompt = prompt_parts.join(". ") + ".";
+        
+        // Log info about prompt rotation
+        if total_words > prompt_words.len() {
+            log::info!("[Transcription] Using {} of {} dictionary words in prompt (rotation active)", 
+                      prompt_words.len(), total_words);
+        }
+        
         log::info!("[Transcription] Using enhanced prompt from dictionary: \"{}\"", prompt);
         prompt
     } else {
@@ -530,6 +540,12 @@ pub async fn transcribe_local_audio_impl(
         // Process the output
         let trimmed_output = whisper_output_trim(&stdout_text, &app_handle);
         println!("[RUST DEBUG] Transcription successful. Result: {}", trimmed_output);
+        
+        // Track dictionary word usage for smart prompt rotation
+        if !dictionary_words.is_empty() {
+            crate::word_usage_tracker::UsageTracker::record_transcription_words(&trimmed_output, &dictionary_words);
+        }
+        
         let success_status = TranscriptionStatus::Complete { text: trimmed_output.clone() };
         let _ = app_handle.emit_all("transcription_status_changed", success_status); // Use snake_case event name
 

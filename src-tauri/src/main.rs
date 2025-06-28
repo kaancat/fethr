@@ -37,6 +37,7 @@ mod ai_actions_manager; // <<< ADD THIS MODULE DECLARATION
 mod supabase_manager; // <<< ADDED THIS LINE
 mod dictionary_corrector; // <<< REPLACED: Simple dictionary correction module
 mod common_words; // <<< ADDED: Common words whitelist protection
+mod word_usage_tracker; // <<< ADDED: Track dictionary word usage
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -527,6 +528,19 @@ fn main() {
             dictionary_manager::init_dictionary_manager(&app.handle());
             println!("[RUST SETUP] DictionaryManager initialized.");
             // --- End Dictionary Manager Init ---
+            
+            // --- Initialize Word Usage Tracker ---
+            println!("[RUST SETUP] Initializing Word Usage Tracker...");
+            let usage_path = app.path_resolver()
+                .app_config_dir()
+                .map(|dir| dir.join("word_usage.json"))
+                .ok_or("Failed to get config dir for usage tracker")?;
+            
+            if let Err(e) = word_usage_tracker::UsageTracker::load_from_file(&usage_path) {
+                println!("[RUST SETUP] Warning: Could not load word usage data: {}", e);
+            }
+            println!("[RUST SETUP] Word Usage Tracker initialized.");
+            // --- End Word Usage Tracker Init ---
 
             // --- Debug Window Handles (Final Correction) ---
             println!("[RUST SETUP DEBUG] Checking window handles for URL/Title...");
