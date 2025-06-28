@@ -674,8 +674,11 @@ pub async fn transcribe_local_audio_impl(
                     let app_handle_clone_for_supabase = app_handle.clone(); // Clone for the async block
                     
                     // Update both word usage and user statistics
+                    log::info!("[Transcription] About to call usage and stats updates...");
                     let usage_result = crate::supabase_manager::execute_increment_word_usage_rpc(user_id.clone(), access_token.clone(), words_transcribed).await;
+                    log::info!("[Transcription] Usage update complete, now calling stats sync...");
                     let stats_result = crate::user_statistics::sync_transcription_to_supabase(words_transcribed as i64, &user_id, &access_token).await;
+                    log::info!("[Transcription] Stats sync complete");
                     
                     match (usage_result, stats_result) {
                         (Ok(_), Ok(_)) => {
