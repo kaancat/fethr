@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/api/shell';
@@ -84,6 +84,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const [loadingProfile, setLoadingProfile] = useState<boolean>(false);
     const [wordUsage, setWordUsage] = useState<number | null>(null);
     const [wordLimit, setWordLimit] = useState<number | null>(null);
+    const lastUpdateTimeRef = useRef(0);
     const [loadingUsage, setLoadingUsage] = useState<boolean>(false);
 
     // Placeholder for About content - Define outside component or fetch if needed
@@ -301,7 +302,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     };
 
     // Function to fetch user's subscription and usage
-    const fetchSubscriptionUsage = useCallback(async () => {
+    const fetchSubscriptionUsage = useCallback(async (skipLoadingState = false) => {
         if (!user) {
             console.log("[SettingsPage] No user, skipping subscription usage fetch.");
             setProfile(null);
@@ -310,8 +311,18 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             return;
         }
 
-        setLoadingProfile(true);
-        setLoadingUsage(true);
+        // Debounce: Skip if we just updated less than 2 seconds ago
+        const now = Date.now();
+        if (skipLoadingState && now - lastUpdateTimeRef.current < 2000) {
+            console.log('[SettingsPage] Skipping update - too soon since last update');
+            return;
+        }
+        
+        lastUpdateTimeRef.current = now;
+        if (!skipLoadingState) {
+            setLoadingProfile(true);
+            setLoadingUsage(true);
+        }
         console.log("[SettingsPage] Fetching profile and subscription usage for user:", user.id);
 
         try {
@@ -380,8 +391,10 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             setWordUsage(null);
             setWordLimit(null);
         } finally {
-            setLoadingProfile(false);
-            setLoadingUsage(false);
+            if (!skipLoadingState) {
+                setLoadingProfile(false);
+                setLoadingUsage(false);
+            }
         }
     }, [user, toast]); // Dependencies: user, toast
 
@@ -403,7 +416,8 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             console.log('%c[SettingsPage] EVENT RECEIVED: "word_usage_updated"!', 'color: green; font-weight: bold; font-size: 1.2em;', event);
             if (user?.id) {
                 console.log('%c[SettingsPage] REFRESHING USAGE from event for user:', 'color: green; font-weight: bold;', user.id);
-                fetchSubscriptionUsage();
+                // Add delay to ensure backend has processed
+                setTimeout(() => fetchSubscriptionUsage(true), 1500); // Skip loading state
             } else {
                 console.log('[SettingsPage] "word_usage_updated" event received, but no user logged in. Skipping refresh.');
             }

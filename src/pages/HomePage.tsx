@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, TrendingUp, Clock, Zap, Copy } from 'lucide-react';
@@ -22,14 +23,22 @@ function HomePage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userName, setUserName] = useState<string>('');
+  const lastUpdateTimeRef = useRef(0);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const loadDashboardData = async () => {
+  // Wrap loadDashboardData in useCallback to use it as a dependency
+  const loadDashboardData = useCallback(async (skipLoadingState = false) => {
+    // Debounce: Skip if we just updated less than 2 seconds ago
+    const now = Date.now();
+    if (skipLoadingState && now - lastUpdateTimeRef.current < 2000) {
+      console.log('[HomePage] Skipping update - too soon since last update');
+      return;
+    }
+    
     try {
-      setIsLoading(true);
+      lastUpdateTimeRef.current = now;
+      if (!skipLoadingState) {
+        setIsLoading(true);
+      }
       
       // Check if user is authenticated
       const { data: { session } } = await supabase.auth.getSession();
@@ -66,16 +75,48 @@ function HomePage() {
         description: "Some statistics may be unavailable"
       });
     } finally {
-      setIsLoading(false);
+      if (!skipLoadingState) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Listen for transcription events to refresh data
+  useEffect(() => {
+    let unlistenWordUsage: (() => void) | undefined;
+
+    const setupListeners = async () => {
+      try {
+        // Listen only for word usage updates (fired after transcription completes)
+        unlistenWordUsage = await listen('word_usage_updated', () => {
+          console.log('[HomePage] Word usage updated, refreshing data...');
+          // Delay to ensure all backend processing is complete
+          setTimeout(() => loadDashboardData(true), 1500); // Skip loading state
+        });
+      } catch (error) {
+        console.error('[HomePage] Failed to setup event listeners:', error);
+      }
+    };
+
+    setupListeners();
+
+    return () => {
+      unlistenWordUsage?.();
+    };
+  }, [loadDashboardData]);
 
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (hour >= 0 && hour < 5) return 'Good night';  // 12am - 5am
+    if (hour >= 5 && hour < 12) return 'Good morning';  // 5am - 12pm
+    if (hour >= 12 && hour < 17) return 'Good afternoon';  // 12pm - 5pm
+    if (hour >= 17 && hour < 22) return 'Good evening';  // 5pm - 10pm
+    return 'Good night';  // 10pm - 12am
   };
 
   const formatNumber = (num: number): string => {
@@ -133,12 +174,16 @@ function HomePage() {
         <div className="max-w-7xl mx-auto w-full flex flex-col h-full">
           {/* Header */}
           <div className="mb-6 flex-shrink-0">
-            <h1 className="text-3xl font-semibold text-white mb-2">
-              {getGreeting()}, {userName}
-            </h1>
-            <p className="text-neutral-400">
-              Hold down <span className="text-neutral-300">fn</span> and speak into any textbox
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-semibold text-white mb-2">
+                  {getGreeting()}, {userName}
+                </h1>
+                <p className="text-neutral-400">
+                  Hold down <span className="text-neutral-300">fn</span> and speak into any textbox
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Stats Grid */}
@@ -156,7 +201,9 @@ function HomePage() {
                 {stats?.weekly_streak || 0} {stats?.weekly_streak === 1 ? 'day' : 'days'}
               </div>
               <p className="text-xs text-neutral-500 mt-1">
-                {stats?.weekly_streak === 7 ? 'Perfect week! 🔥' : 'You are off to a great start!'}
+                {stats?.weekly_streak === 7 ? 'Perfect week! 🔥' : 
+                 stats?.weekly_streak === 0 ? 'Start your streak today!' :
+                 'You are off to a great start!'}
               </p>
             </CardContent>
           </Card>
@@ -174,7 +221,7 @@ function HomePage() {
                 {formatNumber(stats?.total_words || 0)} 
               </div>
               <p className="text-xs text-neutral-500 mt-1">
-                {stats?.today_words || 0} words today
+                {stats?.today_words ? `${stats.today_words} words today` : 'Start speaking to track today\'s progress'}
               </p>
             </CardContent>
           </Card>
@@ -255,9 +302,9 @@ function HomePage() {
                 <div>
                   <p className="text-sm text-neutral-300">Most productive hour</p>
                   <p className="text-xs text-neutral-500">
-                    {stats?.most_active_hour !== undefined 
+                    {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
                       ? `${stats.most_active_hour}:00 - ${stats.most_active_hour + 1}:00`
-                      : 'No data yet'}
+                      : 'Keep using Fethr to discover your peak hours'}
                   </p>
                 </div>
               </div>
@@ -265,14 +312,18 @@ function HomePage() {
               <div className="pt-2 border-t border-neutral-800">
                 <p className="text-sm text-neutral-300 mb-1">Average session length</p>
                 <p className="text-2xl font-semibold text-white">
-                  {stats?.average_words_per_session || 0} words
+                  {stats?.average_words_per_session && stats.average_words_per_session > 0 
+                    ? `${stats.average_words_per_session} words`
+                    : '—'}
                 </p>
               </div>
 
                   <div className="pt-2 border-t border-neutral-800">
                     <p className="text-sm text-neutral-300 mb-1">Total sessions</p>
                     <p className="text-2xl font-semibold text-white">
-                      {stats?.total_transcriptions || 0}
+                      {stats?.total_transcriptions && stats.total_transcriptions > 0 
+                        ? stats.total_transcriptions
+                        : '0'}
                     </p>
                   </div>
                 </div>
