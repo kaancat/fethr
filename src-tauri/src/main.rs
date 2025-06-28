@@ -750,7 +750,7 @@ fn main() {
             }
             SystemTrayEvent::MenuItemClick { id, .. } => {
                 println!("[Tray Event] Menu item clicked: {}", id);
-                let app_handle = app.handle();
+                let app_handle = app.app_handle();
                 
                 // Handle menu item clicks using tokio::spawn for async operations
                 match id.as_str() {
