@@ -4,18 +4,21 @@ import { cn } from "@/lib/utils"
 interface DropdownMenuProps {
   children: React.ReactNode
   className?: string
+  style?: React.CSSProperties
 }
 
 export const DropdownMenu = React.forwardRef<
   HTMLDivElement,
   DropdownMenuProps
->(({ className, children, ...props }, ref) => (
+>(({ className, children, style, ...props }, ref) => (
   <div
     ref={ref}
     className={cn(
-      "absolute z-50 min-w-[8rem] overflow-hidden rounded-md border border-neutral-800 bg-neutral-900 p-1 text-neutral-100 shadow-md animate-in fade-in-0 zoom-in-95",
+      "absolute z-50 min-w-[180px] overflow-hidden rounded-lg border border-neutral-800/50 bg-[#0A0F1A]/95 backdrop-blur-md p-1.5 text-neutral-100 shadow-2xl animate-in fade-in-0 zoom-in-95",
+      "shadow-[0_0_20px_rgba(166,246,255,0.15)]" ,
       className
     )}
+    style={style}
     {...props}
   >
     {children}
@@ -37,10 +40,11 @@ export const DropdownMenuItem = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+      "relative flex cursor-pointer select-none items-center rounded-md px-3 py-2 text-sm outline-none transition-all duration-150",
       disabled
-        ? "pointer-events-none opacity-50"
-        : "hover:bg-neutral-800 hover:text-neutral-100",
+        ? "pointer-events-none opacity-40"
+        : "hover:bg-[#A6F6FF]/10 hover:text-[#A6F6FF] hover:shadow-[0_0_10px_rgba(166,246,255,0.1)]",
+      "text-neutral-300",
       className
     )}
     onClick={disabled ? undefined : onClick}
@@ -57,7 +61,7 @@ export const DropdownMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("-mx-1 my-1 h-px bg-neutral-800", className)}
+    className={cn("-mx-1 my-1.5 h-px bg-neutral-800/50", className)}
     {...props}
   />
 ))
