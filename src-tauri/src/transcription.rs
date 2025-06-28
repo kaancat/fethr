@@ -254,34 +254,55 @@ pub async fn transcribe_local_audio_impl(
         // Use smart prompt rotation based on usage
         let (prompt_words, total_words) = crate::word_usage_tracker::UsageTracker::get_prompt_words(&dictionary_words);
         
-        // Enhanced prompt strategy with better context
-        // Group words by likely type for better recognition
+        // Enhanced prompt strategy with context examples for better recognition
+        // This helps Whisper understand these are specific vocabulary words to listen for
+        let mut prompt_parts = Vec::new();
+        
+        // Add contextual introduction to help Whisper understand these are important vocabulary
+        prompt_parts.push("This conversation includes the following vocabulary".to_string());
+        
+        // Group words with context hints for better recognition
         let mut names = Vec::new();
         let mut tech_terms = Vec::new();
+        let mut companies = Vec::new();
         let mut other = Vec::new();
         
         for word in &prompt_words {
-            // Simple heuristic: capitalized words are likely names
+            // Categorize words for better context using heuristics
             if word.chars().next().map_or(false, |c| c.is_uppercase()) {
-                names.push(word.clone());
+                // Capitalized words - could be names or services
+                // Use simple heuristics to guess
+                if word.len() > 8 || word.contains("base") || word.contains("flow") || 
+                   word.contains("AI") || word.contains("GPT") {
+                    // Likely a service/product name
+                    companies.push(word.clone());
+                } else {
+                    // Likely a person's name
+                    names.push(word.clone());
+                }
             } else if word.len() > 6 {
-                // Longer words are often technical terms
+                // Longer lowercase words are often technical terms
                 tech_terms.push(word.clone());
             } else {
                 other.push(word.clone());
             }
         }
         
-        let mut prompt_parts = Vec::new();
-        
+        // Build contextual phrases for each category
         if !names.is_empty() {
-            prompt_parts.push(format!("Names: {}", names.join(", ")));
+            prompt_parts.push(format!("Names include {}", names.join(", ")));
         }
+        
+        if !companies.is_empty() {
+            prompt_parts.push(format!("Services mentioned {}", companies.join(", ")));
+        }
+        
         if !tech_terms.is_empty() {
-            prompt_parts.push(format!("Technical terms: {}", tech_terms.join(", ")));
+            prompt_parts.push(format!("Technical terms {}", tech_terms.join(", ")));
         }
+        
         if !other.is_empty() {
-            prompt_parts.push(format!("Words: {}", other.join(", ")));
+            prompt_parts.push(format!("Also includes {}", other.join(", ")));
         }
         
         let prompt = prompt_parts.join(". ") + ".";
@@ -292,7 +313,7 @@ pub async fn transcribe_local_audio_impl(
                       prompt_words.len(), total_words);
         }
         
-        log::info!("[Transcription] Using enhanced prompt from dictionary: \"{}\"", prompt);
+        log::info!("[Transcription] Using enhanced contextual prompt: \"{}\"", prompt);
         prompt
     } else {
         String::new()
