@@ -32,7 +32,15 @@ pub async fn sync_transcription_to_supabase(
 ) -> Result<(), String> {
     log::info!("[UserStatistics] sync_transcription_to_supabase called for user {} with {} words", user_id, word_count);
     let client = reqwest::Client::new();
-    let supabase_url = "https://dttwcuqlnfpsbkketppf.supabase.co";
+    
+    // Get Supabase configuration from global settings
+    let (supabase_url, supabase_anon_key) = {
+        let settings_guard = crate::config::SETTINGS.lock().map_err(|e| format!("Failed to lock settings: {}", e))?;
+        (
+            settings_guard.supabase_url.clone(),
+            settings_guard.supabase_anon_key.clone()
+        )
+    };
     
     // Call the increment_transcription_stats function via RPC
     let payload = json!({
@@ -44,7 +52,7 @@ pub async fn sync_transcription_to_supabase(
     
     let response = client
         .post(format!("{}/rest/v1/rpc/increment_transcription_stats", supabase_url))
-        .header("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ2MzMyMzUsImV4cCI6MjA1MDIwOTIzNX0.R9P50xP1cEKrjpbFCGHkQQCQfKEwYkRdLe-0QBJwSao")
+        .header("apikey", &supabase_anon_key)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json")
         .json(&payload)
@@ -73,12 +81,20 @@ pub async fn get_user_statistics(
     access_token: String,
 ) -> Result<DashboardStats, String> {
     let client = reqwest::Client::new();
-    let supabase_url = "https://dttwcuqlnfpsbkketppf.supabase.co";
+    
+    // Get Supabase configuration from global settings
+    let (supabase_url, supabase_anon_key) = {
+        let settings_guard = crate::config::SETTINGS.lock().map_err(|e| format!("Failed to lock settings: {}", e))?;
+        (
+            settings_guard.supabase_url.clone(),
+            settings_guard.supabase_anon_key.clone()
+        )
+    };
     
     // Get or create current week stats
     let stats_response = client
         .post(format!("{}/rest/v1/rpc/get_or_create_user_stats", supabase_url))
-        .header("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0dHdjdXFsbmZwc2Jra2V0cHBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ2MzMyMzUsImV4cCI6MjA1MDIwOTIzNX0.R9P50xP1cEKrjpbFCGHkQQCQfKEwYkRdLe-0QBJwSao")
+        .header("apikey", &supabase_anon_key)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json")
         .json(&json!({
