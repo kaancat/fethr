@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Loader2, Crown } from 'lucide-react';
+import { Loader2, Crown, RefreshCw, Copy } from 'lucide-react';
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
@@ -74,6 +74,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     
     // Section state
     const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary'>('general');
+    const [lastPaymentCheck, setLastPaymentCheck] = useState<number>(0);
 
     // State for viewing AI action prompts
     const [viewingPromptForActionId, setViewingPromptForActionId] = useState<string | null>(null);
@@ -555,6 +556,41 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         };
     }, [user, fetchSubscriptionUsage]); // Dependencies: user and fetchSubscriptionUsage
 
+    // --- Listener for subscription updates (from payment success) ---
+    useEffect(() => {
+        console.log('[SettingsPage] Setting up listener for "subscription-updated".');
+        const unlistenSubscriptionUpdate = listen<{ userId: string }>('subscription-updated', (event) => {
+            console.log('%c[SettingsPage] EVENT RECEIVED: "subscription-updated"!', 'color: blue; font-weight: bold; font-size: 1.2em;', event);
+            if (user?.id && event.payload.userId === user.id) {
+                console.log('%c[SettingsPage] REFRESHING SUBSCRIPTION DATA from payment success!', 'color: blue; font-weight: bold;', user.id);
+                fetchSubscriptionUsage();
+            } else {
+                console.log('[SettingsPage] "subscription-updated" event received, but user ID mismatch or no user. Skipping refresh.');
+            }
+        });
+
+        return () => {
+            console.log('[SettingsPage] Cleaning up "subscription-updated" listener.');
+            unlistenSubscriptionUpdate.then(f => f());
+        };
+    }, [user, fetchSubscriptionUsage]); // Dependencies: user and fetchSubscriptionUsage
+
+    // --- Force refresh when switching to account tab (backup mechanism) ---
+    useEffect(() => {
+        if (activeSection === 'account' && user) {
+            const now = Date.now();
+            const timeSinceLastCheck = now - lastPaymentCheck;
+            
+            // If it's been less than 2 minutes since last check, force refresh (user might have just paid)
+            if (timeSinceLastCheck < 120000) {
+                console.log('[SettingsPage] Account section activated recently, force refreshing subscription...');
+                fetchSubscriptionUsage();
+            }
+            
+            setLastPaymentCheck(now);
+        }
+    }, [activeSection, user, fetchSubscriptionUsage, lastPaymentCheck]);
+
     // Handle subscription upgrade
     const handleInitiateSubscription = useCallback(async () => {
         try {
@@ -1011,9 +1047,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             </Button>
                                         )}
                                     </div>
-                                    {isApiKeyValid === false && ( // This state is not currently used, but kept for potential future validation UI
-                                        <p className="text-xs text-red-400 mt-1">The entered API key appears to be invalid.</p>
-                                    )}
                                 </div>
                         </SettingsSection>
                     )}
@@ -1070,7 +1103,20 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     ) : profile ? (
                                         <div className="p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
                                             <div className="flex items-center justify-between mb-3">
-                                                <h3 className="text-sm font-medium text-gray-300">Subscription Plan</h3>
+                                                <div className="flex items-center space-x-2">
+                                                    <h3 className="text-sm font-medium text-gray-300">Subscription Plan</h3>
+                                                    <button
+                                                        onClick={() => {
+                                                            console.log('[SettingsPage] Manual subscription refresh triggered');
+                                                            fetchSubscriptionUsage();
+                                                            toast({ title: "Refreshing...", description: "Updating subscription status" });
+                                                        }}
+                                                        className="p-1 hover:bg-gray-600/50 rounded transition-colors"
+                                                        title="Refresh subscription status"
+                                                    >
+                                                        <RefreshCw className="w-3 h-3 text-gray-400 hover:text-gray-300" />
+                                                    </button>
+                                                </div>
                                                 {profile.subscription_status === 'pro' ? (
                                                     <div className="flex items-center space-x-1.5 px-2 py-1 bg-yellow-500/20 rounded-md border border-yellow-500/30">
                                                         <Crown className="w-3 h-3 text-yellow-400" />
