@@ -8,7 +8,6 @@ import { toast } from "react-hot-toast";
 import { supabase } from '@/lib/supabaseClient';
 import { emit } from '@tauri-apps/api/event';
 import { useSubscription } from '@/hooks/useSubscription';
-import { SubscriptionStatus } from '@/components/SubscriptionStatus';
 
 interface StateUpdatePayload {
     state: RecordingState | string;
@@ -49,10 +48,6 @@ function PillPage() {
 
     // Use subscription hook
     const { 
-        wordUsage, 
-        wordLimit, 
-        isUnlimited, 
-        hasActiveSubscription,
         refetch: refetchSubscription 
     } = useSubscription(userId);
 
@@ -585,14 +580,6 @@ function PillPage() {
                     onErrorDismiss={handleErrorDismiss_MEMOIZED}
                     onUpgradeClick={handleInitiateSubscription}
                 />
-                {currentState === RecordingState.IDLE && hasActiveSubscription && (
-                    <SubscriptionStatus
-                        wordUsage={wordUsage}
-                        wordLimit={wordLimit}
-                        isUnlimited={isUnlimited}
-                        hasActiveSubscription={hasActiveSubscription}
-                    />
-                )}
             </div>
         </div>
     );

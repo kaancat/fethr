@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/api/shell';
 import type { AppSettings, HistoryEntry } from '../types';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
@@ -11,8 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Loader2, Copy, Trash2 } from 'lucide-react';
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Crown } from 'lucide-react';
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
@@ -74,8 +74,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     
     // Section state
     const [activeSection, setActiveSection] = useState<'general' | 'history' | 'appearance' | 'audio' | 'ai_actions' | 'account' | 'dictionary'>('general');
-    const [apiKey, setApiKey] = useState<string>('');
-    const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
 
     // State for viewing AI action prompts
     const [viewingPromptForActionId, setViewingPromptForActionId] = useState<string | null>(null);
@@ -557,6 +555,49 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         };
     }, [user, fetchSubscriptionUsage]); // Dependencies: user and fetchSubscriptionUsage
 
+    // Handle subscription upgrade
+    const handleInitiateSubscription = useCallback(async () => {
+        try {
+            toast({ title: "Opening checkout...", description: "Redirecting to payment page" });
+            
+            // Get session token for authentication
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !session) {
+                throw new Error('Authentication required');
+            }
+
+            // Call Supabase Edge Function using proper client
+            const { data, error } = await supabase.functions.invoke('create-checkout', {
+                body: {
+                    priceId: 'price_pro_monthly_usd_7' // Internal price ID
+                },
+                headers: {
+                    'Authorization': `Bearer ${session.access_token}`,
+                }
+            });
+
+            if (error) {
+                throw new Error(error.message || 'Failed to create checkout session');
+            }
+
+            if (!data?.url) {
+                throw new Error('No checkout URL received');
+            }
+
+            // Open checkout in default browser using shell
+            await open(data.url);
+            toast({ title: "Checkout opened", description: "Complete your payment in the browser" });
+
+        } catch (error) {
+            console.error('Subscription error:', error);
+            toast({ 
+                variant: "destructive", 
+                title: "Checkout Failed", 
+                description: error instanceof Error ? error.message : 'Unknown error occurred' 
+            });
+        }
+    }, [toast]);
+
     // --- Render Logic ---
     if (isLoading) {
         return (
@@ -998,65 +1039,140 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     {activeSection === 'account' && (
                         <SettingsSection>
                             <h2 className="text-lg font-semibold mb-6 text-white">
-                                Account
+                                Account & Subscription
                             </h2>
 
                             {loadingAuth ? (
-                                <p className="text-gray-400">Loading account status...</p>
+                                <div className="flex items-center space-x-2 text-gray-400">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>Loading account status...</span>
+                                </div>
                             ) : user ? (
-                                // Logged In State - Updated with Profile Info
-                                <div className="space-y-4">
-                                    <p className="text-gray-300">
-                                        Logged in as: <span className="font-medium text-white">{user.email}</span>
-                                    </p>
+                                // Logged In State - Enhanced UI
+                                <div className="space-y-6">
+                                    {/* User Profile Card */}
+                                    <div className="p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                        <h3 className="text-sm font-medium text-gray-300 mb-2">Account Details</h3>
+                                        <p className="text-white font-medium">{user.email}</p>
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            User ID: {user.id.slice(0, 8)}...
+                                        </p>
+                                    </div>
 
-                                    {/* Display Profile Info */} 
-                                    {loadingProfile && <p className="text-sm text-gray-400">Loading profile details...</p>}
-                                    {!loadingProfile && profile && (
-                                        <div className="text-sm space-y-1">
-                                            <p className="text-gray-400">
-                                                Subscription: <span className="font-medium capitalize text-[#A6F6FF]">{profile.subscription_status || 'Unknown'}</span>
-                                            </p>
-                                            {/* TODO: Add "Manage Subscription" button later */} 
+                                    {/* Subscription Status Card */}
+                                    {loadingProfile ? (
+                                        <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-600/50">
+                                            <div className="flex items-center space-x-2 text-gray-400">
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                <span>Loading subscription details...</span>
+                                            </div>
+                                        </div>
+                                    ) : profile ? (
+                                        <div className="p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-sm font-medium text-gray-300">Subscription Plan</h3>
+                                                {profile.subscription_status === 'pro' ? (
+                                                    <div className="flex items-center space-x-1.5 px-2 py-1 bg-yellow-500/20 rounded-md border border-yellow-500/30">
+                                                        <Crown className="w-3 h-3 text-yellow-400" />
+                                                        <span className="text-xs font-medium text-yellow-300">PRO</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center space-x-1.5 px-2 py-1 bg-gray-500/20 rounded-md border border-gray-500/30">
+                                                        <span className="text-xs font-medium text-gray-300">FREE</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Usage Information */}
+                                            {wordLimit !== null && wordUsage !== null ? (
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-sm">
+                                                        <span className="text-gray-400">Word Usage</span>
+                                                        <span className="text-white font-medium">
+                                                            {wordUsage.toLocaleString()} / {wordLimit > 900000000 ? 'Unlimited' : wordLimit.toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                    {wordLimit <= 900000000 && (
+                                                        <div className="w-full bg-gray-700 rounded-full h-2">
+                                                            <div 
+                                                                className={`h-2 rounded-full transition-all duration-300 ${
+                                                                    (wordUsage / wordLimit) >= 0.8 ? 'bg-yellow-500' : 'bg-[#A6F6FF]'
+                                                                }`}
+                                                                style={{ width: `${Math.min((wordUsage / wordLimit) * 100, 100)}%` }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {wordLimit > 900000000 && (
+                                                        <p className="text-xs text-gray-400">
+                                                            Unlimited transcription with Pro plan
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ) : loadingUsage ? (
+                                                <div className="flex items-center space-x-2 text-gray-400">
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    <span className="text-xs">Loading usage data...</span>
+                                                </div>
+                                            ) : null}
+
+                                            {/* Action Buttons */}
+                                            <div className="mt-4 flex space-x-2">
+                                                {profile.subscription_status !== 'pro' && (
+                                                    <Button
+                                                        onClick={handleInitiateSubscription}
+                                                        className="bg-[#A6F6FF] hover:bg-[#85E4F0] text-black font-medium text-xs px-3 py-1.5"
+                                                    >
+                                                        Upgrade to Pro
+                                                    </Button>
+                                                )}
+                                                {profile.subscription_status === 'pro' && (
+                                                    <Button
+                                                        variant="outline"
+                                                        className="border-gray-600 text-gray-300 hover:bg-gray-700 text-xs px-3 py-1.5"
+                                                        disabled
+                                                    >
+                                                        Manage Billing (Coming Soon)
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                                            <p className="text-sm text-yellow-300">Could not load subscription details. Please try again later.</p>
                                         </div>
                                     )}
-                                    {!loadingProfile && !profile && user && (
-                                        <p className="text-sm text-yellow-400">Could not load profile details. Try again later.</p>
-                                    )}
 
-                                    {/* Word Usage Display */}
-                                    {wordLimit !== null && wordUsage !== null && user && (
-                                        <p className="text-sm text-gray-400 mt-1">
-                                            Word Usage: {wordUsage.toLocaleString()} / {wordLimit === 999999999 ? 'Unlimited' : wordLimit.toLocaleString()}
-                                        </p>
-                                    )}
-                                    {loadingUsage && <p className="text-sm text-gray-500 mt-1">Loading usage...</p>}
-
-                                    <Button
-                                        variant="destructive"
-                                        onClick={async () => {
-                                            const { error } = await supabase.auth.signOut();
-                                            if (error) {
-                                                console.error("Error logging out:", error);
-                                                toast({ variant: "destructive", title: "Logout Failed", description: error.message });
-                                            } else {
-                                                toast({ title: "Logged out successfully." });
-                                                // User state will update via the listener in App.tsx
-                                            }
-                                        }}
-                                    >
-                                        Log Out
-                                    </Button>
+                                    {/* Account Actions */}
+                                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-600/50">
+                                        <h3 className="text-sm font-medium text-gray-300 mb-3">Account Actions</h3>
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={async () => {
+                                                const { error } = await supabase.auth.signOut();
+                                                if (error) {
+                                                    console.error("Error logging out:", error);
+                                                    toast({ variant: "destructive", title: "Logout Failed", description: error.message });
+                                                } else {
+                                                    toast({ title: "Logged out successfully." });
+                                                    // User state will update via the listener in App.tsx
+                                                }
+                                            }}
+                                        >
+                                            Sign Out
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
-                                // Logged Out State - Keep LoginForm
-                                <div className="space-y-4 w-full max-w-sm">
-                                    {/* --- Login Form Area --- */}
-                                    <div className="p-4 border border-gray-700 rounded-md bg-gray-800/30">
-                                        <h3 className="text-md font-semibold text-center mb-4">Login to Fethr</h3>
+                                // Logged Out State - Enhanced Login
+                                <div className="space-y-4 w-full max-w-md">
+                                    <div className="p-6 bg-gradient-to-br from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                        <h3 className="text-lg font-semibold text-center mb-2 text-white">Welcome to Fethr</h3>
+                                        <p className="text-sm text-center text-gray-400 mb-6">
+                                            Sign in to access your transcription history and Pro features
+                                        </p>
                                         <LoginForm />
                                     </div>
-                                    {/* --- End Login Form Area --- */}
                                 </div>
                             )}
                         </SettingsSection>
