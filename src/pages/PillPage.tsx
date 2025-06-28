@@ -506,6 +506,9 @@ function PillPage() {
                         if (sessionData && sessionData.session) {
                             userId = sessionData.session.user.id;
                             accessToken = sessionData.session.access_token;
+                            console.log('[PillPage] Got user credentials:', { userId, hasAccessToken: !!accessToken });
+                        } else {
+                            console.log('[PillPage] No session found');
                         }
                     } catch (e) { 
                         console.error('[PillPage] Exception during supabase.auth.getSession():', e); 
