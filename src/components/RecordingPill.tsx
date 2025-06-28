@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, Settings, History, Type, Globe, EyeOff, Clipboard } from "lucide-react";
 import { RecordingState } from '../types';
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -115,6 +117,9 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
     const [isHovered, setIsHovered] = useState(false);
+    const [showContextMenu, setShowContextMenu] = useState(false);
+    const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+    const [lastTranscription, setLastTranscription] = useState<string | null>(null);
     const pillRef = useRef<HTMLDivElement>(null);
     
     let targetVariant: PillVariant = 'idle';
@@ -140,6 +145,73 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             console.log(`📍 [DOM POSITION] State: ${RecordingState[currentState]} | Top: ${rect.top.toFixed(1)}px | Left: ${rect.left.toFixed(1)}px | Width: ${rect.width.toFixed(1)}px | Height: ${rect.height.toFixed(1)}px`);
         }
     }, [currentState, targetVariant, isResizing]);
+
+    // Store last transcription for paste functionality
+    useEffect(() => {
+        if (transcription) {
+            setLastTranscription(transcription);
+        }
+    }, [transcription]);
+
+    // Close context menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setShowContextMenu(false);
+        if (showContextMenu) {
+            document.addEventListener('click', handleClickOutside);
+            return () => document.removeEventListener('click', handleClickOutside);
+        }
+    }, [showContextMenu]);
+
+    // Context menu handlers
+    const handleContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenuPosition({ x: e.clientX, y: e.clientY });
+        setShowContextMenu(true);
+    };
+
+    const handleHideFor1Hour = async () => {
+        setShowContextMenu(false);
+        try {
+            await invoke('set_pill_visibility', { visible: false });
+            // Set a timer to show again after 1 hour
+            setTimeout(async () => {
+                await invoke('set_pill_visibility', { visible: true });
+            }, 60 * 60 * 1000); // 1 hour in milliseconds
+        } catch (err) {
+            console.error('Failed to hide pill:', err);
+        }
+    };
+
+    const handlePasteLastTranscript = async () => {
+        setShowContextMenu(false);
+        if (lastTranscription) {
+            try {
+                await navigator.clipboard.writeText(lastTranscription);
+                // Could also trigger auto-paste here if needed
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+            }
+        }
+    };
+
+    const handleOpenSettings = async () => {
+        setShowContextMenu(false);
+        try {
+            await invoke('navigate_to_settings_section', { section: 'general' });
+        } catch (err) {
+            console.error('Failed to open settings:', err);
+        }
+    };
+
+    const handleOpenHistory = async () => {
+        setShowContextMenu(false);
+        try {
+            await invoke('navigate_to_settings_section', { section: 'history' });
+        } catch (err) {
+            console.error('Failed to open history:', err);
+        }
+    };
 
     // Handle clicks on the pill depending on the current recording state
     // Why: Centralizes the logic for starting/stopping recording via pill interaction.
@@ -334,7 +406,10 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const basePillClasses = "flex items-center justify-center relative outline outline-1 outline-transparent select-none";
 
     return (
-        <motion.div
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <motion.div
             ref={pillRef}
             data-tauri-drag-region
             variants={pillContainerVariants}
@@ -360,7 +435,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             style={{ 
                 cursor: 'grab'
             }}
-            onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
+            onContextMenu={handleContextMenu}
             onMouseDown={(e) => {
                 const interactiveInner = targetVariant === 'edit_pending' || targetVariant === 'ready' || targetVariant === 'recording' || currentState === RecordingState.ERROR;
                 const clickedInteractiveArea = (e.target as HTMLElement).closest('.pill-interactive-content-area');
@@ -418,17 +493,67 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                         targetVariant === 'recording'
                     ) ? 'pointer' : 'grab'
                 }}
-                title={ currentState === RecordingState.ERROR ? (error || backendError || 'Error - Click to dismiss') : 
-                        (targetVariant === 'edit_pending' ? 'Edit Last Transcription' : 
-                        (currentState === RecordingState.IDLE ? 'Click to Record' : 
-                        (currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING ? 'Click to Stop' : 'Fethr')))
-                      }
+                // Removed title attribute as we're using Tooltip component now
             >
                 <AnimatePresence mode='popLayout' initial={false}>
                     {pillContent}
                 </AnimatePresence>
             </div>
-        </motion.div>
+                    </motion.div>
+                </TooltipTrigger>
+                {isIdle && (
+                    <TooltipContent 
+                        side="top" 
+                        className="bg-neutral-900 border-neutral-800 text-neutral-100 px-3 py-2 text-sm"
+                    >
+                        Click to begin dictation
+                    </TooltipContent>
+                )}
+            </Tooltip>
+            
+            {/* Context Menu */}
+            {showContextMenu && (
+                <DropdownMenu 
+                    className="fixed" 
+                    style={{ 
+                        top: `${contextMenuPosition.y}px`, 
+                        left: `${contextMenuPosition.x}px` 
+                    }}
+                >
+                    <DropdownMenuItem onClick={handleHideFor1Hour}>
+                        <EyeOff className="w-4 h-4 mr-2" />
+                        Hide for 1 hour
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem onClick={handleOpenSettings}>
+                        <Settings className="w-4 h-4 mr-2" />
+                        Go to Settings
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuItem>
+                        <Globe className="w-4 h-4 mr-2" />
+                        Select Language
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuItem onClick={handleOpenHistory}>
+                        <History className="w-4 h-4 mr-2" />
+                        Transcription History
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem 
+                        onClick={handlePasteLastTranscript}
+                        disabled={!lastTranscription}
+                    >
+                        <Clipboard className="w-4 h-4 mr-2" />
+                        Paste Last Transcript
+                    </DropdownMenuItem>
+                </DropdownMenu>
+            )}
+        </TooltipProvider>
     );
 };
 
