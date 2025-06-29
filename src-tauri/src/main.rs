@@ -584,17 +584,21 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
 
         match event {
             HotkeyEvent::Press(press_time) => {
-                if !state.hotkey_down_physically {
+                // Get the recording mode
+                let hold_to_record = {
+                    match SETTINGS.lock() {
+                        Ok(settings) => settings.hotkey.hold_to_record,
+                        Err(_) => true, // Default to push-to-talk if settings unavailable
+                    }
+                };
+                
+                // In toggle mode, always process press events
+                // In push-to-talk mode, only process if not already down
+                let should_process_press = !hold_to_record || !state.hotkey_down_physically;
+                
+                if should_process_press {
                     state.hotkey_down_physically = true;
                     state.press_start_time = Some(press_time);
-                    
-                    // Get the recording mode
-                    let hold_to_record = {
-                        match SETTINGS.lock() {
-                            Ok(settings) => settings.hotkey.hold_to_record,
-                            Err(_) => true, // Default to push-to-talk if settings unavailable
-                        }
-                    };
                     
                     match current_state {
                         AppRecordingState::Idle => {
@@ -630,22 +634,25 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                         }
                         _ => {}, // Ignoring press in other states
                     }
-                } // Ignoring repeat press
+                } else {
+                    println!("[State Processor] Ignoring repeat press in push-to-talk mode");
+                }
             }
             HotkeyEvent::Release(release_time) => {
-                 if state.hotkey_down_physically {
+                // Get hold_to_record setting
+                let hold_to_record = {
+                    match SETTINGS.lock() {
+                        Ok(settings) => settings.hotkey.hold_to_record,
+                        Err(_) => false, // Default to tap-to-toggle mode if settings unavailable
+                    }
+                };
+                
+                if state.hotkey_down_physically {
                     state.hotkey_down_physically = false;
                     let press_start = state.press_start_time.take();
+                    
                     if let Some(start) = press_start {
-                        let duration_ms = release_time.duration_since(start).as_millis();
-                        
-                        // Get hold_to_record setting
-                        let hold_to_record = {
-                            match SETTINGS.lock() {
-                                Ok(settings) => settings.hotkey.hold_to_record,
-                                Err(_) => false, // Default to tap-to-toggle mode if settings unavailable
-                            }
-                        };
+                        let _duration_ms = release_time.duration_since(start).as_millis();
                         
                         // Processing release event
                         match current_state {
@@ -655,21 +662,28 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                                     state.recording_state = AppRecordingState::Transcribing;
                                     action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                                 } else {
-                                    // Toggle mode: For mouse clicks, release events should also stop recording
-                                    // This allows mouse clicks to work as expected (click to start, click to stop)
-                                    state.recording_state = AppRecordingState::Transcribing;
-                                    action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                                    // Toggle mode: Release events don't stop recording for keyboard hotkeys
+                                    // Only mouse events (trigger_release_event) stop recording in toggle mode
+                                    action_to_take = PostEventAction::None;
                                 }
                             }
                             _ => {
-                                // In toggle mode, ignore all release events in other states
+                                // In other states, releases are generally ignored
                                 if hold_to_record {
                                     println!("[State Processor] Ignoring Release in state: {:?}", current_state);
                                 }
                             }
                         }
-                    } else { println!("[State Processor (Simplified V2) WARN] Release without matching press_start_time! (State: {:?})", current_state); }
-                 } else { println!("[State Processor (Simplified V2) WARN] Ignoring spurious Release event."); }
+                    } else { 
+                        println!("[State Processor] Release without matching press_start_time! (State: {:?})", current_state); 
+                    }
+                } else { 
+                    // In toggle mode, we might get release events without corresponding press tracking
+                    // This is normal for AltGr key behavior, so don't warn
+                    if hold_to_record {
+                        println!("[State Processor] Ignoring spurious Release event in push-to-talk mode."); 
+                    }
+                }
             }
         }
         // State updated
