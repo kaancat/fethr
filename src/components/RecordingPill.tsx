@@ -206,6 +206,8 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                 let buttonText = "Upgrade";
                 if (backendError === "Subscription required") {
                     buttonText = "Subscribe";
+                } else if (backendError === "Sign in required") {
+                    buttonText = "Sign In";
                 }
 
                 pillContent = (

@@ -248,8 +248,18 @@ function PillPage() {
             });
     }, [handleErrorDismiss_MEMOIZED, endEditSequence]);
 
-    // Subscription handler for upgrade/subscribe button
-    const handleInitiateSubscription = useCallback(async () => {
+    // Handler for upgrade/sign-in button
+    const handleUpgradeOrSignIn = useCallback(async () => {
+        // Check if this is a sign-in case
+        if (!userId) {
+            console.log("[PillPage] User not logged in, opening settings for sign in");
+            await invoke('show_settings_window_and_focus');
+            // Clear error state after opening settings
+            handleErrorDismiss_MEMOIZED();
+            return;
+        }
+        
+        // Otherwise handle subscription
         console.log("[PillPage] Initiating subscription...");
         toast.loading("Redirecting to checkout...", { id: "stripe-checkout-toast" });
 
@@ -309,7 +319,7 @@ function PillPage() {
             toast.error(`Failed to start subscription: ${errorMessage.substring(0,100)}`);
             console.error("[PillPage] Error initiating subscription:", error);
         }
-    }, [refetchSubscription]);
+    }, [refetchSubscription, userId, handleErrorDismiss_MEMOIZED]);
 
     // FIXED: Main listener setup with minimal, stable dependencies
     useEffect(() => {
@@ -483,7 +493,46 @@ function PillPage() {
                     setLastTranscriptionText(null);
                     setError(null);
                     
-                    invoke('start_backend_recording')
+                    // Check if user is logged in
+                    if (!userId) {
+                        console.log("[PillPage] User not logged in, showing auth required error");
+                        setErrorMessage("Sign in required");
+                        setCurrentState(RecordingState.ERROR);
+                        setShowUpgradePrompt(true); // Reuse the upgrade prompt UI for sign in
+                        
+                        // Auto-dismiss after 7 seconds
+                        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+                        errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 7000);
+                        
+                        // Show notification if pill might be hidden
+                        invoke('show_notification', {
+                            title: 'Fethr - Sign In Required',
+                            body: 'Please sign in to start transcribing'
+                        }).catch(err => console.error("Failed to show notification:", err));
+                        
+                        return;
+                    }
+                    
+                    // Get auth credentials
+                    let authUserId = null;
+                    let authAccessToken = null;
+                    try {
+                        const { data: sessionData } = await supabase.auth.getSession();
+                        if (sessionData && sessionData.session) {
+                            authUserId = sessionData.session.user.id;
+                            authAccessToken = sessionData.session.access_token;
+                            console.log('[PillPage] Got auth credentials for recording');
+                        }
+                    } catch (e) {
+                        console.error('[PillPage] Failed to get auth session:', e);
+                    }
+                    
+                    invoke('start_backend_recording', {
+                        args: {
+                            user_id: authUserId,
+                            access_token: authAccessToken
+                        }
+                    })
                         .then(() => console.log("PillPage: start_backend_recording invoked successfully."))
                         .catch(err => { 
                             setError(`Start recording failed: ${err}`);
@@ -585,7 +634,7 @@ function PillPage() {
                     isResizing={isResizing}
                     onEditClick={handleEditClick}
                     onErrorDismiss={handleErrorDismiss_MEMOIZED}
-                    onUpgradeClick={handleInitiateSubscription}
+                    onUpgradeClick={handleUpgradeOrSignIn}
                 />
             </div>
         </div>

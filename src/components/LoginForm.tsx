@@ -46,7 +46,7 @@ export const LoginForm: React.FC = () => {
   return (
     <form onSubmit={handleLogin} className="space-y-4">
       <div className="space-y-1">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email" className="text-gray-300">Email</Label>
         <Input
           id="email"
           type="email"
@@ -59,7 +59,7 @@ export const LoginForm: React.FC = () => {
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="password">Password</Label>
+        <Label htmlFor="password" className="text-gray-300">Password</Label>
         <Input
           id="password"
           type="password"
