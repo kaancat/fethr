@@ -32,6 +32,7 @@ function PillPage() {
     const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const editReadyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isEditSequenceActiveRef = useRef<boolean>(false); 
+    const authFailureActiveRef = useRef<boolean>(false); // Track auth failure state
 
     // Removed extensive debugging code that was causing dimension tooltips
 
@@ -144,6 +145,7 @@ function PillPage() {
         setError(null);
         setErrorMessage(null);
         setShowUpgradePrompt(false);
+        authFailureActiveRef.current = false; // Clear auth failure flag
         invoke('signal_reset_complete').catch(err => console.error("[PillPage handleErrorDismiss] Backend reset signal FAILED:", err));
     }, [endEditSequence]);
 
@@ -159,6 +161,7 @@ function PillPage() {
             setErrorMessage(null);
             setLastTranscriptionText(null);
             setShowUpgradePrompt(false);
+            authFailureActiveRef.current = false; // Clear auth failure flag
             invoke('signal_reset_complete').catch(err => console.error("[PillPage GlobalEffectFn] Backend reset signal FAILED:", err));
         };
         return () => { delete (window as any).TRIGGER_PILL_PAGE_DISMISS_VIA_EFFECT; };
@@ -254,7 +257,8 @@ function PillPage() {
         if (!userId) {
             console.log("[PillPage] User not logged in, opening settings for sign in");
             await invoke('show_settings_window_and_focus');
-            // Clear error state after opening settings
+            // Clear error state and auth failure flag after opening settings
+            authFailureActiveRef.current = false;
             handleErrorDismiss_MEMOIZED();
             return;
         }
@@ -392,6 +396,13 @@ function PillPage() {
 
                 const unlistenState = await listen<StateUpdatePayload>('fethr-update-ui-state', async (event) => {
                     if (!isMounted) return;
+                    
+                    // Ignore backend state updates during auth failure
+                    if (authFailureActiveRef.current) {
+                        console.log("[PillPage] Ignoring backend state update during auth failure");
+                        return;
+                    }
+                    
                     const { state: receivedState } = event.payload; 
                     let newTsState: RecordingState = RecordingState.IDLE;
                     
@@ -499,16 +510,20 @@ function PillPage() {
                         setErrorMessage("Sign in required");
                         setCurrentState(RecordingState.ERROR);
                         setShowUpgradePrompt(true); // Reuse the upgrade prompt UI for sign in
+                        authFailureActiveRef.current = true; // Mark auth failure active
                         
-                        // CRITICAL: Signal backend to reset state immediately
+                        // CRITICAL: Force backend to reset state immediately
                         // This prevents the backend state machine from continuing in RECORDING state
-                        invoke('signal_reset_complete').catch(err => 
-                            console.error("[PillPage] Failed to signal backend reset after auth failure:", err)
+                        invoke('force_reset_to_idle').catch(err => 
+                            console.error("[PillPage] Failed to force backend reset after auth failure:", err)
                         );
                         
                         // Auto-dismiss after 10 seconds to give user time to click Sign In
                         if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                        errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 10000);
+                        errorTimeoutRef.current = setTimeout(() => {
+                            authFailureActiveRef.current = false; // Clear auth failure flag
+                            handleErrorDismiss_MEMOIZED();
+                        }, 10000);
                         
                         // Check if pill is visible and temporarily show if hidden
                         invoke('temporarily_show_pill_if_hidden', { duration: 10000 })
@@ -549,6 +564,12 @@ function PillPage() {
                 const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", async (event) => { 
                     if (!isMounted) return; 
                     console.log("PillPage: Received fethr-stop-and-transcribe.");
+                    
+                    // Ignore stop event during auth failure
+                    if (authFailureActiveRef.current) {
+                        console.log("[PillPage] Ignoring stop-and-transcribe during auth failure");
+                        return;
+                    }
                     if (isEditSequenceActiveRef.current) {
                         console.log("[PillPage] Stop transcribe received during edit sequence. Ending edit sequence first.");
                         endEditSequence();

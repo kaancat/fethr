@@ -485,6 +485,39 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
     // --- End Moved Reset Logic ---
 }
 
+#[tauri::command]
+fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
+    println!("[RUST CMD] force_reset_to_idle - FORCING all states to IDLE regardless of current state");
+    
+    // Force recording lifecycle to Idle
+    {
+        let mut lifecycle = RECORDING_LIFECYCLE.lock().unwrap();
+        println!("[RUST CMD] Current lifecycle: {:?}, forcing to Idle", *lifecycle);
+        *lifecycle = RecordingLifecycle::Idle;
+    }
+    
+    // Force hotkey state to Idle
+    {
+        let mut state = HOTKEY_STATE.lock().unwrap();
+        state.recording_state = AppRecordingState::Idle;
+        state.press_start_time = None;
+        state.hotkey_down_physically = false;
+        println!("[RUST CMD] Hotkey state FORCED to IDLE");
+    }
+    
+    // Emit IDLE state to frontend
+    let final_payload = StateUpdatePayload {
+        state: FrontendRecordingState::Idle,
+        duration_ms: 0,
+        transcription_result: None,
+        error_message: None,
+    };
+    emit_state_update(&app_handle, final_payload);
+    
+    println!("[RUST CMD] All states forced to IDLE and frontend notified");
+    Ok(())
+}
+
 // --- Main Setup ---
 fn main() {
     // Initialize logging
@@ -869,6 +902,7 @@ fn main() {
             write_to_clipboard_command,
             paste_text_to_cursor,
             signal_reset_complete,
+            force_reset_to_idle,
             delete_file,
             // UI-triggered hotkey events:
             trigger_press_event,
