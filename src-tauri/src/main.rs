@@ -1082,7 +1082,7 @@ fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
 
 // --- Tauri Commands for Hotkey Settings ---
 #[tauri::command]
-async fn update_hotkey_settings(_app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
+async fn update_hotkey_settings(app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
     println!("[RUST CMD] Updating hotkey settings: key={}, modifiers={:?}, hold_to_record={}, enabled={}", 
         hotkey_settings.key, hotkey_settings.modifiers, hotkey_settings.hold_to_record, hotkey_settings.enabled);
     
