@@ -1299,38 +1299,86 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
 // --- END Dashboard Stats Command ---
 
 // --- Navigation Commands for System Tray Context Menu ---
+// Global lock to prevent concurrent navigation operations
+static NAVIGATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[tauri::command]
 async fn navigate_to_page(app_handle: tauri::AppHandle, route: String) -> Result<(), String> {
+    // Acquire lock to prevent concurrent navigation
+    let _guard = match NAVIGATION_LOCK.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            println!("[RUST CMD] Navigation already in progress, ignoring request for route: {}", route);
+            return Ok(());
+        }
+    };
+    println!("[RUST CMD] Starting navigation to route: {}", route);
+    
     // First show and focus the main window
     show_settings_window_and_focus(app_handle.clone()).await?;
+    
+    // Wait for window to be ready
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     
     // Then navigate to the specific route
     if let Some(main_window) = app_handle.get_window("main") {
         if let Err(e) = main_window.emit("navigate-to-route", &route) {
             return Err(format!("Failed to emit navigation event: {}", e));
         }
-        println!("[RUST CMD] Navigated to route: {}", route);
+        println!("[RUST CMD] Successfully navigated to route: {}", route);
     }
     Ok(())
 }
 
 #[tauri::command]
 async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: String) -> Result<(), String> {
+    // Acquire lock to prevent concurrent navigation
+    let _guard = match NAVIGATION_LOCK.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            println!("[RUST CMD] Navigation already in progress, ignoring request for settings section: {}", section);
+            return Ok(());
+        }
+    };
+    println!("[RUST CMD] Starting navigation to settings section: {}", section);
+    
     // First show and focus the settings window
     show_settings_window_and_focus(app_handle.clone()).await?;
+    
+    // Navigate to settings page first
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    
+    if let Some(main_window) = app_handle.get_window("main") {
+        if let Err(e) = main_window.emit("navigate-to-route", "/settings") {
+            return Err(format!("Failed to emit settings navigation event: {}", e));
+        }
+    }
+    
+    // Wait for settings page to load
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
     
     // Then emit an event to navigate to the specific section
     if let Some(main_window) = app_handle.get_window("main") {
         if let Err(e) = main_window.emit("navigate-to-section", &section) {
-            return Err(format!("Failed to emit navigation event: {}", e));
+            return Err(format!("Failed to emit section navigation event: {}", e));
         }
-        println!("[RUST CMD] Navigated to settings section: {}", section);
+        println!("[RUST CMD] Successfully navigated to settings section: {}", section);
     }
     Ok(())
 }
 
 #[tauri::command]
 async fn edit_latest_transcription(app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Acquire lock to prevent concurrent navigation
+    let _guard = match NAVIGATION_LOCK.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            println!("[RUST CMD] Navigation already in progress, ignoring edit transcription request");
+            return Ok(());
+        }
+    };
+    println!("[RUST CMD] Starting edit latest transcription");
+    
     // First navigate to history page
     navigate_to_page(app_handle.clone(), "/history".to_string()).await?;
     
@@ -1432,23 +1480,36 @@ fn update_tray_menu(app_handle: &tauri::AppHandle) {
 // --- ADD Command to Show/Focus Settings Window ---
 #[tauri::command]
 async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let window_label = "main"; // Assuming "main" is your settings window
+    let window_label = "main";
     match app_handle.get_window(window_label) {
         Some(window) => {
             println!("[RUST CMD] Found settings window ('{}'). Attempting show/focus...", window_label);
+            
+            // Show window
             if let Err(e) = window.show() {
                 let err_msg = format!("Failed to show window '{}': {}", window_label, e);
                 eprintln!("[RUST CMD ERROR] {}", err_msg);
                 return Err(err_msg);
             }
+            
+            // Small delay to ensure window is visible
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Unminimize window
             if let Err(e) = window.unminimize() {
                 println!("[RUST CMD WARN] Failed to unminimize window '{}': {}", window_label, e);
             }
+            
+            // Another small delay before focusing
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Set focus
             if let Err(e) = window.set_focus() {
                 let err_msg = format!("Failed to set focus on window '{}': {}", window_label, e);
                 eprintln!("[RUST CMD ERROR] {}", err_msg);
                 return Err(err_msg);
             }
+            
             println!("[RUST CMD] Successfully showed and focused window '{}'.", window_label);
             Ok(())
         }
