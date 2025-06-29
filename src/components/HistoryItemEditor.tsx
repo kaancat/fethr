@@ -233,7 +233,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
       <TextareaAutosize
         value={editedText}
         onChange={(e) => setEditedText(e.target.value)}
-        className="w-full h-40 bg-[#1e1e1e] border-gray-600 text-white resize-none focus:ring-1 focus:ring-offset-0 focus:ring-offset-transparent focus:ring-[#A6F6FF]/50 focus:border-[#A6F6FF]/50 p-2.5 text-sm min-h-[80px]" // Added p-2.5, text-sm, min-h
+        className="w-full h-40 bg-[#1e1e1e] border-gray-600 text-white resize-none focus:ring-1 focus:ring-offset-0 focus:ring-offset-transparent focus:ring-[#8A2BE2]/50 focus:border-[#8A2BE2]/50 p-2.5 text-sm min-h-[80px]" // Added p-2.5, text-sm, min-h
         placeholder="Edit transcription..."
         minRows={3} // Added minRows
       />
@@ -355,7 +355,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
                     className="p-0 h-auto w-auto hover:bg-transparent"
                     title={`Add "${word}" to dictionary`}
                   >
-                    <Plus className="w-3 h-3 text-neutral-400 hover:text-[#A6F6FF]" />
+                    <Plus className="w-3 h-3 text-neutral-400 hover:text-[#87CEFA]" />
                   </Button>
                 </div>
               ))}
@@ -391,7 +391,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
                 }
             }}
             title="Copy Edited Text"
-            className="w-7 h-7 text-gray-400 hover:text-[#A6F6FF] hover:bg-[#A6F6FF]/10"
+            className="w-7 h-7 text-gray-400 hover:text-[#87CEFA] hover:bg-[#8A2BE2]/10"
             disabled={!editedText || editedText.trim() === ""} // Disable if textarea is effectively empty
         >
             <Copy className="w-3.5 h-3.5" />
@@ -416,7 +416,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
         </Button>
          <Button
             onClick={handleSave}
-            className="bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF] px-6" // Reverted style
+            className="bg-[#8A2BE2]/80 text-white hover:bg-[#8A2BE2] px-6" // Reverted style
             disabled={editedText === initialTextSnapshot || !editedText.trim()} // Updated disabled logic
          >
            Save Changes

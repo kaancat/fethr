@@ -87,7 +87,7 @@ const pillContainerVariants = {
     padding: "4px 8px", 
     borderRadius: "16px",
     backgroundColor: "rgba(194, 65, 12, 0.2)", 
-    boxShadow: "0 0 8px rgba(255, 139, 102, 0.26)", 
+    boxShadow: "0 0 8px rgba(218, 112, 214, 0.26)", 
     border: "1px solid rgba(249, 115, 22, 0.5)", 
     opacity: 1,
     x: 0,
@@ -103,7 +103,7 @@ const contentAnimationVariants = {
     exit: { opacity: 0, scale: 0.9, transition: { duration: 0.1, ease: "circIn" } }
 };
 
-const featherIconPath = "/feather-logo.png";
+const featherIconPath = "/assets/logos/fethr-icon.svg";
 const editIconPath = "/Icons/edit icon.png";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
@@ -178,7 +178,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     <img 
                         src={featherIconPath} 
                         alt="Fethr" 
-                        className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} 
+                        className={`${iconClass} filter drop-shadow-[0_0_4px_#8A2BE2]`} 
                     />
                 </motion.div>
             );
@@ -265,12 +265,12 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     <img 
                         src={featherIconPath} 
                         alt="Fethr Ready" 
-                        className={`${iconClass} filter drop-shadow-[0_0_4px_#A6F6FF]`} 
+                        className={`${iconClass} filter drop-shadow-[0_0_4px_#87CEFA]`} 
                     />
                     <div className="flex-grow h-[55%] min-w-[35px]">
-                        <LiveWaveform barColor="#A6F6FF" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
+                        <LiveWaveform barColor="#87CEFA" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
                     </div>
-                    <span className={`text-sky-300 tabular-nums`}> 
+                    <span className={`text-[#87CEFA] tabular-nums`}> 
                         0s
                     </span>
                 </motion.div>
