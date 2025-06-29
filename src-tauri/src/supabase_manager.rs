@@ -257,8 +257,7 @@ pub async fn execute_increment_word_usage_rpc(
 
                 if let Some(limits_data) = limits_vec.first() {
                     if limits_data.subscription_status == "active" || limits_data.subscription_status == "trialing" {
-                        println!("[RUST DEBUG SupabaseManager RPC] Fetched limits: Usage: {}, Limit: {}, Status: {}",
-                            limits_data.word_usage_this_period, limits_data.word_limit_this_period, limits_data.subscription_status);
+                        // Subscription limits verified
 
                         let current_usage = limits_data.word_usage_this_period;
                         let actual_limit = limits_data.word_limit_this_period;
@@ -272,10 +271,10 @@ pub async fn execute_increment_word_usage_rpc(
                                 println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", error_message);
                                 return Err(error_message);
                             } else {
-                                println!("[RUST DEBUG SupabaseManager RPC] Word limit check passed.");
+                                // Word limit check passed
                             }
                         } else {
-                            println!("[RUST DEBUG SupabaseManager RPC] Tier has unlimited usage (limit: {}).", actual_limit);
+                            // Unlimited tier verified
                         }
                     } else { // Status is not 'active' or 'trialing'
                         let error_message = format!("Subscription status is '{}'. An active subscription is required.", limits_data.subscription_status);
@@ -316,7 +315,7 @@ pub async fn execute_increment_word_usage_rpc(
         "p_words_increment": words_transcribed
     });
 
-    println!("[RUST DEBUG SupabaseManager RPC] Calling RPC 'increment_word_usage' at URL: {} with payload: {}", increment_rpc_url, increment_payload.to_string());
+    // Updating word usage statistics
 
     let increment_response = http_client
         .post(&increment_rpc_url)
@@ -330,7 +329,7 @@ pub async fn execute_increment_word_usage_rpc(
         })?;
 
     if increment_response.status().is_success() {
-        println!("[RUST DEBUG SupabaseManager RPC] RPC 'increment_word_usage' called successfully. Status: {}", increment_response.status());
+        // Usage statistics updated
         Ok(())
     } else {
         let status = increment_response.status();

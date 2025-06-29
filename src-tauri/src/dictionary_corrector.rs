@@ -83,7 +83,7 @@ impl DictionaryCorrector {
     fn correct_word(&self, word: &str) -> String {
         // CRITICAL: Protect common words from correction to prevent false positives
         if common_words::should_protect_from_correction(word) {
-            println!("[DictionaryCorrector DEBUG] Word '{}' is PROTECTED from correction", word);
+            // Word protected from correction
             return word.to_string();
         }
         

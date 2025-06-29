@@ -469,17 +469,10 @@ pub async fn transcribe_local_audio_impl(
         
         return Err(error_msg);
     }
-    println!("[RUST DEBUG] Whisper will use input file: {}", whisper_input_path.display());
+    // Processing audio with Whisper
 
     // --- Prepare Whisper command ---
-    println!("[RUST DEBUG] ========== STARTING WHISPER COMMAND (Bundled) ... ==========");
-    println!("    Executable: {}", whisper_binary_path.display());
-    println!("    Model: {}", model_path.display());
-    println!("    Input WAV: {}", whisper_input_path.display());
-    println!("    CWD: {}", whisper_working_dir.display());
-    println!("    Language: {}", language_string);
-    println!("    Flags: -nt"); // Assuming no timestamps needed
-    println!("=========================================================================================");
+    // Starting Whisper transcription
 
     // --- Setup Whisper command ---
     let mut command = std::process::Command::new(&whisper_binary_path);
