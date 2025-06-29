@@ -180,10 +180,22 @@ lazy_static! {
         hotkey_down_physically: false,
     });
 
+    // Auth state tracking
+    static ref AUTH_STATE: Mutex<AuthState> = Mutex::new(AuthState {
+        is_authenticated: false,
+        user_id: None,
+    });
+
     // The channel for communication
     static ref EVENT_CHANNEL: (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) = unbounded();
     static ref EVENT_SENDER: Sender<HotkeyEvent> = EVENT_CHANNEL.0.clone();
     static ref EVENT_RECEIVER: Receiver<HotkeyEvent> = EVENT_CHANNEL.1.clone();
+}
+
+#[derive(Debug, Clone)]
+struct AuthState {
+    is_authenticated: bool,
+    user_id: Option<String>,
 }
 
 const TAP_MAX_DURATION_MS: u128 = 300;
@@ -365,6 +377,7 @@ enum PostEventAction {
     StartRecordingAndEmitUi,
     StopAndTranscribeAndEmitUi,
     UpdateUiOnly, // For entering LockedRecording
+    AuthRequired, // For when auth is needed
 }
 
 // Simplified process_hotkey_event function
@@ -382,9 +395,20 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                     state.press_start_time = Some(press_time);
                     match current_state {
                         AppRecordingState::Idle => {
-                            println!("[State Processor (Simplified V2)] State Transition: Idle -> Recording");
-                            state.recording_state = AppRecordingState::Recording;
-                            action_to_take = PostEventAction::StartRecordingAndEmitUi;
+                            // Check auth before transitioning to recording
+                            let is_authenticated = {
+                                let auth = AUTH_STATE.lock().unwrap();
+                                auth.is_authenticated
+                            };
+                            
+                            if is_authenticated {
+                                println!("[State Processor (Simplified V2)] State Transition: Idle -> Recording");
+                                state.recording_state = AppRecordingState::Recording;
+                                action_to_take = PostEventAction::StartRecordingAndEmitUi;
+                            } else {
+                                println!("[State Processor (Simplified V2)] Auth required - staying in Idle");
+                                action_to_take = PostEventAction::AuthRequired;
+                            }
                         }
                         AppRecordingState::LockedRecording => {
                             println!("[State Processor (Simplified V2)] State Transition: LockedRecording -> Transcribing (Tap)");
@@ -440,6 +464,12 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
              let payload = StateUpdatePayload { state: FrontendRecordingState::LockedRecording, ..Default::default() };
              emit_state_update(app_handle, payload);
          }
+         PostEventAction::AuthRequired => {
+             println!("[State Processor (Simplified V2)] Emitting auth-required event");
+             app_handle.emit_all("fethr-auth-required", ()).unwrap_or_else(|e| {
+                 println!("[State Processor (Simplified V2)] Failed to emit auth-required: {}", e);
+             });
+         }
          PostEventAction::None => { println!("[State Processor (Simplified V2)] No action needed."); }
      }
     println!("[State Processor (Simplified V2)] Finished processing event.");
@@ -483,6 +513,15 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
         // For now, just log. If lifecycle isn't Idle, the hotkey state shouldn't be reset.
     }
     // --- End Moved Reset Logic ---
+}
+
+#[tauri::command]
+fn update_auth_state(is_authenticated: bool, user_id: Option<String>) -> Result<(), String> {
+    let mut auth = AUTH_STATE.lock().unwrap();
+    auth.is_authenticated = is_authenticated;
+    auth.user_id = user_id.clone();
+    println!("[RUST] Auth state updated: authenticated={}, user_id={:?}", is_authenticated, user_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -903,6 +942,7 @@ fn main() {
             paste_text_to_cursor,
             signal_reset_complete,
             force_reset_to_idle,
+            update_auth_state,
             delete_file,
             // UI-triggered hotkey events:
             trigger_press_event,
@@ -1371,6 +1411,11 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
         if let Some(pill_window) = app_handle.get_window("pill") {
             // Show the pill window
             pill_window.show().map_err(|e| format!("Failed to show pill window: {}", e))?;
+            
+            // Try to bring it to front and focus
+            let _ = pill_window.set_focus();
+            let _ = pill_window.set_always_on_top(true);
+            
             println!("[RUST] Temporarily showing pill window for {} ms", duration);
             
             // Schedule hiding it again after the duration

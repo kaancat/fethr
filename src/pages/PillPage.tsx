@@ -346,6 +346,29 @@ function PillPage() {
                 };
                 unlisteners.push(await listen<string>('fethr-error-occurred', handleErrorOccurred));
 
+                // Listen for auth-required event from backend
+                const unlistenAuthRequired = await listen<void>('fethr-auth-required', async () => {
+                    if (!isMounted) return;
+                    console.log("[PillPage] Received fethr-auth-required event from backend");
+                    
+                    setErrorMessage("Sign in required");
+                    setCurrentState(RecordingState.ERROR);
+                    setShowUpgradePrompt(true);
+                    authFailureActiveRef.current = true;
+                    
+                    // Auto-dismiss after 10 seconds
+                    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+                    errorTimeoutRef.current = setTimeout(() => {
+                        authFailureActiveRef.current = false;
+                        handleErrorDismiss_MEMOIZED();
+                    }, 10000);
+                    
+                    // Check if pill is visible and temporarily show if hidden
+                    invoke('temporarily_show_pill_if_hidden', { duration: 10000 })
+                        .catch(err => console.error("Failed to temporarily show pill:", err));
+                });
+                unlisteners.push(unlistenAuthRequired);
+
                 // FIXED: Enhanced clipboard event handler
                 const unlistenCopied = await listen<void>('fethr-copied-to-clipboard', async () => {
                     if (!isMounted) return; 
@@ -504,33 +527,8 @@ function PillPage() {
                     setLastTranscriptionText(null);
                     setError(null);
                     
-                    // Check if user is logged in
-                    if (!userId) {
-                        console.log("[PillPage] User not logged in, showing auth required error");
-                        setErrorMessage("Sign in required");
-                        setCurrentState(RecordingState.ERROR);
-                        setShowUpgradePrompt(true); // Reuse the upgrade prompt UI for sign in
-                        authFailureActiveRef.current = true; // Mark auth failure active
-                        
-                        // CRITICAL: Force backend to reset state immediately
-                        // This prevents the backend state machine from continuing in RECORDING state
-                        invoke('force_reset_to_idle').catch(err => 
-                            console.error("[PillPage] Failed to force backend reset after auth failure:", err)
-                        );
-                        
-                        // Auto-dismiss after 10 seconds to give user time to click Sign In
-                        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                        errorTimeoutRef.current = setTimeout(() => {
-                            authFailureActiveRef.current = false; // Clear auth failure flag
-                            handleErrorDismiss_MEMOIZED();
-                        }, 10000);
-                        
-                        // Check if pill is visible and temporarily show if hidden
-                        invoke('temporarily_show_pill_if_hidden', { duration: 10000 })
-                            .catch(err => console.error("Failed to temporarily show pill:", err));
-                        
-                        return;
-                    }
+                    // Backend has already checked auth and allowed recording to start
+                    // No need to check auth here anymore
                     
                     // Get auth credentials
                     let authUserId = null;
