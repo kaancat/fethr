@@ -1377,22 +1377,31 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
             }
         }
         EventType::KeyRelease(key) => {
+            // Check if this is our configured hotkey with correct modifiers
+            // CRITICAL: Check modifiers BEFORE updating tracking for release events
+            let held_modifiers_before_update = HELD_MODIFIERS.lock().unwrap().clone();
+            
             // Minimal debug for AltGr release events (reduce log spam)
             if matches!(key, RdevKey::AltGr) {
-                let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
-                println!("[ALTGR] Release detected: {:?}", held_modifiers);
+                println!("[ALTGR] Release detected: {:?}", held_modifiers_before_update);
             }
             
-            // Update modifier tracking
+            // Check hotkey match BEFORE updating modifier tracking
+            let is_hotkey_release = is_hotkey_match(key, &hotkey_settings, &held_modifiers_before_update);
+            
+            // Debug AltGr hotkey matching for release events
+            if matches!(key, RdevKey::AltGr) && hotkey_settings.key == "AltGr" {
+                println!("[ALTGR] Release match check: key={:?}, modifiers={:?}, match={}", 
+                         key, held_modifiers_before_update, is_hotkey_release);
+            }
+            
+            // Update modifier tracking AFTER checking hotkey match
             if is_modifier_key(key) {
                 let mut modifiers = HELD_MODIFIERS.lock().unwrap();
                 modifiers.retain(|&k| k != key);
             }
             
-            // Check if this is our configured hotkey with correct modifiers
-            // Note: We check modifiers BEFORE removing the main key
-            let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
-            if is_hotkey_match(key, &hotkey_settings, &held_modifiers) {
+            if is_hotkey_release {
             // Check if this event should be debounced
             let should_process = {
                 let mut last_event = LAST_HOTKEY_EVENT.lock().unwrap();
