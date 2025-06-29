@@ -54,7 +54,7 @@ export const LoginForm: React.FC = () => {
           onChange={(e) => setEmail(e.target.value)}
           required
           placeholder="you@example.com"
-          className="bg-[#0A0F1A] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
+          className="bg-[#0b0719] border border-[#8A2BE2]/30 text-white placeholder-gray-500 ring-offset-[#0b0719] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
           disabled={loading}
         />
       </div>
@@ -67,12 +67,12 @@ export const LoginForm: React.FC = () => {
           onChange={(e) => setPassword(e.target.value)}
           required
           placeholder="••••••••"
-          className="bg-[#0A0F1A] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
+          className="bg-[#0b0719] border border-[#8A2BE2]/30 text-white placeholder-gray-500 ring-offset-[#0b0719] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
           disabled={loading}
         />
       </div>
       {message && <p className="text-sm text-center text-red-400">{message}</p>}
-      <Button type="submit" className="w-full" disabled={loading}>
+      <Button type="submit" className="w-full bg-[#8A2BE2] hover:bg-[#8A2BE2]/90 text-white" disabled={loading}>
         {loading ? 'Logging in...' : 'Login'}
       </Button>
     </form>

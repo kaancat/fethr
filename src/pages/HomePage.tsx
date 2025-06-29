@@ -292,7 +292,7 @@ function HomePage() {
             </Card>
 
             {/* Insights Card */}
-            <Card className="bg-gradient-to-br from-[#8B9EFF]/10 to-[#A6F6FF]/10 border-[#8B9EFF]/20 flex flex-col overflow-hidden">
+            <Card className="bg-gradient-to-br from-[#8A2BE2]/10 to-[#DA70D6]/10 border-[#8A2BE2]/20 flex flex-col overflow-hidden">
               <CardHeader className="flex-shrink-0">
                 <CardTitle className="text-lg font-medium text-white">
                   Your Insights

@@ -268,59 +268,6 @@ const DictionarySettingsTab: React.FC = () => {
         </select>
       </div>
 
-      {/* Dictionary Statistics */}
-      {stats && dictionaryWords.length > 0 && (
-        <div className="bg-neutral-800/30 border border-neutral-700/50 rounded-md p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" />
-              Dictionary Statistics
-            </h3>
-            <button
-              onClick={() => setShowStats(!showStats)}
-              className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-              {showStats ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          
-          {showStats && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-neutral-500">Total words:</span>
-                  <span className="ml-2 text-neutral-200">{stats.totalWords}</span>
-                </div>
-                <div>
-                  <span className="text-neutral-500">Average length:</span>
-                  <span className="ml-2 text-neutral-200">{stats.averageLength.toFixed(1)} chars</span>
-                </div>
-                <div>
-                  <span className="text-neutral-500">Shortest:</span>
-                  <span className="ml-2 text-neutral-200">{stats.shortestWord}</span>
-                </div>
-                <div>
-                  <span className="text-neutral-500">Longest:</span>
-                  <span className="ml-2 text-neutral-200 break-all">{stats.longestWord}</span>
-                </div>
-              </div>
-              
-              {stats.recentlyAdded.length > 0 && (
-                <div>
-                  <span className="text-neutral-500">Recently added:</span>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {stats.recentlyAdded.map((word, index) => (
-                      <span key={index} className="px-2 py-1 bg-neutral-700/50 rounded text-xs text-neutral-300">
-                        {word}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Import/Export Controls */}
       <div className="flex items-center gap-3">

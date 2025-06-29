@@ -91,7 +91,7 @@ function App() {
           {/* Main routes with layout */}
           <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
           <Route path="/dictionary" element={<MainLayout><DictionaryPage /></MainLayout>} />
-          <Route path="/history" element={<MainLayout><HistoryPage /></MainLayout>} />
+          <Route path="/history" element={<MainLayout><HistoryPage user={user} /></MainLayout>} />
           <Route path="/settings" element={<MainLayout><SettingsPage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
           
           {/* Routes without layout */}

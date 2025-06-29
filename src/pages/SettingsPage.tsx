@@ -546,7 +546,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                         >
                             General
                             {activeTab === 'general' && (
-                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#8A2BE2]" />
                             )}
                         </button>
                         <button
@@ -559,7 +559,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                         >
                             AI & Actions
                             {activeTab === 'ai_actions' && (
-                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#8A2BE2]" />
                             )}
                         </button>
                         <button
@@ -572,7 +572,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                         >
                             Account
                             {activeTab === 'account' && (
-                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#A6F6FF]" />
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#8A2BE2]" />
                             )}
                         </button>
                     </nav>
@@ -601,11 +601,11 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         >
                                             <SelectTrigger 
                                                 id="model-select" 
-                                                className="w-full bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-2 focus:ring-[#A6F6FF]/50 focus:ring-offset-2"
+                                                className="w-full bg-[#0b0719] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-2 focus:ring-[#8A2BE2]/50 focus:ring-offset-2"
                                             >
                                                 <SelectValue placeholder="Select a model" />
                                             </SelectTrigger>
-                                            <SelectContent className="bg-[#0A0F1A] border-[#A6F6FF]/30 text-white">
+                                            <SelectContent className="bg-[#0b0719] border-[#8A2BE2]/30 text-white">
                                                 {availableModels.map(model => (
                                                     <SelectItem key={model} value={model} className="focus:bg-[#8A2BE2]/20 text-white">
                                                         {model}
@@ -627,11 +627,11 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     >
                                         <SelectTrigger 
                                             id="language-select" 
-                                            className="w-full bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-2 focus:ring-[#A6F6FF]/50 focus:ring-offset-2"
+                                            className="w-full bg-[#0b0719] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-2 focus:ring-[#8A2BE2]/50 focus:ring-offset-2"
                                         >
                                             <SelectValue placeholder="Select language" />
                                         </SelectTrigger>
-                                        <SelectContent className="bg-[#0A0F1A] border-[#A6F6FF]/30 text-white">
+                                        <SelectContent className="bg-[#0b0719] border-[#8A2BE2]/30 text-white">
                                             {languageOptions.map(lang => (
                                                 <SelectItem key={lang.code} value={lang.code} className="focus:bg-[#8A2BE2]/20 text-white">
                                                     {lang.name}
@@ -653,7 +653,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             checked={settings.auto_paste}
                                             onCheckedChange={(checked: boolean) => handleSettingChange('auto_paste', checked)}
                                             disabled={isLoading || isSaving}
-                                            className="data-[state=checked]:bg-[#A6F6FF]/80 data-[state=unchecked]:bg-gray-600"
+                                            className="data-[state=checked]:bg-[#8A2BE2]/80 data-[state=unchecked]:bg-gray-600"
                                         />
                                     ) : <p className="text-gray-400">...</p>}
                                 </div>
@@ -672,7 +672,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                 checked={settings.pill_enabled}
                                                 onCheckedChange={(checked: boolean) => handleSettingChange('pill_enabled', checked)}
                                                 disabled={isLoading || isSaving}
-                                                className="data-[state=checked]:bg-[#A6F6FF]/80 data-[state=unchecked]:bg-gray-600"
+                                                className="data-[state=checked]:bg-[#8A2BE2]/80 data-[state=unchecked]:bg-gray-600"
                                             />
                                         ) : <p className="text-gray-400">...</p>}
                                     </div>
@@ -685,7 +685,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         <div className="opacity-50">
                                             <Label className="text-gray-300">Microphone Input</Label>
                                             <Select disabled>
-                                                <SelectTrigger className="w-full bg-[#0A0F1A] border border-[#A6F6FF]/30 text-gray-500">
+                                                <SelectTrigger className="w-full bg-[#0b0719] border border-[#8A2BE2]/30 text-gray-500">
                                                     <SelectValue placeholder="Default Microphone (Coming Soon)" />
                                                 </SelectTrigger>
                                             </Select>
@@ -696,7 +696,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                             </div>
                             
                             {/* Footer Buttons - No longer CardFooter */}
-                            <div className="flex justify-between mt-6 pt-4 border-t border-[#A6F6FF]/10">
+                            <div className="flex justify-between mt-6 pt-4 border-t border-[#8A2BE2]/10">
                                 {/* About Button */}
                                 <Button 
                                     variant="ghost"
@@ -709,7 +709,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                                 {/* Save Button */}
                                 <Button
-                                    className="bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF] px-6"
+                                    className="bg-[#8A2BE2]/80 text-[#020409] hover:bg-[#8A2BE2] px-6"
                                     onClick={handleSave}
                                     disabled={isLoading || isSaving || !settings}
                                 >
@@ -723,10 +723,34 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     {/* AI Actions Section */}
                     {activeTab === 'ai_actions' && (
                         <SettingsSection>
+                            {!user ? (
+                                <div className="text-center py-12">
+                                    <img src="/assets/logos/fethr-pro-logo.png" alt="PRO" className="h-16 w-auto mx-auto mb-4" />
+                                    <h3 className="text-lg font-semibold mb-2 text-white">Sign In Required</h3>
+                                    <p className="text-gray-400 mb-4">
+                                        Please sign in to access AI Actions
+                                    </p>
+                                </div>
+                            ) : !profile || profile.subscription_status !== 'pro' ? (
+                                <div className="text-center py-12">
+                                    <img src="/assets/logos/fethr-pro-logo.png" alt="PRO" className="h-16 w-auto mx-auto mb-4" />
+                                    <h3 className="text-lg font-semibold mb-2 text-white">Pro Feature</h3>
+                                    <p className="text-gray-400 mb-4">
+                                        AI Actions require a Pro subscription
+                                    </p>
+                                    <Button 
+                                        onClick={handleInitiateSubscription}
+                                        className="bg-[#8A2BE2] hover:bg-[#8A2BE2]/90 text-white"
+                                    >
+                                        Upgrade to Pro
+                                    </Button>
+                                </div>
+                            ) : (
+                                <>
                                 <h2 className="text-lg font-semibold mb-4 text-white">AI Action Settings</h2>
                                 <p className="text-sm text-gray-400 mb-6">
                                     Configure your OpenRouter API key and customize the prompts used for AI actions.
-                                    Fethr uses <a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer" className="text-[#87CEFA] hover:underline">OpenRouter.ai</a> to provide access to various large language models.
+                                    Fethr uses <a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer" className="text-[#8A2BE2] hover:underline">OpenRouter.ai</a> to provide access to various large language models.
                                 </p>
 
                                 {/* AI Prompts Customization Section - MOVED UP */}
@@ -737,7 +761,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     </p>
                                     <div className="space-y-3">
                                         {DEFAULT_AI_ACTIONS.map(action => (
-                                            <div key={action.id} className="p-3 border border-[#A6F6FF]/15 rounded-md bg-[#0A0F1A]/40">
+                                            <div key={action.id} className="p-3 border border-neutral-800 rounded-md bg-neutral-900/50">
                                                 <div className="flex justify-between items-center">
                                                     <div>
                                                         <h4 className="font-medium text-gray-100">{action.name}</h4>
@@ -747,14 +771,14 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleViewPrompt(action.id)}
-                                                        className="text-xs text-[#87CEFA] hover:bg-[#8A2BE2]/10 hover:text-white"
+                                                        className="text-xs text-[#8A2BE2] hover:bg-[#8A2BE2]/10 hover:text-white"
                                                     >
                                                         {viewingPromptForActionId === action.id && !isLoadingPrompt ? 'Hide Prompt' : 'View/Edit Prompt'}
                                                         {viewingPromptForActionId === action.id && isLoadingPrompt && <Loader2 className="ml-2 h-3 w-3 animate-spin" />}
                                                     </Button>
                                                 </div>
                                                 {viewingPromptForActionId === action.id && (
-                                                    <div className="mt-3 pt-3 border-t border-[#A6F6FF]/10">
+                                                    <div className="mt-3 pt-3 border-t border-[#8A2BE2]/10">
                                                         {isLoadingPrompt ? (
                                                             <div className="flex items-center text-gray-400">
                                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading prompt...
@@ -765,7 +789,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                                     minRows={3}
                                                                     value={editedPromptText ?? ''}
                                                                     onChange={(e) => setEditedPromptText(e.target.value)}
-                                                                    className="w-full bg-[#020409]/70 border border-[#A6F6FF]/25 text-gray-200 text-sm rounded-md p-2 focus:border-[#A6F6FF]/60 focus:ring-1 focus:ring-[#A6F6FF]/60 resize-none"
+                                                                    className="w-full bg-[#020409]/70 border border-[#8A2BE2]/25 text-gray-200 text-sm rounded-md p-2 focus:border-[#8A2BE2]/60 focus:ring-1 focus:ring-[#8A2BE2]/60 resize-none"
                                                                 />
                                                                 <div className="mt-2 flex justify-end space-x-2">
                                                                     <Button
@@ -786,7 +810,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                                     </Button>
                                                                     <Button
                                                                         size="sm" /* Changed from xs */
-                                                                        className="text-xs px-2 py-1 h-auto bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF]"
+                                                                        className="text-xs px-2 py-1 h-auto bg-[#8A2BE2]/80 text-[#020409] hover:bg-[#8A2BE2]"
                                                                         disabled={editedPromptText === currentPromptText || editedPromptText === null}
                                                                         onClick={async () => {
                                                                             if (editedPromptText !== null) {
@@ -813,7 +837,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 </div>
 
                                 {/* API Key Management Section - MOVED DOWN */}
-                                <div className="mt-8 p-4 border border-[#A6F6FF]/20 rounded-md bg-[#0A0F1A]/50"> {/* Added mt-8 for spacing */}
+                                <div className="mt-8 p-4 border border-[#8A2BE2]/20 rounded-md bg-[#0b0719]/50"> {/* Added mt-8 for spacing */}
                                     <h3 className="text-md font-semibold mb-2 text-gray-200">OpenRouter API Key</h3>
                                     <p className="text-xs text-gray-400 mb-3">
                                         Your API key is stored locally and never sent to Fethr servers.
@@ -826,12 +850,12 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             placeholder="Enter your OpenRouter API key (e.g., sk-or-v1-...)"
                                             value={apiKeyInput}
                                             onChange={(e) => setApiKeyInput(e.target.value)}
-                                            className="flex-grow bg-[#020409]/70 border-[#A6F6FF]/25 text-gray-200 focus:border-[#A6F6FF]/60 focus:ring-1 focus:ring-[#A6F6FF]/60"
+                                            className="flex-grow bg-[#020409]/70 border-[#8A2BE2]/25 text-gray-200 focus:border-[#8A2BE2]/60 focus:ring-1 focus:ring-[#8A2BE2]/60"
                                         />
                                         <Button
                                             onClick={handleSaveUserApiKey}
                                             size="sm"
-                                            className="bg-[#A6F6FF]/80 text-[#020409] hover:bg-[#A6F6FF]"
+                                            className="bg-[#8A2BE2]/80 text-white hover:bg-[#8A2BE2]"
                                         >
                                             Save Key
                                         </Button>
@@ -847,6 +871,8 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         )}
                                     </div>
                                 </div>
+                                </>
+                            )}
                         </SettingsSection>
                     )}
 
@@ -868,7 +894,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 // Logged In State - Enhanced UI
                                 <div className="space-y-6">
                                     {/* User Profile Card */}
-                                    <div className="p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                    <div className="p-4 bg-neutral-900/50 rounded-lg border border-neutral-800">
                                         <h3 className="text-sm font-medium text-gray-300 mb-2">Account Details</h3>
                                         <p className="text-white font-medium">{user.email}</p>
                                         <p className="text-xs text-gray-400 mt-1">
@@ -878,14 +904,14 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                                     {/* Subscription Status Card */}
                                     {loadingProfile ? (
-                                        <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-600/50">
+                                        <div className="p-4 bg-neutral-900/50 rounded-lg border border-neutral-800">
                                             <div className="flex items-center space-x-2 text-gray-400">
                                                 <Loader2 className="w-4 h-4 animate-spin" />
                                                 <span>Loading subscription details...</span>
                                             </div>
                                         </div>
                                     ) : profile ? (
-                                        <div className="p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                        <div className="p-4 bg-neutral-900/50 rounded-lg border border-neutral-800">
                                             <div className="flex items-center justify-between mb-3">
                                                 <div className="flex items-center space-x-2">
                                                     <h3 className="text-sm font-medium text-gray-300">Subscription Plan</h3>
@@ -902,9 +928,8 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                     </button>
                                                 </div>
                                                 {profile.subscription_status === 'pro' ? (
-                                                    <div className="flex items-center space-x-1.5 px-2 py-1 bg-yellow-500/20 rounded-md border border-yellow-500/30">
-                                                        <Crown className="w-3 h-3 text-yellow-400" />
-                                                        <span className="text-xs font-medium text-yellow-300">PRO</span>
+                                                    <div className="flex items-center space-x-1.5 px-2 py-1 bg-[#b28dfa]/20 rounded-md border border-[#b28dfa]/30">
+                                                        <img src="/assets/logos/fethr-pro-logo.png" alt="PRO" className="h-6 w-auto" />
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center space-x-1.5 px-2 py-1 bg-gray-500/20 rounded-md border border-gray-500/30">
@@ -926,7 +951,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                         <div className="w-full bg-gray-700 rounded-full h-2">
                                                             <div 
                                                                 className={`h-2 rounded-full transition-all duration-300 ${
-                                                                    (wordUsage / wordLimit) >= 0.8 ? 'bg-yellow-500' : 'bg-[#A6F6FF]'
+                                                                    (wordUsage / wordLimit) >= 0.8 ? 'bg-yellow-500' : 'bg-[#8A2BE2]'
                                                                 }`}
                                                                 style={{ width: `${Math.min((wordUsage / wordLimit) * 100, 100)}%` }}
                                                             />
@@ -950,7 +975,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                 {profile.subscription_status !== 'pro' && (
                                                     <Button
                                                         onClick={handleInitiateSubscription}
-                                                        className="bg-[#A6F6FF] hover:bg-[#85E4F0] text-black font-medium text-xs px-3 py-1.5"
+                                                        className="bg-[#8A2BE2] hover:bg-[#85E4F0] text-black font-medium text-xs px-3 py-1.5"
                                                     >
                                                         Upgrade to Pro
                                                     </Button>
@@ -973,7 +998,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                     )}
 
                                     {/* Account Actions */}
-                                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-600/50">
+                                    <div className="p-4 bg-neutral-900/50 rounded-lg border border-neutral-800">
                                         <h3 className="text-sm font-medium text-gray-300 mb-3">Account Actions</h3>
                                         <Button
                                             variant="destructive"
@@ -996,7 +1021,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                             ) : (
                                 // Logged Out State - Enhanced Login
                                 <div className="space-y-4 w-full max-w-md">
-                                    <div className="p-6 bg-gradient-to-br from-gray-800/50 to-gray-700/30 rounded-lg border border-gray-600/50">
+                                    <div className="p-6 bg-gradient-to-br from-[#8A2BE2]/10 to-[#DA70D6]/10 rounded-lg border border-[#8A2BE2]/20">
                                         <h3 className="text-lg font-semibold text-center mb-2 text-white">Welcome to Fethr</h3>
                                         <p className="text-sm text-center text-gray-400 mb-6">
                                             Sign in to access your transcription history and Pro features

@@ -13,17 +13,37 @@ function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [userId, setUserId] = useState<string | undefined>();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const { hasActiveSubscription } = useSubscription(userId);
   
-  // Get user ID
+  // Get user ID and auth state
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         setUserId(session.user.id);
+        setIsAuthenticated(true);
+      } else {
+        setUserId(undefined);
+        setIsAuthenticated(false);
       }
     };
     fetchUser();
+    
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id);
+        setIsAuthenticated(true);
+      } else {
+        setUserId(undefined);
+        setIsAuthenticated(false);
+      }
+    });
+    
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const menuItems = [
@@ -39,7 +59,7 @@ function MainLayout({ children }: MainLayoutProps) {
       <div className="w-56 flex-shrink-0 border-r border-[#8A2BE2]/10 px-4 py-6 relative">
         <div className="mb-8">
           <img 
-            src={hasActiveSubscription ? "/assets/logos/fethr-pro-logo.png" : "/assets/logos/fethr-logo.png"} 
+            src={isAuthenticated && hasActiveSubscription ? "/assets/logos/fethr-pro-logo.png" : "/assets/logos/fethr-logo.png"} 
             alt="Fethr" 
             className="h-16 w-auto object-contain" 
           />
