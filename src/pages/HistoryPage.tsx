@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Copy } from 'lucide-react';
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import type { HistoryEntry } from '../types';
@@ -131,7 +132,7 @@ function HistoryPage() {
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto mt-6">
+        <ScrollArea className="flex-1 mt-6">
           {historyLoading && (
             <div className="flex items-center justify-center text-gray-400 py-8">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading history...
@@ -153,7 +154,7 @@ function HistoryPage() {
               ) : (
                 historyEntries.length > 0 ? (
                   historyEntries.map((entry) => (
-                    <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#A6F6FF]/10 flex flex-col space-y-2">
+                    <div key={entry.timestamp} className="p-3 bg-[#0A0F1A]/50 rounded border border-[#8A2BE2]/10 flex flex-col space-y-2">
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-gray-400 font-mono">
                           {format(new Date(entry.timestamp), 'yyyy-MM-dd HH:mm:ss')}
@@ -173,7 +174,7 @@ function HistoryPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#A6F6FF]/10"
+                            className="w-6 h-6 text-gray-400 hover:text-white hover:bg-[#8A2BE2]/10"
                             onClick={() => copyHistoryItem(entry.text)}
                             title="Copy Transcription"
                           >
@@ -192,7 +193,7 @@ function HistoryPage() {
               )}
             </div>
           )}
-        </div>
+        </ScrollArea>
       </div>
     </div>
   );

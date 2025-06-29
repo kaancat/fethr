@@ -1,12 +1,15 @@
 import DictionarySettingsTab from '../components/settings/DictionarySettingsTab';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 function DictionaryPage() {
   return (
-    <div className="h-full p-8 overflow-y-auto">
-      <div className="max-w-5xl mx-auto">
-        <DictionarySettingsTab />
+    <ScrollArea className="h-full">
+      <div className="p-8">
+        <div className="max-w-5xl mx-auto">
+          <DictionarySettingsTab />
+        </div>
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 

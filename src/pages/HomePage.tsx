@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, TrendingUp, Clock, Zap, Copy } from 'lucide-react';
 import type { HistoryEntry } from '../types';
 import { supabase } from '@/lib/supabaseClient';
@@ -162,14 +163,14 @@ function HomePage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#A6F6FF]" />
+      <div className="flex items-center justify-center min-h-screen bg-[#0b0719]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#87CEFA]" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-hidden bg-gradient-to-br from-[#0A0F1A] to-[#020409]">
+    <div className="h-full overflow-hidden bg-[#0b0719]">
       <div className="h-full flex flex-col p-8">
         <div className="max-w-7xl mx-auto w-full flex flex-col h-full">
           {/* Header */}
@@ -232,7 +233,7 @@ function HomePage() {
               <CardTitle className="text-sm font-medium text-neutral-400">
                 Time saved
               </CardTitle>
-              <Clock className="h-4 w-4 text-[#A6F6FF]" />
+              <Clock className="h-4 w-4 text-[#87CEFA]" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-white">
@@ -255,7 +256,8 @@ function HomePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden p-6">
-                <div className="h-full overflow-y-auto pr-2 space-y-3">
+                <ScrollArea className="h-full pr-2">
+                  <div className="space-y-3">
                   {stats?.recent_transcriptions.length === 0 ? (
                     <p className="text-neutral-500 text-sm">No transcriptions yet. Start speaking!</p>
                   ) : (
@@ -284,7 +286,8 @@ function HomePage() {
                       </div>
                     ))
                   )}
-                </div>
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
 
@@ -295,8 +298,9 @@ function HomePage() {
                   Your Insights
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-4">
+              <CardContent className="flex-1 overflow-hidden p-6">
+                <ScrollArea className="h-full">
+                  <div className="space-y-4">
               <div className="flex items-center space-x-3">
                 <Clock className="h-5 w-5 text-[#ADC2FF]" />
                 <div>
@@ -326,7 +330,8 @@ function HomePage() {
                         : '0'}
                     </p>
                   </div>
-                </div>
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </div>

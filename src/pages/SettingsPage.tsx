@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Crown, RefreshCw, Copy } from 'lucide-react';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
@@ -510,7 +511,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     // --- Render Logic ---
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409] text-[#A6F6FF]">
+            <div className="flex items-center justify-center min-h-screen bg-[#0b0719] text-[#87CEFA]">
                 <Loader2 className="h-8 w-8 animate-spin" />
                 <span className="ml-2 text-lg">Loading Settings...</span>
             </div>
@@ -518,15 +519,15 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     }
 
     if (error && !settings) { // Show fatal error only if settings didn't load at all
-        return <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409] text-[#FF4D6D] p-4">Error loading settings: {error}</div>;
+        return <div className="flex items-center justify-center min-h-screen bg-[#0b0719] text-[#FF4D6D] p-4">Error loading settings: {error}</div>;
     }
 
     // Render settings form (even if there was a non-fatal error during load/save)
     return (
         <div className="h-full flex flex-col p-8">
             <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
-                <div>
-                    <h1 className="text-2xl font-semibold text-white mb-2">Settings</h1>
+                <div className="mb-6">
+                    <h1 className="text-3xl font-semibold text-white mb-2">Settings</h1>
                     <p className="text-neutral-400">
                         Configure your Fethr experience
                     </p>
@@ -578,7 +579,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                 </div>
                 
                 {/* Tab Content - Scrollable area */}
-                <div className="mt-6 flex-1 overflow-y-auto">
+                <ScrollArea className="mt-6 flex-1">
                     {/* General Tab */}
                     {activeTab === 'general' && (
                         <SettingsSection>
@@ -606,7 +607,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             </SelectTrigger>
                                             <SelectContent className="bg-[#0A0F1A] border-[#A6F6FF]/30 text-white">
                                                 {availableModels.map(model => (
-                                                    <SelectItem key={model} value={model} className="focus:bg-[#A6F6FF]/20 text-white">
+                                                    <SelectItem key={model} value={model} className="focus:bg-[#8A2BE2]/20 text-white">
                                                         {model}
                                                     </SelectItem>
                                                 ))}
@@ -632,7 +633,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#0A0F1A] border-[#A6F6FF]/30 text-white">
                                             {languageOptions.map(lang => (
-                                                <SelectItem key={lang.code} value={lang.code} className="focus:bg-[#A6F6FF]/20 text-white">
+                                                <SelectItem key={lang.code} value={lang.code} className="focus:bg-[#8A2BE2]/20 text-white">
                                                     {lang.name}
                                                 </SelectItem>
                                             ))}
@@ -725,7 +726,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 <h2 className="text-lg font-semibold mb-4 text-white">AI Action Settings</h2>
                                 <p className="text-sm text-gray-400 mb-6">
                                     Configure your OpenRouter API key and customize the prompts used for AI actions.
-                                    Fethr uses <a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer" className="text-[#A6F6FF] hover:underline">OpenRouter.ai</a> to provide access to various large language models.
+                                    Fethr uses <a href="https://openrouter.ai/docs" target="_blank" rel="noopener noreferrer" className="text-[#87CEFA] hover:underline">OpenRouter.ai</a> to provide access to various large language models.
                                 </p>
 
                                 {/* AI Prompts Customization Section - MOVED UP */}
@@ -746,7 +747,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleViewPrompt(action.id)}
-                                                        className="text-xs text-[#A6F6FF] hover:bg-[#A6F6FF]/10 hover:text-white"
+                                                        className="text-xs text-[#87CEFA] hover:bg-[#8A2BE2]/10 hover:text-white"
                                                     >
                                                         {viewingPromptForActionId === action.id && !isLoadingPrompt ? 'Hide Prompt' : 'View/Edit Prompt'}
                                                         {viewingPromptForActionId === action.id && isLoadingPrompt && <Loader2 className="ml-2 h-3 w-3 animate-spin" />}
@@ -1006,7 +1007,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                             )}
                         </SettingsSection>
                     )}
-                </div>
+                </ScrollArea>
             </div>
         </div>
     );

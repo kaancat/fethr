@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, BookOpen, Clock, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/lib/supabaseClient';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -10,6 +12,19 @@ interface MainLayoutProps {
 function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [userId, setUserId] = useState<string | undefined>();
+  const { hasActiveSubscription } = useSubscription(userId);
+  
+  // Get user ID
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+      }
+    };
+    fetchUser();
+  }, []);
 
   const menuItems = [
     { path: '/', label: 'Home', icon: Home },
@@ -19,11 +34,15 @@ function MainLayout({ children }: MainLayoutProps) {
   ];
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409]">
+    <div className="flex h-screen bg-[#0b0719]">
       {/* Sidebar */}
-      <div className="w-48 flex-shrink-0 border-r border-[#A6F6FF]/10 px-4 py-6 relative">
+      <div className="w-56 flex-shrink-0 border-r border-[#8A2BE2]/10 px-4 py-6 relative">
         <div className="mb-8">
-          <h1 className="text-xl font-semibold text-white">fethr</h1>
+          <img 
+            src={hasActiveSubscription ? "/assets/logos/fethr-pro-logo.png" : "/assets/logos/fethr-logo.png"} 
+            alt="Fethr" 
+            className="h-16 w-auto object-contain" 
+          />
         </div>
         
         <nav className="space-y-2">
@@ -39,8 +58,8 @@ function MainLayout({ children }: MainLayoutProps) {
                 onClick={() => navigate(item.path)}
                 className={`w-full justify-start text-left px-3 py-2 rounded bg-transparent ${
                   isActive
-                    ? 'bg-[#A6F6FF]/10 text-white'
-                    : 'text-gray-400 hover:bg-[#A6F6FF]/5 hover:text-gray-200'
+                    ? 'bg-[#8A2BE2]/10 text-white'
+                    : 'text-gray-400 hover:bg-[#8A2BE2]/5 hover:text-gray-200'
                 }`}
               >
                 <Icon className="mr-3 h-4 w-4" />

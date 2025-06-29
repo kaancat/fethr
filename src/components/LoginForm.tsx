@@ -54,7 +54,7 @@ export const LoginForm: React.FC = () => {
           onChange={(e) => setEmail(e.target.value)}
           required
           placeholder="you@example.com"
-          className="bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#A6F6FF]/50 focus:ring-offset-1"
+          className="bg-[#0A0F1A] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
           disabled={loading}
         />
       </div>
@@ -67,7 +67,7 @@ export const LoginForm: React.FC = () => {
           onChange={(e) => setPassword(e.target.value)}
           required
           placeholder="••••••••"
-          className="bg-[#0A0F1A] border border-[#A6F6FF]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#A6F6FF]/50 focus:ring-offset-1"
+          className="bg-[#0A0F1A] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-1 focus:ring-[#8A2BE2]/50 focus:ring-offset-1"
           disabled={loading}
         />
       </div>

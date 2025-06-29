@@ -88,21 +88,21 @@ function EditorPage() {
     };
 
     return (
-        <div className="flex flex-col h-screen bg-gradient-to-br from-[#0A0F1A] to-[#020409] text-white p-4 space-y-4 font-sans">
+        <div className="flex flex-col h-screen bg-[#0b0719] text-white p-4 space-y-4 font-sans">
             <Textarea
                 value={text}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
-                className="flex-grow bg-[#020409]/80 border-[#A6F6FF]/20 text-gray-200 text-sm rounded-md p-3 focus:border-[#A6F6FF]/50 focus:ring-1 focus:ring-[#A6F6FF]/50 resize-none"
+                className="flex-grow bg-[#020409]/80 border-[#8A2BE2]/20 text-gray-200 text-sm rounded-md p-3 focus:border-[#8A2BE2]/50 focus:ring-1 focus:ring-[#8A2BE2]/50 resize-none"
                 placeholder="Transcription..."
                 rows={8} // Adjust initial rows
             />
             <div className="flex justify-between items-center flex-shrink-0">
                  <div className="space-x-2">
-                    <Button onClick={handleCopy} variant="ghost" size="sm" className="text-[#A6F6FF] hover:bg-[#A6F6FF]/10 hover:text-[#C0FFFF]">
+                    <Button onClick={handleCopy} variant="ghost" size="sm" className="text-[#87CEFA] hover:bg-[#8A2BE2]/10 hover:text-[#87CEFA]">
                         {isCopied ? <Check className="w-4 h-4 mr-1"/> : <Copy className="w-4 h-4 mr-1"/>}
                         Copy
                     </Button>
-                     <Button onClick={handlePaste} variant="ghost" size="sm" className="text-[#A6F6FF] hover:bg-[#A6F6FF]/10 hover:text-[#C0FFFF]">
+                     <Button onClick={handlePaste} variant="ghost" size="sm" className="text-[#87CEFA] hover:bg-[#8A2BE2]/10 hover:text-[#87CEFA]">
                          <Send className="w-4 h-4 mr-1"/>
                          Paste
                      </Button>
