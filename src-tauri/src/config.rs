@@ -151,7 +151,7 @@ fn default_hotkey_modifiers() -> Vec<String> {
 }
 
 fn default_hold_to_record() -> bool {
-    false  // Default to tap-to-toggle mode
+    true  // Default to hold-to-record mode (existing behavior)
 }
 
 fn default_hotkey_enabled() -> bool {
