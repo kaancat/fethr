@@ -309,6 +309,13 @@ fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings, held_mo
         return false;
     }
     
+    // Special case: If the main key is a modifier key (like AltGr) and no additional modifiers are required
+    let configured_key = string_to_rdev_key(&hotkey_settings.key).unwrap(); // Safe because we checked above
+    if is_modifier_key(configured_key) && hotkey_settings.modifiers.is_empty() {
+        // The only held modifier should be the main key itself
+        return held_modifiers.len() == 1 && held_modifiers.contains(&configured_key);
+    }
+    
     // If no modifiers are required, and no modifiers are held, it's a match
     if hotkey_settings.modifiers.is_empty() && held_modifiers.is_empty() {
         return true;
@@ -606,9 +613,10 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                                     state.recording_state = AppRecordingState::Transcribing;
                                     action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                                 } else {
-                                    // Toggle mode: ignore release events - only presses matter
-                                    // Recording continues until next press
-                                    action_to_take = PostEventAction::None;
+                                    // Toggle mode: For mouse clicks, release events should also stop recording
+                                    // This allows mouse clicks to work as expected (click to start, click to stop)
+                                    state.recording_state = AppRecordingState::Transcribing;
+                                    action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                                 }
                             }
                             _ => {
