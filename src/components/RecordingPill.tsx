@@ -123,7 +123,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     useEffect(() => {
         const setupDraggableListener = async () => {
             const unlisten = await listen<boolean>('pill-draggable-changed', (event) => {
-                console.log('[RecordingPill] Draggable changed:', event.payload);
+                // Draggable setting updated
                 setIsDraggable(event.payload);
             });
             
@@ -154,20 +154,11 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
 
-    // Add comprehensive logging for state transitions
-    console.log(`🎭 [PILL VARIANT] State: ${RecordingState[currentState]} → Variant: ${targetVariant} | isResizing: ${isResizing} | isHovered: ${isHovered}`);
+    // State transition logging removed for performance
     
-    // Log variant dimension changes
-    const variantDimensions = pillContainerVariants[targetVariant];
-    console.log(`📐 [PILL DIMENSIONS] Variant ${targetVariant}: ${variantDimensions.width} × ${variantDimensions.height} | Y: ${variantDimensions.y}`);
+    // Dimension logging removed for performance
     
-    // Track DOM position changes
-    useEffect(() => {
-        if (pillRef.current) {
-            const rect = pillRef.current.getBoundingClientRect();
-            console.log(`📍 [DOM POSITION] State: ${RecordingState[currentState]} | Top: ${rect.top.toFixed(1)}px | Left: ${rect.left.toFixed(1)}px | Width: ${rect.width.toFixed(1)}px | Height: ${rect.height.toFixed(1)}px`);
-        }
-    }, [currentState, targetVariant, isResizing]);
+    // DOM position logging removed for performance
 
     // Handle clicks on the pill depending on the current recording state
     // Why: Centralizes the logic for starting/stopping recording via pill interaction.
@@ -373,12 +364,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             onHoverStart={() => { if (isIdle && !isResizing) setIsHovered(true); }}
             onHoverEnd={() => setIsHovered(false)}
             layout={false}  // Disable layout animations to prevent jumps
-            onAnimationStart={() => {
-                console.log(`🎬 [ANIMATION START] Variant: ${targetVariant} | isResizing: ${isResizing} | Duration: 0.3s`);
-            }}
-            onAnimationComplete={() => {
-                console.log(`🎬 [ANIMATION COMPLETE] Variant: ${targetVariant} | isResizing: ${isResizing}`);
-            }}
+            // Animation logging removed for performance
             transition={{ 
                 type: "tween", 
                 duration: 0.3, 
