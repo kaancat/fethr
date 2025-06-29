@@ -46,7 +46,7 @@ mod audio_devices; // Audio device management
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
 pub use config::AppSettings; // Export AppSettings for use by other modules
 pub use config::PillPosition; // Export PillPosition enum
-pub use config::{AudioDeviceInfo, AudioSettings}; // Export audio types
+pub use config::{AudioDeviceInfo, AudioSettings, HotkeySettings}; // Export audio and hotkey types
 
 // Import necessary types from submodules
 use crate::transcription::TranscriptionState; // Make sure TranscriptionState is pub in transcription.rs
@@ -202,6 +202,103 @@ struct AuthState {
 }
 
 const TAP_MAX_DURATION_MS: u128 = 300;
+
+// --- Hotkey Mapping System ---
+/// Maps user-friendly key names to RdevKey enum values
+fn string_to_rdev_key(key_str: &str) -> Option<RdevKey> {
+    match key_str.to_lowercase().as_str() {
+        // Alphabet keys
+        "a" => Some(RdevKey::KeyA), "b" => Some(RdevKey::KeyB), "c" => Some(RdevKey::KeyC),
+        "d" => Some(RdevKey::KeyD), "e" => Some(RdevKey::KeyE), "f" => Some(RdevKey::KeyF),
+        "g" => Some(RdevKey::KeyG), "h" => Some(RdevKey::KeyH), "i" => Some(RdevKey::KeyI),
+        "j" => Some(RdevKey::KeyJ), "k" => Some(RdevKey::KeyK), "l" => Some(RdevKey::KeyL),
+        "m" => Some(RdevKey::KeyM), "n" => Some(RdevKey::KeyN), "o" => Some(RdevKey::KeyO),
+        "p" => Some(RdevKey::KeyP), "q" => Some(RdevKey::KeyQ), "r" => Some(RdevKey::KeyR),
+        "s" => Some(RdevKey::KeyS), "t" => Some(RdevKey::KeyT), "u" => Some(RdevKey::KeyU),
+        "v" => Some(RdevKey::KeyV), "w" => Some(RdevKey::KeyW), "x" => Some(RdevKey::KeyX),
+        "y" => Some(RdevKey::KeyY), "z" => Some(RdevKey::KeyZ),
+        
+        // Function keys
+        "f1" => Some(RdevKey::F1), "f2" => Some(RdevKey::F2), "f3" => Some(RdevKey::F3),
+        "f4" => Some(RdevKey::F4), "f5" => Some(RdevKey::F5), "f6" => Some(RdevKey::F6),
+        "f7" => Some(RdevKey::F7), "f8" => Some(RdevKey::F8), "f9" => Some(RdevKey::F9),
+        "f10" => Some(RdevKey::F10), "f11" => Some(RdevKey::F11), "f12" => Some(RdevKey::F12),
+        
+        // Number keys
+        "0" => Some(RdevKey::Num0), "1" => Some(RdevKey::Num1), "2" => Some(RdevKey::Num2),
+        "3" => Some(RdevKey::Num3), "4" => Some(RdevKey::Num4), "5" => Some(RdevKey::Num5),
+        "6" => Some(RdevKey::Num6), "7" => Some(RdevKey::Num7), "8" => Some(RdevKey::Num8),
+        "9" => Some(RdevKey::Num9),
+        
+        // Modifier keys
+        "alt" => Some(RdevKey::Alt), "altgr" => Some(RdevKey::AltGr),
+        "ctrl" => Some(RdevKey::ControlLeft), "control" => Some(RdevKey::ControlLeft),
+        "shift" => Some(RdevKey::ShiftLeft),
+        "cmd" => Some(RdevKey::MetaLeft), "meta" => Some(RdevKey::MetaLeft),
+        "win" => Some(RdevKey::MetaLeft), "windows" => Some(RdevKey::MetaLeft),
+        
+        // MacOS-specific aliases
+        "command" => Some(RdevKey::MetaLeft), "option" => Some(RdevKey::Alt),
+        
+        // Special keys
+        "space" => Some(RdevKey::Space), "enter" => Some(RdevKey::Return),
+        "tab" => Some(RdevKey::Tab), "escape" => Some(RdevKey::Escape),
+        "backspace" => Some(RdevKey::Backspace), "delete" => Some(RdevKey::Delete),
+        
+        // Arrow keys
+        "up" => Some(RdevKey::UpArrow), "down" => Some(RdevKey::DownArrow),
+        "left" => Some(RdevKey::LeftArrow), "right" => Some(RdevKey::RightArrow),
+        
+        _ => None,
+    }
+}
+
+/// Gets supported key options for the UI
+fn get_supported_keys() -> Vec<(String, String)> {
+    vec![
+        // Function keys (most commonly used for hotkeys)
+        ("F1".to_string(), "F1".to_string()),
+        ("F2".to_string(), "F2".to_string()),
+        ("F3".to_string(), "F3".to_string()),
+        ("F4".to_string(), "F4".to_string()),
+        ("F5".to_string(), "F5".to_string()),
+        ("F6".to_string(), "F6".to_string()),
+        ("F7".to_string(), "F7".to_string()),
+        ("F8".to_string(), "F8".to_string()),
+        ("F9".to_string(), "F9".to_string()),
+        ("F10".to_string(), "F10".to_string()),
+        ("F11".to_string(), "F11".to_string()),
+        ("F12".to_string(), "F12".to_string()),
+        
+        // Current default (platform specific)
+        ("AltGr".to_string(), if cfg!(target_os = "macos") { "Option (Right Alt)".to_string() } else { "Right Alt (AltGr)".to_string() }),
+        
+        // Other modifier keys (platform specific labels)
+        ("Alt".to_string(), if cfg!(target_os = "macos") { "Option".to_string() } else { "Left Alt".to_string() }),
+        ("Ctrl".to_string(), if cfg!(target_os = "macos") { "Control".to_string() } else { "Ctrl".to_string() }),
+        ("Cmd".to_string(), if cfg!(target_os = "macos") { "Command (⌘)".to_string() } else { "Windows Key".to_string() }),
+        
+        // Special keys
+        ("Space".to_string(), "Spacebar".to_string()),
+        
+        // Common letters
+        ("Q".to_string(), "Q".to_string()),
+        ("W".to_string(), "W".to_string()),
+        ("E".to_string(), "E".to_string()),
+        ("R".to_string(), "R".to_string()),
+        ("T".to_string(), "T".to_string()),
+    ]
+}
+
+/// Checks if a hotkey matches the current event
+fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings) -> bool {
+    // For now, just check the primary key (modifiers support can be added later)
+    if let Some(configured_key) = string_to_rdev_key(&hotkey_settings.key) {
+        event_key == configured_key
+    } else {
+        false
+    }
+}
 
 #[derive(Default)]
 pub struct AudioRecordingState {
@@ -428,17 +525,33 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                     let press_start = state.press_start_time.take();
                     if let Some(start) = press_start {
                         let duration_ms = release_time.duration_since(start).as_millis();
+                        
+                        // Get hold_to_record setting
+                        let hold_to_record = {
+                            match SETTINGS.lock() {
+                                Ok(settings) => settings.hotkey.hold_to_record,
+                                Err(_) => false, // Default to tap-to-toggle mode if settings unavailable
+                            }
+                        };
+                        
                         // Processing release event
                         match current_state {
                             AppRecordingState::Recording => {
-                                if duration_ms <= TAP_MAX_DURATION_MS {
-                                    // Tap detected - locking recording
-                                    state.recording_state = AppRecordingState::LockedRecording;
-                                    action_to_take = PostEventAction::UpdateUiOnly; // Action to emit LockedRecording state
-                                } else {
-                                    // Hold detected - stopping recording
+                                if hold_to_record {
+                                    // Hold-to-record mode: always stop on release
                                     state.recording_state = AppRecordingState::Transcribing;
                                     action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                                } else {
+                                    // Tap-to-toggle mode: use duration to determine action
+                                    if duration_ms <= TAP_MAX_DURATION_MS {
+                                        // Tap detected - locking recording
+                                        state.recording_state = AppRecordingState::LockedRecording;
+                                        action_to_take = PostEventAction::UpdateUiOnly; // Action to emit LockedRecording state
+                                    } else {
+                                        // Hold detected - stopping recording
+                                        state.recording_state = AppRecordingState::Transcribing;
+                                        action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                                    }
                                 }
                             }
                             _ => println!("[State Processor (Simplified V2)] Ignoring Release in state: {:?}", current_state),
@@ -965,6 +1078,10 @@ fn main() {
             get_settings,
             save_settings,
             get_available_models,
+            // Hotkey Commands:
+            get_supported_hotkeys,
+            test_hotkey,
+            update_hotkey_settings,
             // --- ADD THE NEW DICTIONARY COMMANDS ---
             dictionary_manager::get_dictionary,
             dictionary_manager::add_dictionary_word,
@@ -1006,15 +1123,36 @@ fn main() {
 fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed here anymore
     let event_time = Instant::now();
 
+    // Get current hotkey settings
+    let hotkey_settings = {
+        match SETTINGS.lock() {
+            Ok(settings) => settings.hotkey.clone(),
+            Err(_) => {
+                // If we can't get settings, use default AltGr for fallback
+                HotkeySettings {
+                    key: "AltGr".to_string(),
+                    modifiers: vec![],
+                    hold_to_record: false,
+                    enabled: true,
+                }
+            }
+        }
+    };
+
+    // Check if hotkeys are enabled
+    if !hotkey_settings.enabled {
+        return;
+    }
+
     match event.event_type {
-        EventType::KeyPress(key) if key == RdevKey::AltGr => {
-            // AltGr press detected
+        EventType::KeyPress(key) if is_hotkey_match(key, &hotkey_settings) => {
+            // Configured hotkey press detected
             if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Press(event_time)) {
                 println!("[RDEV Callback ERROR] Failed to send Press event: {}", e);
             }
         }
-        EventType::KeyRelease(key) if key == RdevKey::AltGr => {
-             // AltGr release detected
+        EventType::KeyRelease(key) if is_hotkey_match(key, &hotkey_settings) => {
+             // Configured hotkey release detected
              if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Release(event_time)) {
                  println!("[RDEV Callback ERROR] Failed to send Release event: {}", e);
              }
@@ -1086,6 +1224,47 @@ async fn save_settings(settings: AppSettings, _app_handle: AppHandle) -> Result<
         .map_err(|e| format!("Failed to save settings to file: {}", e))?;
     
     info!("[Settings] Settings saved successfully");
+    Ok(())
+}
+
+// --- Hotkey Commands ---
+#[tauri::command]
+async fn get_supported_hotkeys() -> Result<Vec<(String, String)>, String> {
+    Ok(get_supported_keys())
+}
+
+#[tauri::command]
+async fn test_hotkey(key: String) -> Result<bool, String> {
+    // Test if the key string can be mapped to a valid RdevKey
+    match string_to_rdev_key(&key) {
+        Some(_) => Ok(true),
+        None => Ok(false),
+    }
+}
+
+#[tauri::command]
+async fn update_hotkey_settings(hotkey_settings: HotkeySettings) -> Result<(), String> {
+    // Validate the hotkey
+    if hotkey_settings.enabled && string_to_rdev_key(&hotkey_settings.key).is_none() {
+        return Err(format!("Invalid hotkey: {}", hotkey_settings.key));
+    }
+    
+    // Update settings in memory
+    {
+        let mut settings = SETTINGS.lock()
+            .map_err(|e| format!("Failed to lock settings: {}", e))?;
+        settings.hotkey = hotkey_settings;
+    }
+    
+    // Save to file
+    let settings = SETTINGS.lock()
+        .map_err(|e| format!("Failed to lock settings for saving: {}", e))?
+        .clone();
+    
+    settings.save()
+        .map_err(|e| format!("Failed to save hotkey settings: {}", e))?;
+    
+    info!("[Hotkey] Hotkey settings updated successfully");
     Ok(())
 }
 

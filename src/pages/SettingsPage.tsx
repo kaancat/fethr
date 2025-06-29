@@ -23,6 +23,7 @@ import SettingsSection from '../components/SettingsSection';
 import PillPositionSelector from '../components/settings/PillPositionSelector';
 import AudioDeviceSelector from '../components/settings/AudioDeviceSelector';
 import MicrophoneTester from '../components/settings/MicrophoneTester';
+import HotkeySelector from '../components/settings/HotkeySelector';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -848,6 +849,20 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         <MicrophoneTester
                                             selectedDevice={selectedAudioDevice}
                                             disabled={isLoading || isSaving}
+                                        />
+                                        <HotkeySelector
+                                            value={settings?.hotkey || {
+                                                key: "AltGr",
+                                                modifiers: [],
+                                                hold_to_record: false,
+                                                enabled: true
+                                            }}
+                                            onChange={(hotkeySettings) => {
+                                                if (settings) {
+                                                    const updatedSettings = { ...settings, hotkey: hotkeySettings };
+                                                    setSettings(updatedSettings);
+                                                }
+                                            }}
                                         />
                                     </div>
                                 </div>
