@@ -1214,7 +1214,7 @@ fn main() {
             
             // Start the rdev listener thread
             match start_hotkey_listener() {
-                Ok(handle) => {
+                Ok(_handle) => {
                     println!("[RDEV 2.0] Hotkey listener thread started successfully");
                     // Store the handle if needed for cleanup later
                 }
@@ -1519,28 +1519,8 @@ async fn save_settings(settings: AppSettings, _app_handle: AppHandle) -> Result<
 }
 
 // --- Hotkey Commands ---
-#[tauri::command]
-async fn get_supported_hotkeys() -> Result<Vec<(String, String)>, String> {
-    Ok(get_supported_keys())
-}
-
-#[tauri::command]
-async fn test_hotkey(key: String) -> Result<bool, String> {
-    // Test if the key string can be converted to Tauri format
-    let test_settings = HotkeySettings {
-        key,
-        modifiers: vec![],
-        hold_to_record: false,
-        enabled: true,
-    };
-    
-    match hotkey_settings_to_tauri_format(&test_settings) {
-        Some(_) => Ok(true),
-        None => Ok(false),
-    }
-}
-
-// This function is now defined earlier in the file with proper Tauri GlobalShortcut integration
+// Removed obsolete get_supported_hotkeys and test_hotkey commands
+// rdev 2.0 supports all keys directly
 
 #[tauri::command]
 async fn get_available_models(_app_handle: AppHandle) -> Result<Vec<String>, String> {
@@ -1586,7 +1566,7 @@ async fn get_available_models(_app_handle: AppHandle) -> Result<Vec<String>, Str
 }
 
 #[tauri::command]
-fn trigger_press_event(app_handle: AppHandle) {
+fn trigger_press_event(_app_handle: AppHandle) {
     println!("[RUST CMD] UI-triggered press event (mouse click)");
     
     // Simulate a hotkey press event
@@ -1600,7 +1580,7 @@ fn trigger_press_event(app_handle: AppHandle) {
 }
 
 #[tauri::command]
-fn trigger_release_event(app_handle: AppHandle) {
+fn trigger_release_event(_app_handle: AppHandle) {
     println!("[RUST CMD] UI-triggered release event (mouse release)");
     
     // Simulate a hotkey release event
