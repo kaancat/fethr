@@ -95,9 +95,8 @@ pub async fn start_backend_recording(
         .ok_or_else(|| "No input device available".to_string())?;
     
     let device_name = device.name().unwrap_or_else(|_| "Unnamed".to_string());
-    println!("[RUST AUDIO DEBUG] Using input device: {}", device_name);
-
-    println!("[RUST AUDIO DEBUG] Finding best supported input config...");
+    
+    // Device discovery logging removed for production
     let preferred_format_order = [SampleFormat::I16, SampleFormat::F32];
     let mut best_config: Option<cpal::SupportedStreamConfig> = None;
    
@@ -105,11 +104,9 @@ pub async fn start_backend_recording(
     'format_loop: for &format in preferred_format_order.iter() {
         if let Ok(mut configs_iter) = device.supported_input_configs() {
             if let Some(range) = configs_iter.find(|range| range.sample_format() == format && range.channels() == 1) {
-                println!("[RUST AUDIO DEBUG]   -> Found Mono {:?} range.", format);
                 let desired_rate = if range.min_sample_rate().0 <= 48000 && range.max_sample_rate().0 >= 48000 { SampleRate(48000) }
                                     else if range.min_sample_rate().0 <= 16000 && range.max_sample_rate().0 >= 16000 { SampleRate(16000) }
                                     else { range.max_sample_rate() };
-                println!("[RUST AUDIO DEBUG]   -> Selecting rate: {}", desired_rate.0);
                 best_config = Some(range.with_sample_rate(desired_rate));
                 break 'format_loop;
             }
@@ -117,20 +114,19 @@ pub async fn start_backend_recording(
         if best_config.is_none() {
             if let Ok(mut configs_iter) = device.supported_input_configs() {
                 if let Some(range) = configs_iter.find(|range| range.sample_format() == format) {
-                    println!("[RUST AUDIO DEBUG]   -> Found {:?} range ({} channels). Selecting max rate: {}", format, range.channels(), range.max_sample_rate().0);
                     best_config = Some(range.with_max_sample_rate());
                     break 'format_loop;
                 }
             }
         }
-        println!("[RUST AUDIO DEBUG] No {:?} configs found.", format);
     }
     
     let supported_config = best_config.ok_or_else(|| "No supported I16 or F32 input config found".to_string())?;
     let actual_sample_rate = supported_config.sample_rate().0;
     let stream_config: cpal::StreamConfig = supported_config.config();
     let actual_format = supported_config.sample_format();
-    println!("[RUST AUDIO] Selected config: Rate: {}, Channels: {}, Format: {:?}", actual_sample_rate, stream_config.channels, actual_format);
+    
+    println!("[RUST AUDIO] Recording started with {}", device_name);
 
     let spec = hound::WavSpec { channels: 1, sample_rate: actual_sample_rate, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
     let writer = hound::WavWriter::create(&temp_wav_path, spec).map_err(|e| format!("Failed to create WavWriter: {}", e))?;
@@ -144,7 +140,7 @@ pub async fn start_backend_recording(
     let _app_handle_for_play_err = app_handle.clone();
 
     let recording_handle = thread::spawn(move || {
-        println!("[RUST THREAD] Recording thread started.");
+        // Recording thread started
         
         // Defer is optional now, stop command explicitly sets flag false
         defer! ({
@@ -154,7 +150,7 @@ pub async fn start_backend_recording(
 
         let error_callback = move |_err| { /* Same as before */ };
 
-        println!("[RUST THREAD DEBUG] Building stream for format: {:?}", actual_format);
+        // Building audio stream
         let stream_result = match actual_format {
             SampleFormat::I16 => {
                 let data_callback = move |data: &[i16], _: &cpal::InputCallbackInfo| {
@@ -195,27 +191,24 @@ pub async fn start_backend_recording(
             println!("[RUST THREAD ERROR] Failed to play stream: {:?}", e); 
             return; 
         }
-        println!("[RUST THREAD] Stream playing.");
+        // Stream active
 
         // --- Loop checking channel and flag (unchanged) ---
         loop {
             // Try receiving stop signal without blocking indefinitely
             match rx_stop.try_recv() {
                 Ok(_) => { // Stop signal received
-                    println!("[RUST THREAD] Stop signal received via channel.");
                     break; // Exit loop to stop recording
                 }
                 Err(mpsc::TryRecvError::Empty) => {
                     // No signal yet, check atomic flag
                     if !session_active_clone.load(Ordering::SeqCst) {
-                         println!("[RUST THREAD] Session flag became false. Stopping.");
                          break; // Exit loop if flag externaly set false
                     }
                     // Flag is still true, no signal, sleep briefly
                     thread::sleep(Duration::from_millis(50)); // Check ~20 times/sec
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                     println!("[RUST THREAD ERR] Stop signal sender disconnected! Stopping.");
                      break; // Exit loop if channel broken
                 }
             }
@@ -320,13 +313,12 @@ pub async fn stop_backend_recording(
     if let Some(handle) = _handle_opt { // Use the handle taken earlier
         println!("[RUST AUDIO STOP] Joining recording thread...");
          match handle.join() {
-             Ok(_) => println!("[RUST AUDIO STOP] Recording thread joined successfully."),
-             Err(_) => println!("[RUST AUDIO STOP WARNING] Recording thread panicked! State might be inconsistent."),
+             Ok(_) => {}, // Thread joined successfully
+             Err(_) => eprintln!("[RUST AUDIO ERROR] Recording thread panicked! State might be inconsistent."),
          }
     } else {
-          println!("[RUST AUDIO STOP WARNING] Recording thread handle was None before join.");
+          eprintln!("[RUST AUDIO ERROR] Recording thread handle was None before join.");
     }
-     println!("[RUST AUDIO STOP] Recording thread stopped/joined.");
     // --- End Join Thread ---
 
 

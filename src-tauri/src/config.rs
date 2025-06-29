@@ -260,16 +260,12 @@ impl AppSettings {
     
     pub fn save(&self) -> Result<(), String> {
         let config_path = Self::config_path()?;
-        println!("[CONFIG] Attempting to save settings to: {}", config_path.display());
-        
         if let Some(dir) = config_path.parent() {
             fs::create_dir_all(dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
         
         let config_content = toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize: {}", e))?;
         fs::write(&config_path, config_content).map_err(|e| format!("Failed to write config: {}", e))?;
-        
-        println!("[CONFIG] Settings saved successfully.");
         Ok(())
     }
 } 

@@ -106,8 +106,7 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handl
         let vendor_dir = manifest_dir.join("vendor");
         ffmpeg_path = vendor_dir.join(ffmpeg_exe_name); // Use platform-specific name
         ffmpeg_cwd = vendor_dir.clone(); // Use vendor dir as CWD
-        println!("[RUST FFMPEG DEBUG] Using ffmpeg path: {}", ffmpeg_path.display());
-        println!("[RUST FFMPEG DEBUG] Using CWD: {}", ffmpeg_cwd.display());
+        // Using bundled FFmpeg for audio conversion
 
     } else {
         // RELEASE MODE: Assume bundled next to main executable
@@ -116,8 +115,7 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handl
              .ok_or_else(|| "Could not determine executable directory in release build".to_string())?;
         ffmpeg_path = exe_dir.join(ffmpeg_exe_name); // Use platform-specific name
         ffmpeg_cwd = exe_dir.clone(); // Use executable dir as CWD for release
-        println!("[RUST FFMPEG RELEASE] Attempting ffmpeg path: {}", ffmpeg_path.display());
-        println!("[RUST FFMPEG RELEASE] Using CWD: {}", ffmpeg_cwd.display());
+        // Using production FFmpeg bundle
     }
     // --- End Path Resolution ---
 
@@ -128,17 +126,10 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handl
          return Err(err_msg);
     }
 
-    // --- Execute FFmpeg Command using resolved path and CWD ---
-    println!("[RUST DEBUG] ========== STARTING FFMPEG COMMAND (Bundled) ... ==========");
-    println!("    Executable: {}", ffmpeg_path.display());
-    println!("    Input WAV: {}", input_path.display());
-    println!("    Output WAV: {}", output_path.display());
-    println!("    CWD: {}", ffmpeg_cwd.display());
-    println!("=====================================================================");
-
-    let mut command = Command::new(&ffmpeg_path); // Use resolved path
-    command.current_dir(&ffmpeg_cwd); // Set CWD
-    command.arg("-i")
+    // Execute FFmpeg Command
+    let mut command = Command::new(&ffmpeg_path);
+    command.current_dir(&ffmpeg_cwd)
+        .arg("-i")
         .arg(input_path)
         .arg("-ar")
         .arg("16000")
@@ -148,10 +139,8 @@ async fn run_ffmpeg_conversion(input_path: &Path, output_path: &Path, _app_handl
         .arg("pcm_s16le")
         .arg("-y")
         .arg(output_path)
-        .stdout(Stdio::null()) // Suppress stdout
-        .stderr(Stdio::piped()); // Capture stderr
-
-    println!("[RUST DEBUG] Running FFmpeg with args: {:?}", command.get_args().collect::<Vec<_>>());
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
 
     let output = command.output() // Use output() to capture stderr
         .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
@@ -185,10 +174,7 @@ pub async fn transcribe_audio_file(
     user_id_opt: Option<String>,    // NEW ARGUMENT
     access_token_opt: Option<String> // NEW ARGUMENT
 ) -> Result<String, String> {
-    println!("\n\n[RUST DEBUG] >>> ENTERED transcribe_audio_file command function <<<");
-    println!("[RUST DEBUG] Input audio path: {}", audio_path);
-    println!("[RUST DEBUG] Auto paste flag (passed): {}", auto_paste);
-    println!("[RUST DEBUG] User ID present: {}, Access token present: {}", user_id_opt.is_some(), access_token_opt.is_some());
+    // Starting transcription
 
     // Check if transcription is already in progress
     if TRANSCRIPTION_IN_PROGRESS.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -240,9 +226,7 @@ pub async fn transcribe_local_audio_impl(
     user_id_opt: Option<String>,    // NEW ARGUMENT
     access_token_opt: Option<String> // NEW ARGUMENT
 ) -> Result<String, String> {
-    println!("[RUST DEBUG] >>> ENTERED transcribe_local_audio_impl <<<");
-    println!("[RUST DEBUG] Received initial WAV path: {}", wav_path_in);
-    println!("[RUST DEBUG] Auto-paste enabled: {}", auto_paste);
+    // Processing audio file
 
     // --- Get settings from global config (model name, language only now) ---
     let (model_name_string, language_string) = {
@@ -368,10 +352,7 @@ pub async fn transcribe_local_audio_impl(
         model_path = vendor_dir.join("models").join(&model_name_string);
         whisper_working_dir = vendor_dir.clone(); // Use vendor dir as CWD
 
-        println!("[RUST DEBUG transcription.rs] DEBUG PATHS:");
-        println!("  -> Binary: {}", whisper_binary_path.display());
-        println!("  -> Model: {}", model_path.display());
-        println!("  -> CWD: {}", whisper_working_dir.display());
+        // Using development Whisper binaries
 
     } else {
         // RELEASE MODE: Use Tauri's resource resolver
@@ -532,7 +513,7 @@ pub async fn transcribe_local_audio_impl(
     command.arg(whisper_input_path); // Input file
 
     // --- Run Whisper command and read output ---
-    println!("[RUST DEBUG] Running Whisper with these args: {:?}", command.get_args().collect::<Vec<_>>());
+    // Running Whisper transcription
     let output = match command.output() {
         Ok(output) => output,
         Err(e) => {
@@ -560,9 +541,7 @@ pub async fn transcribe_local_audio_impl(
     let stdout_text = String::from_utf8_lossy(&stdout_bytes).to_string();
     let stderr_text = String::from_utf8_lossy(&stderr_bytes).to_string();
 
-    println!("[RUST DEBUG] Whisper exit status: {}", exit_status);
-    println!("[RUST DEBUG] Whisper stdout: {}", stdout_text);
-    println!("[RUST DEBUG] Whisper stderr: {}", stderr_text);
+    // Whisper processing complete
 
     // Clean up temporary files
     cleanup_files(input_wav_path, converted_wav_path_opt.as_ref().map(|v| &**v));
