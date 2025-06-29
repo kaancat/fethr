@@ -151,7 +151,7 @@ fn default_hotkey_modifiers() -> Vec<String> {
 }
 
 fn default_hold_to_record() -> bool {
-    true  // Default to hold-to-record mode (existing behavior)
+    false  // Default to toggle mode (more intuitive for most users)
 }
 
 fn default_hotkey_enabled() -> bool {
