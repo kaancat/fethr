@@ -193,6 +193,12 @@ lazy_static! {
     static ref EVENT_CHANNEL: (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) = unbounded();
     static ref EVENT_SENDER: Sender<HotkeyEvent> = EVENT_CHANNEL.0.clone();
     static ref EVENT_RECEIVER: Receiver<HotkeyEvent> = EVENT_CHANNEL.1.clone();
+    
+    // Debouncing for hotkey events
+    static ref LAST_HOTKEY_EVENT: Mutex<Option<(HotkeyEvent, Instant)>> = Mutex::new(None);
+    
+    // Track currently held modifier keys
+    static ref HELD_MODIFIERS: Mutex<Vec<RdevKey>> = Mutex::new(Vec::new());
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +208,8 @@ struct AuthState {
 }
 
 const TAP_MAX_DURATION_MS: u128 = 300;
+const HOTKEY_DEBOUNCE_MS: u128 = 50; // Minimum time between hotkey events
+const RAPID_FIRE_THRESHOLD_MS: u128 = 100; // If events come faster than this, it's likely typing
 
 // --- Hotkey Mapping System ---
 /// Maps user-friendly key names to RdevKey enum values
@@ -291,13 +299,40 @@ fn get_supported_keys() -> Vec<(String, String)> {
 }
 
 /// Checks if a hotkey matches the current event
-fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings) -> bool {
-    // For now, just check the primary key (modifiers support can be added later)
+fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings, held_modifiers: &[RdevKey]) -> bool {
+    // Check if the primary key matches
     if let Some(configured_key) = string_to_rdev_key(&hotkey_settings.key) {
-        event_key == configured_key
+        if event_key != configured_key {
+            return false;
+        }
     } else {
-        false
+        return false;
     }
+    
+    // If no modifiers are required, and no modifiers are held, it's a match
+    if hotkey_settings.modifiers.is_empty() && held_modifiers.is_empty() {
+        return true;
+    }
+    
+    // Check if all required modifiers are held
+    let required_modifiers: Vec<RdevKey> = hotkey_settings.modifiers
+        .iter()
+        .filter_map(|m| string_to_rdev_key(m))
+        .collect();
+    
+    // All required modifiers must be held, and no extra modifiers should be held
+    required_modifiers.len() == held_modifiers.len() &&
+    required_modifiers.iter().all(|req| held_modifiers.contains(req))
+}
+
+/// Checks if a key is a modifier key
+fn is_modifier_key(key: RdevKey) -> bool {
+    matches!(key, 
+        RdevKey::Alt | RdevKey::AltGr | 
+        RdevKey::ControlLeft | RdevKey::ControlRight |
+        RdevKey::ShiftLeft | RdevKey::ShiftRight |
+        RdevKey::MetaLeft | RdevKey::MetaRight
+    )
 }
 
 #[derive(Default)]
@@ -480,12 +515,22 @@ enum PostEventAction {
     AuthRequired, // For when auth is needed
 }
 
-// Simplified process_hotkey_event function
+// Simplified process_hotkey_event function with error recovery
 fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
     let mut action_to_take = PostEventAction::None;
     {
         let mut state = HOTKEY_STATE.lock().unwrap();
         let current_state = state.recording_state;
+        
+        // Safety check: If we're in an inconsistent state, reset
+        if state.hotkey_down_physically && state.press_start_time.is_none() {
+            println!("[State Processor WARNING] Inconsistent state detected - resetting");
+            state.hotkey_down_physically = false;
+            state.press_start_time = None;
+            state.recording_state = AppRecordingState::Idle;
+            return; // Skip this event to prevent further chaos
+        }
+        
         // Processing hotkey event
 
         match event {
@@ -493,6 +538,15 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                 if !state.hotkey_down_physically {
                     state.hotkey_down_physically = true;
                     state.press_start_time = Some(press_time);
+                    
+                    // Get the recording mode
+                    let hold_to_record = {
+                        match SETTINGS.lock() {
+                            Ok(settings) => settings.hotkey.hold_to_record,
+                            Err(_) => true, // Default to push-to-talk if settings unavailable
+                        }
+                    };
+                    
                     match current_state {
                         AppRecordingState::Idle => {
                             // Check auth before transitioning to recording
@@ -510,12 +564,22 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                                 action_to_take = PostEventAction::AuthRequired;
                             }
                         }
-                        AppRecordingState::LockedRecording => {
-                            // Stopping recording
-                            state.recording_state = AppRecordingState::Transcribing;
-                            action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                        AppRecordingState::Recording => {
+                            // In toggle mode, pressing while recording stops it
+                            if !hold_to_record {
+                                state.recording_state = AppRecordingState::Transcribing;
+                                action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                            }
+                            // In push-to-talk mode, ignore repeated presses while recording
                         }
-                        _ => {}, // Ignoring press in current state
+                        AppRecordingState::LockedRecording => {
+                            // Legacy state - treat as Recording for compatibility
+                            if !hold_to_record {
+                                state.recording_state = AppRecordingState::Transcribing;
+                                action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
+                            }
+                        }
+                        _ => {}, // Ignoring press in other states
                     }
                 } // Ignoring repeat press
             }
@@ -538,23 +602,21 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                         match current_state {
                             AppRecordingState::Recording => {
                                 if hold_to_record {
-                                    // Hold-to-record mode: always stop on release
+                                    // Push-to-talk mode: always stop on release
                                     state.recording_state = AppRecordingState::Transcribing;
                                     action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                                 } else {
-                                    // Tap-to-toggle mode: use duration to determine action
-                                    if duration_ms <= TAP_MAX_DURATION_MS {
-                                        // Tap detected - locking recording
-                                        state.recording_state = AppRecordingState::LockedRecording;
-                                        action_to_take = PostEventAction::UpdateUiOnly; // Action to emit LockedRecording state
-                                    } else {
-                                        // Hold detected - stopping recording
-                                        state.recording_state = AppRecordingState::Transcribing;
-                                        action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                                    }
+                                    // Toggle mode: ignore release events - only presses matter
+                                    // Recording continues until next press
+                                    action_to_take = PostEventAction::None;
                                 }
                             }
-                            _ => println!("[State Processor (Simplified V2)] Ignoring Release in state: {:?}", current_state),
+                            _ => {
+                                // In toggle mode, ignore all release events in other states
+                                if hold_to_record {
+                                    println!("[State Processor] Ignoring Release in state: {:?}", current_state);
+                                }
+                            }
                         }
                     } else { println!("[State Processor (Simplified V2) WARN] Release without matching press_start_time! (State: {:?})", current_state); }
                  } else { println!("[State Processor (Simplified V2) WARN] Ignoring spurious Release event."); }
@@ -1145,17 +1207,100 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
     }
 
     match event.event_type {
-        EventType::KeyPress(key) if is_hotkey_match(key, &hotkey_settings) => {
-            // Configured hotkey press detected
-            if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Press(event_time)) {
-                println!("[RDEV Callback ERROR] Failed to send Press event: {}", e);
+        EventType::KeyPress(key) => {
+            // Update modifier tracking
+            if is_modifier_key(key) {
+                let mut modifiers = HELD_MODIFIERS.lock().unwrap();
+                if !modifiers.contains(&key) {
+                    modifiers.push(key);
+                }
+            }
+            
+            // Check if this is our configured hotkey with correct modifiers
+            let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
+            if is_hotkey_match(key, &hotkey_settings, &held_modifiers) {
+            // Check if this event should be debounced
+            let should_process = {
+                let mut last_event = LAST_HOTKEY_EVENT.lock().unwrap();
+                let should_process = match &*last_event {
+                    Some((last_event_type, last_time)) => {
+                        let time_since_last = event_time.duration_since(*last_time).as_millis();
+                        
+                        // Always allow if enough time has passed
+                        if time_since_last >= HOTKEY_DEBOUNCE_MS {
+                            true
+                        }
+                        // Allow press after release or release after press (normal sequence)
+                        else if matches!(last_event_type, HotkeyEvent::Release(_)) {
+                            time_since_last >= 10 // Very quick succession is OK for press after release
+                        }
+                        else {
+                            // Rapid repeated presses - likely typing, ignore
+                            false
+                        }
+                    }
+                    None => true, // First event
+                };
+                
+                if should_process {
+                    *last_event = Some((HotkeyEvent::Press(event_time), event_time));
+                }
+                should_process
+            };
+            
+            if should_process {
+                if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Press(event_time)) {
+                    println!("[RDEV Callback ERROR] Failed to send Press event: {}", e);
+                }
+            }
             }
         }
-        EventType::KeyRelease(key) if is_hotkey_match(key, &hotkey_settings) => {
-             // Configured hotkey release detected
-             if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Release(event_time)) {
-                 println!("[RDEV Callback ERROR] Failed to send Release event: {}", e);
-             }
+        EventType::KeyRelease(key) => {
+            // Update modifier tracking
+            if is_modifier_key(key) {
+                let mut modifiers = HELD_MODIFIERS.lock().unwrap();
+                modifiers.retain(|&k| k != key);
+            }
+            
+            // Check if this is our configured hotkey with correct modifiers
+            // Note: We check modifiers BEFORE removing the main key
+            let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
+            if is_hotkey_match(key, &hotkey_settings, &held_modifiers) {
+            // Check if this event should be debounced
+            let should_process = {
+                let mut last_event = LAST_HOTKEY_EVENT.lock().unwrap();
+                let should_process = match &*last_event {
+                    Some((last_event_type, last_time)) => {
+                        let time_since_last = event_time.duration_since(*last_time).as_millis();
+                        
+                        // Always allow if enough time has passed
+                        if time_since_last >= HOTKEY_DEBOUNCE_MS {
+                            true
+                        }
+                        // Allow release after press (normal sequence)
+                        else if matches!(last_event_type, HotkeyEvent::Press(_)) {
+                            time_since_last >= 10 // Very quick succession is OK for release after press
+                        }
+                        else {
+                            // Rapid repeated releases - ignore
+                            false
+                        }
+                    }
+                    None => true, // First event
+                };
+                
+                if should_process {
+                    *last_event = Some((HotkeyEvent::Release(event_time), event_time));
+                }
+                should_process
+            };
+            
+            if should_process {
+                if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Release(event_time)) {
+                    println!("[RDEV Callback ERROR] Failed to send Release event: {}", e);
+                }
+            }
+            }
         }
         _ => {} // Ignore other events
     }
