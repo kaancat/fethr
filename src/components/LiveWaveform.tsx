@@ -38,7 +38,7 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
     const draw = () => {
         // Stop if component unmounted or context closed/suspended
         if (!isMountedRef.current || audioContextRef.current?.state !== 'running' || !analyserRef.current || !dataArrayRef.current) {
-             console.log("[LiveWaveform Draw] Stopping loop (unmounted, context closed, or refs missing).");
+             // Stopping draw loop
              if(animationFrameId.current) cancelAnimationFrame(animationFrameId.current); // Explicit stop
              animationFrameId.current = null;
             return;
@@ -54,13 +54,8 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
         const newHeights = new Array(NUM_BARS);
         const sliceWidth = Math.floor(bufferLength / NUM_BARS);
         
-        // Log data range occasionally
+        // Removed data range logging for performance
         drawCountRef.current++;
-        if (drawCountRef.current % 120 === 0) { // Less frequent logging
-            const dataMin = Math.min(...Array.from(dataArrayRef.current));
-            const dataMax = Math.max(...Array.from(dataArrayRef.current));
-            console.log(`[LiveWaveform] Time domain data range: min=${dataMin}, max=${dataMax}, bufferLength=${bufferLength}`);
-        }
 
         for (let i = 0; i < NUM_BARS; i++) {
             let maxAmplitude = 0;
@@ -82,10 +77,7 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
             newHeights[i] = heightPercent;
         }
 
-        // Log heights occasionally to avoid console spam
-        if (drawCountRef.current % 60 === 0) { // Log roughly once per second (assuming 60fps)
-            console.log("[LiveWaveform] Bar Heights (Time Domain):", newHeights.map(h => h.toFixed(0)).join(', '));
-        }
+        // Removed excessive render loop logging for performance
 
         // Update the bar heights
         setBarHeights(newHeights);
@@ -100,16 +92,13 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
         const shouldSetupAudio = typeof isRecording === 'undefined' || isRecording === true;
 
         if (!shouldSetupAudio) {
-            console.log("[LiveWaveform] Audio setup skipped as isRecording is false.");
-            // Ensure cleanup if audio was previously active and isRecording becomes false
-            // This part might need more robust handling if isRecording can toggle during component lifetime
+            // Audio setup skipped - not recording
             return;
         }
 
         const setupAudio = async () => {
             setError(null); // Clear previous errors
             try {
-                console.log("[LiveWaveform] Requesting mic...");
                 const stream = await navigator.mediaDevices.getUserMedia({
                      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
                      video: false
@@ -118,7 +107,6 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
                 if (!isMountedRef.current) { stream.getTracks().forEach(track => track.stop()); return; } // Check after await
 
                 streamRef.current = stream;
-                console.log("[LiveWaveform] Mic access granted.");
 
                 const context = new AudioContext();
                 audioContextRef.current = context;
@@ -133,13 +121,9 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
                 // Create data array based on fftSize for time domain data
                 dataArrayRef.current = new Uint8Array(analyser.fftSize);
                 
-                console.log(`[LiveWaveform] Analyser created with fftSize=${analyser.fftSize} for time domain visualization`);
-
                 const source = context.createMediaStreamSource(stream);
                 sourceRef.current = source;
                 source.connect(analyser);
-
-                console.log("[LiveWaveform] Audio setup complete. Starting draw loop.");
                 // Start the draw loop *after* everything is initialized
                 animationFrameId.current = requestAnimationFrame(draw);
 
@@ -155,22 +139,16 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
 
         // Cleanup function
         return () => {
-            console.log("[LiveWaveform] Cleanup running...");
             isMountedRef.current = false; // Mark as unmounted
             drawCountRef.current = 0; // Reset counter
             if (animationFrameId.current) {
-                console.log("[LiveWaveform] Cancelling animation frame");
                 cancelAnimationFrame(animationFrameId.current);
                 animationFrameId.current = null;
             }
-            console.log("[LiveWaveform] Stopping mic tracks...");
             streamRef.current?.getTracks().forEach(track => track.stop());
-            console.log("[LiveWaveform] Disconnecting source node...");
             sourceRef.current?.disconnect();
              // It's good practice to close the context on cleanup
-             console.log("[LiveWaveform] Closing audio context...");
              audioContextRef.current?.close().then(() => {
-                 console.log("[LiveWaveform] Audio context closed.");
                  audioContextRef.current = null; // Nullify after close
              }).catch(e => console.error("Error closing audio context:", e));
 
@@ -179,8 +157,6 @@ const LiveWaveform: React.FC<LiveWaveformProps> = ({
              sourceRef.current = null;
              analyserRef.current = null;
              dataArrayRef.current = null;
-
-             console.log("[LiveWaveform] Cleanup finished.");
         };
     }, [isRecording]); // Add isRecording to dependency array to re-run effect if it changes
 

@@ -95,7 +95,7 @@ function PillPage() {
         }
         
         try {
-            console.log(`🔧 [RESIZE] Pre-resizing for ${RecordingState[state]} -> ${width}×${height}`);
+            // Resize logging removed for performance
             setIsResizing(true);
             await invoke('resize_pill_window', { width, height });
             await new Promise(resolve => setTimeout(resolve, 100)); // Wait for resize to complete

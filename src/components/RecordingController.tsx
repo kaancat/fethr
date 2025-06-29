@@ -1,4 +1,4 @@
-console.log("%c---> EXECUTING RecordingController.tsx <---", "background: yellow; color: black; font-weight: bold; font-size: 14px; padding: 5px;");
+// RecordingController module entry logging removed for performance
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -23,7 +23,7 @@ interface UnlistenFn {
 }
 
 const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ configOptions }) => {
-  console.log(`%c---> EXECUTING RecordingController.tsx INSTANCE: ${controllerInstanceId} <---`, "background: yellow; color: black; font-weight: bold; font-size: 14px; padding: 5px;"); // Log instance ID
+  // Instance logging removed for performance
 
   const unlisteners = useRef<UnlistenFn[]>([]);
 
@@ -88,25 +88,21 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
         
         const updateStateUnlistener = await listen("fethr-update-ui-state", (event) => {
             const payload = event.payload as { state: string };
-            console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] === Received UI State Update Event === Payload:`, payload);
+            // UI state update logging removed for performance
             
             // Convert string state to enum
             let newState: RecordingState | null = null;
             switch (payload.state) {
                 case "IDLE":
-                    console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Matched state: "IDLE". Setting frontend state.`);
                     newState = RecordingState.IDLE;
                     break;
                 case "RECORDING":
-                    console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Matched state: "RECORDING". Setting frontend state.`);
                     newState = RecordingState.RECORDING;
                     break;
                 case "LOCKED_RECORDING":
-                    console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Matched state: "LOCKED_RECORDING". Setting frontend state.`);
                     newState = RecordingState.LOCKED_RECORDING;
                     break;
                 case "TRANSCRIBING":
-                    console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Matched state: "TRANSCRIBING". Setting frontend state.`);
                     newState = RecordingState.TRANSCRIBING;
                     break;
                 default:
@@ -114,26 +110,18 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
             }
 
             if (newState !== null) {
-                console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Calling setCurrentRecordingState with: ${RecordingState[newState]} (${newState})`);
                 setCurrentRecordingState(newState);
-            } else {
-                 console.warn(`[RecordingController INSTANCE: ${controllerInstanceId}] newState was null after switch, not updating state.`);
             }
         });
         unlisteners.current.push(updateStateUnlistener);
 
         const startRecordingUnlistener = await listen("fethr-start-recording", () => {
-            // --- ADD Instance ID to log ---
-            console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Received Start Recording command.`);
             startRecordingProcess();
         });
         unlisteners.current.push(startRecordingUnlistener);
 
         const stopTranscribeUnlistener = await listen("fethr-stop-and-transcribe", (event) => {
-            // --- ADD Instance ID to log ---
-            console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] Received Stop and Transcribe command.`);
             const autoPaste = event.payload as boolean;
-            console.log(`[RecordingController INSTANCE: ${controllerInstanceId}] AutoPaste flag from backend: ${autoPaste}`);
             
             // Override config option if provided by backend
             const effectiveAutoPaste = autoPaste !== undefined ? autoPaste : configOptions.autoPasteTranscription;
@@ -244,10 +232,7 @@ const RecordingController: React.FC<{ configOptions: ConfigOptions }> = ({ confi
           const elapsedMs = now - startTimeRef.current;
           const newDuration = elapsedMs / 1000;
           
-          // Reduce logging frequency (only log every second)
-          if (Math.floor(newDuration) !== Math.floor(recordingDuration)) {
-            console.log(`[RecordingController INSTANCE: ${controllerInstanceId} Timer] Start: ${startTimeRef.current}, Now: ${now}, Elapsed: ${elapsedMs}ms, Duration: ${newDuration.toFixed(1)}s`);
-          }
+          // Timer logging removed for performance
           
           setRecordingDuration(newDuration);
         } else {
