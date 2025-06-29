@@ -94,6 +94,12 @@ function App() {
                   userId: session?.user?.id || null
               });
               console.log('[Auth Listener] Backend auth state updated');
+              
+              // If user just logged in (session exists and event is SIGNED_IN), ensure pill is visible
+              if (session && _event === 'SIGNED_IN') {
+                  console.log('[Auth Listener] User signed in, ensuring pill is visible');
+                  await invoke('set_pill_visibility', { visible: true });
+              }
           } catch (err) {
               console.error('[Auth Listener] Failed to update backend auth state:', err);
           }
