@@ -59,22 +59,44 @@ function App() {
       setLoadingAuth(true);
 
       // Get initial session
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
           setSession(session);
           setUser(session?.user ?? null);
           setLoadingAuth(false);
           console.log('[Auth Listener] Initial session loaded:', session ? 'Exists' : 'None');
+          
+          // Update backend auth state
+          try {
+              await invoke('update_auth_state', {
+                  isAuthenticated: !!session,
+                  userId: session?.user?.id || null
+              });
+              console.log('[Auth Listener] Initial backend auth state updated');
+          } catch (err) {
+              console.error('[Auth Listener] Failed to update initial backend auth state:', err);
+          }
       }).catch(error => {
            console.error('[Auth Listener] Error getting initial session:', error);
            setLoadingAuth(false);
       });
 
       // Set up the listener for future changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
           console.log('[Auth Listener] Auth state changed. New session:', session ? 'Exists' : 'None', 'Event:', _event);
           setSession(session);
           setUser(session?.user ?? null);
           setLoadingAuth(false); // Ensure loading is set to false on changes too
+          
+          // Update backend auth state
+          try {
+              await invoke('update_auth_state', {
+                  isAuthenticated: !!session,
+                  userId: session?.user?.id || null
+              });
+              console.log('[Auth Listener] Backend auth state updated');
+          } catch (err) {
+              console.error('[Auth Listener] Failed to update backend auth state:', err);
+          }
       });
 
       // Cleanup function to unsubscribe
