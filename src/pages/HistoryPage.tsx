@@ -8,8 +8,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Copy } from 'lucide-react';
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import type { HistoryEntry } from '../types';
+import type { User } from '@supabase/supabase-js';
 
-function HistoryPage() {
+interface HistoryPageProps {
+  user: User | null;
+}
+
+function HistoryPage({ user }: HistoryPageProps) {
   const { toast } = useToast();
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState<boolean>(true);
@@ -150,6 +155,7 @@ function HistoryPage() {
                   entry={editingEntry}
                   onSave={handleSaveEdit}
                   onCancel={handleCancelEdit}
+                  user={user}
                 />
               ) : (
                 historyEntries.length > 0 ? (

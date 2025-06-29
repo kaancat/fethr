@@ -5,31 +5,31 @@ import TextareaAutosize from 'react-textarea-autosize'; // For custom prompt inp
 import { format } from 'date-fns'; // For formatting the timestamp
 import { invoke } from '@tauri-apps/api/tauri'; // Added invoke
 import { useToast } from "@/hooks/use-toast"; // Changed import
-import { Copy, Plus, BookOpen } from 'lucide-react'; // Added Copy icon import
+import { Copy } from 'lucide-react'; // Added Copy icon import
+import type { User } from '@supabase/supabase-js';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface HistoryItemEditorProps {
   entry: HistoryEntry;
   onSave: (timestamp: string, newText: string) => void; // Function to call when saving
   onCancel: () => void; // Function to call when canceling
+  user: User | null;
 }
 
 // Define the character limit constant (can be defined outside the component or as a const inside)
 const CUSTOM_PROMPT_MAX_LENGTH = 500;
 
-const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, onCancel }) => {
+const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, onCancel, user }) => {
   const [editedText, setEditedText] = useState<string>(entry.text);
   const [isAiLoading, setIsAiLoading] = useState<string | null>(null); // Re-added
   const [initialTextSnapshot, setInitialTextSnapshot] = useState<string>('');
   const { toast } = useToast(); // Initialize useToast
+  const { hasActiveSubscription } = useSubscription(user?.id);
 
   // --- NEW STATE FOR CUSTOM PROMPT ---
   const [customUserPrompt, setCustomUserPrompt] = useState<string>('');
   const [isApplyingCustomPrompt, setIsApplyingCustomPrompt] = useState<string | boolean>(false);
   
-  // --- NEW STATE FOR DICTIONARY SUGGESTIONS ---
-  const [dictionaryWords, setDictionaryWords] = useState<string[]>([]);
-  const [showDictionarySuggestions, setShowDictionarySuggestions] = useState(false);
-  const [potentialWords, setPotentialWords] = useState<string[]>([]);
 
   // Effect to reset editedText when the entry prop changes
   useEffect(() => {
@@ -37,12 +37,6 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
     setInitialTextSnapshot(entry.text); // Also set initialTextSnapshot when entry changes
   }, [entry]);
   
-  // Load dictionary words on mount
-  useEffect(() => {
-    invoke<string[]>('get_dictionary')
-      .then(words => setDictionaryWords(words))
-      .catch(err => console.error('Failed to load dictionary:', err));
-  }, []);
 
   const handleSave = () => {
     if (editedText.trim()) {
@@ -57,6 +51,25 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
   const handleAiAction = async (actionType: string) => {
     if (!editedText.trim()) {
         toast({ variant: "destructive", title: "Error", description: "Cannot perform AI action on empty text." });
+        return;
+    }
+    
+    // Check authentication and subscription
+    if (!user) {
+        toast({ 
+            variant: "destructive", 
+            title: "Authentication Required", 
+            description: "Please log in to use AI actions." 
+        });
+        return;
+    }
+    
+    if (!hasActiveSubscription) {
+        toast({ 
+            variant: "destructive", 
+            title: "Pro Feature", 
+            description: "AI Actions require a Pro subscription." 
+        });
         return;
     }
 
@@ -119,77 +132,6 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
     }
   };
 
-  // Find potential words to add to dictionary
-  useEffect(() => {
-    const findCandidates = async () => {
-      if (!editedText || dictionaryWords.length === 0) {
-        setPotentialWords([]);
-        return;
-      }
-      
-      // Extract words from text (including words with apostrophes like "don't")
-      const words = editedText.match(/\b[A-Za-z][A-Za-z0-9']*\b/g) || [];
-      const uniqueWords = [...new Set(words)];
-      
-      // Skip if already in dictionary
-      const notInDictionary = uniqueWords.filter(word => {
-        return !dictionaryWords.some(
-          dictWord => dictWord.toLowerCase() === word.toLowerCase()
-        );
-      });
-      
-      // Check which words are common using backend
-      try {
-        const commonChecks = await invoke<boolean[]>('check_common_words', { 
-          words: notInDictionary 
-        });
-        
-        // Filter out common words
-        const candidates = notInDictionary.filter((word, index) => {
-          // Skip common words
-          if (commonChecks[index]) return false;
-          
-          // Also skip very short words (1-2 chars) and contractions
-          if (word.length <= 2) return false;
-          if (word.includes("'")) return false; // Skip contractions like "don't", "I'm"
-          
-          // Good candidates: proper nouns, technical terms, etc.
-          return true;
-        });
-        
-        // Sort by frequency in text (most frequent first)
-        const wordCounts = new Map<string, number>();
-        words.forEach(word => {
-          const key = word.toLowerCase();
-          wordCounts.set(key, (wordCounts.get(key) || 0) + 1);
-        });
-        
-        const sorted = candidates.sort((a, b) => {
-          const countA = wordCounts.get(a.toLowerCase()) || 0;
-          const countB = wordCounts.get(b.toLowerCase()) || 0;
-          return countB - countA;
-        });
-        
-        setPotentialWords(sorted);
-      } catch (error) {
-        console.error('Failed to check common words:', error);
-        setPotentialWords([]);
-      }
-    };
-    
-    findCandidates();
-  }, [editedText, dictionaryWords]);
-  
-  const handleAddToDictionary = async (word: string) => {
-    try {
-      await invoke('add_dictionary_word', { word });
-      setDictionaryWords([...dictionaryWords, word]);
-      toast({ title: "Added to dictionary", description: `"${word}" has been added to your dictionary.` });
-    } catch (error) {
-      console.error('Failed to add word to dictionary:', error);
-      toast({ variant: "destructive", title: "Error", description: `Failed to add "${word}" to dictionary.` });
-    }
-  };
 
   const handleApplyCustomPrompt = async () => {
       if (!customUserPrompt.trim()) {
@@ -198,6 +140,25 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
       }
       if (!editedText.trim()) {
           toast({variant: "destructive", title: "Input Error", description:"There is no text to apply the prompt to."});
+          return;
+      }
+      
+      // Check authentication and subscription
+      if (!user) {
+          toast({ 
+              variant: "destructive", 
+              title: "Authentication Required", 
+              description: "Please log in to use AI actions." 
+          });
+          return;
+      }
+      
+      if (!hasActiveSubscription) {
+          toast({ 
+              variant: "destructive", 
+              title: "Pro Feature", 
+              description: "Custom AI prompts require a Pro subscription." 
+          });
           return;
       }
 
@@ -245,7 +206,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
             <Button
                 variant="outline"
                 size="sm"
-                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                className="text-xs px-2 py-1 h-auto border border-[#8A2BE2]/30 bg-transparent text-[#8A2BE2] hover:bg-[#8A2BE2]/10 hover:text-white focus-visible:ring-[#8A2BE2] disabled:opacity-40"
                 disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
                 title="Convert to clean written text"
                 onClick={() => handleAiAction('written_form')}
@@ -255,7 +216,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
             <Button
                 variant="outline"
                 size="sm"
-                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                className="text-xs px-2 py-1 h-auto border border-[#8A2BE2]/30 bg-transparent text-[#8A2BE2] hover:bg-[#8A2BE2]/10 hover:text-white focus-visible:ring-[#8A2BE2] disabled:opacity-40"
                 disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
                 title="Summarize text"
                 onClick={() => handleAiAction('summarize')}
@@ -265,7 +226,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
             <Button 
                 variant="outline"
                 size="sm"
-                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                className="text-xs px-2 py-1 h-auto border border-[#8A2BE2]/30 bg-transparent text-[#8A2BE2] hover:bg-[#8A2BE2]/10 hover:text-white focus-visible:ring-[#8A2BE2] disabled:opacity-40"
                 disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
                 title="Format as Email"
                 onClick={() => handleAiAction('email')}
@@ -275,7 +236,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
             <Button
                 variant="outline"
                 size="sm"
-                className="text-xs px-2 py-1 h-auto border border-[#8B9EFF]/30 bg-transparent text-[#ADC2FF] hover:bg-[#8B9EFF]/10 hover:text-white focus-visible:ring-[#8B9EFF] disabled:opacity-40"
+                className="text-xs px-2 py-1 h-auto border border-[#8A2BE2]/30 bg-transparent text-[#8A2BE2] hover:bg-[#8A2BE2]/10 hover:text-white focus-visible:ring-[#8A2BE2] disabled:opacity-40"
                 disabled={isAiLoading !== null || !!isApplyingCustomPrompt}
                 title="Refine this text into an effective AI prompt"
                 onClick={() => handleAiAction('promptify')}
@@ -314,7 +275,7 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
                     onClick={handleApplyCustomPrompt}
                     disabled={!!isApplyingCustomPrompt || isAiLoading !== null || !customUserPrompt.trim() || !editedText.trim()} 
                     size="sm" 
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 transition-colors"
+                    className="px-4 py-2 bg-[#8A2BE2] hover:bg-[#8A2BE2]/90 text-white text-sm font-medium rounded-md disabled:opacity-50 transition-colors"
                 >
                     {isApplyingCustomPrompt === true || isAiLoading === 'custom_prompt' ? 'Applying...' : 'Apply Custom Prompt'}
                 </Button>
@@ -322,52 +283,6 @@ const HistoryItemEditor: React.FC<HistoryItemEditorProps> = ({ entry, onSave, on
         </div>
       </div>
 
-      {/* Dictionary Suggestions Section */}
-      {potentialWords.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-neutral-700/50">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              Potential Dictionary Words
-            </h4>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowDictionarySuggestions(!showDictionarySuggestions)}
-              className="text-xs text-neutral-400 hover:text-neutral-200"
-            >
-              {showDictionarySuggestions ? 'Hide' : 'Show'} ({potentialWords.length})
-            </Button>
-          </div>
-          
-          {showDictionarySuggestions && (
-            <div className="flex flex-wrap gap-2">
-              {potentialWords.slice(0, 10).map((word, index) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-1 px-2 py-1 bg-neutral-700/50 border border-neutral-600 rounded-md"
-                >
-                  <span className="text-sm text-neutral-200">{word}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleAddToDictionary(word)}
-                    className="p-0 h-auto w-auto hover:bg-transparent"
-                    title={`Add "${word}" to dictionary`}
-                  >
-                    <Plus className="w-3 h-3 text-neutral-400 hover:text-[#87CEFA]" />
-                  </Button>
-                </div>
-              ))}
-              {potentialWords.length > 10 && (
-                <span className="text-xs text-neutral-500 self-center">
-                  +{potentialWords.length - 10} more
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Existing Action Buttons (Save/Cancel) */}
       <div className="flex justify-end items-center space-x-2">
