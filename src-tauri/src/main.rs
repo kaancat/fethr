@@ -307,22 +307,18 @@ fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings, held_mo
     
     // Special case: AltGr detection with rdev workaround
     if configured_key == RdevKey::AltGr && hotkey_settings.modifiers.is_empty() {
-        println!("[ALTGR DEBUG] Checking AltGr match - event_key: {:?}, held_modifiers: {:?}", event_key, held_modifiers);
         let is_altgr_combo = is_altgr_combination(held_modifiers);
-        println!("[ALTGR DEBUG] is_altgr_combination result: {}", is_altgr_combo);
         
         // AltGr can be detected in two ways:
         // 1. Direct AltGr key event
         if event_key == RdevKey::AltGr && is_altgr_combo {
-            println!("[ALTGR DEBUG] Match via direct AltGr key");
             return true;
         }
-        // 2. LeftControl or Alt event when AltGr combination is held
-        if (event_key == RdevKey::ControlLeft || event_key == RdevKey::Alt) && is_altgr_combo {
-            println!("[ALTGR DEBUG] Match via LeftControl/Alt with AltGr combination");
-            return true;
+        // 2. LeftControl event when AltGr combination is held (but NOT for release events)
+        // Only match ControlLeft press, not release, to prevent premature stopping
+        if event_key == RdevKey::ControlLeft && is_altgr_combo {
+            return false; // Don't match ControlLeft to prevent premature release
         }
-        println!("[ALTGR DEBUG] No AltGr match");
         return false;
     }
     
@@ -366,11 +362,8 @@ fn is_modifier_key(key: RdevKey) -> bool {
 /// Checks if the current held modifiers represent AltGr (Right Alt)
 /// rdev reports AltGr as LeftControl + AltGr on Windows systems
 fn is_altgr_combination(held_modifiers: &[RdevKey]) -> bool {
-    println!("[ALTGR COMBO DEBUG] Checking modifiers: {:?} (len={})", held_modifiers, held_modifiers.len());
-    
     // Method 1: True AltGr key detection (standalone)
     if held_modifiers.len() == 1 && held_modifiers.contains(&RdevKey::AltGr) {
-        println!("[ALTGR COMBO DEBUG] Match: standalone AltGr");
         return true;
     }
     
@@ -378,7 +371,6 @@ fn is_altgr_combination(held_modifiers: &[RdevKey]) -> bool {
     if held_modifiers.len() == 2 && 
        held_modifiers.contains(&RdevKey::ControlLeft) && 
        held_modifiers.contains(&RdevKey::AltGr) {
-        println!("[ALTGR COMBO DEBUG] Match: LeftControl + AltGr");
         return true;
     }
     
@@ -386,11 +378,9 @@ fn is_altgr_combination(held_modifiers: &[RdevKey]) -> bool {
     if held_modifiers.len() == 2 && 
        held_modifiers.contains(&RdevKey::ControlLeft) && 
        held_modifiers.contains(&RdevKey::Alt) {
-        println!("[ALTGR COMBO DEBUG] Match: LeftControl + Alt");
         return true;
     }
     
-    println!("[ALTGR COMBO DEBUG] No match found");
     false
 }
 
@@ -1268,11 +1258,7 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
 
     match event.event_type {
         EventType::KeyPress(key) => {
-            // Debug logging for AltGr investigation
-            if matches!(key, RdevKey::AltGr | RdevKey::ControlLeft | RdevKey::Alt) {
-                let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
-                println!("[RDEV DEBUG] KeyPress: {:?}, Currently held: {:?}", key, held_modifiers);
-            }
+            // Minimal debug for AltGr press events (reduce log spam)
             
             // Update modifier tracking
             if is_modifier_key(key) {
@@ -1285,10 +1271,9 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
             // Check if this is our configured hotkey with correct modifiers
             let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
             
-            // Special debug for AltGr press events
-            if hotkey_settings.key == "AltGr" {
-                println!("[ALTGR PRESS DEBUG] Key: {:?}, Held: {:?}, Match: {}", 
-                         key, held_modifiers, is_hotkey_match(key, &hotkey_settings, &held_modifiers));
+            // Minimal debug for AltGr press events (reduce log spam)
+            if hotkey_settings.key == "AltGr" && matches!(key, RdevKey::AltGr) {
+                println!("[ALTGR] Press detected: {:?}", held_modifiers);
             }
             
             if is_hotkey_match(key, &hotkey_settings, &held_modifiers) {
@@ -1329,10 +1314,10 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
             }
         }
         EventType::KeyRelease(key) => {
-            // Debug logging for AltGr investigation
-            if matches!(key, RdevKey::AltGr | RdevKey::ControlLeft | RdevKey::Alt) {
+            // Minimal debug for AltGr release events (reduce log spam)
+            if matches!(key, RdevKey::AltGr) {
                 let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
-                println!("[RDEV DEBUG] KeyRelease: {:?}, Currently held: {:?}", key, held_modifiers);
+                println!("[ALTGR] Release detected: {:?}", held_modifiers);
             }
             
             // Update modifier tracking
