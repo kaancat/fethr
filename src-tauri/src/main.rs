@@ -15,7 +15,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::thread::JoinHandle; // Import JoinHandle
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool, Ordering}; // Keep Atomics for signalling thread
+use std::sync::atomic::{AtomicBool}; // Keep Atomics for signalling thread
 use std::error::Error;
 use std::collections::HashMap;
 
@@ -335,7 +335,7 @@ fn create_key_name_map() -> HashMap<RdevKey, String> {
     map.insert(RdevKey::Return, "Enter".to_string());
     map.insert(RdevKey::Tab, "Tab".to_string());
     map.insert(RdevKey::Escape, "Escape".to_string());
-    map.insert(RdevKey::BackSpace, "Backspace".to_string());
+    map.insert(RdevKey::Backspace, "Backspace".to_string());
     map.insert(RdevKey::Delete, "Delete".to_string());
     
     map
@@ -394,79 +394,7 @@ fn is_hotkey_match(key: &str, settings: &HotkeySettings, held_modifiers: &HashMa
     true
 }
 
-// --- Tauri GlobalShortcut Mapping System (REMOVED) ---
-/// This function is no longer needed - replaced by rdev key detection
-fn hotkey_settings_to_tauri_format(settings: &HotkeySettings) -> Option<String> {
-    if !settings.enabled || settings.key.is_empty() {
-        return None;
-    }
-    
-    let mut parts = Vec::new();
-    
-    // Add modifiers first (Tauri format: modifier+modifier+key)
-    for modifier in &settings.modifiers {
-        let tauri_modifier = match modifier.to_lowercase().as_str() {
-            "ctrl" | "control" => "ctrl",
-            "alt" => "alt", 
-            "shift" => "shift",
-            "cmd" | "meta" | "win" | "windows" | "command" => "cmd",
-            _ => continue, // Skip unknown modifiers
-        };
-        parts.push(tauri_modifier.to_string());
-    }
-    
-    // Add the main key (convert to Tauri format)
-    let tauri_key = match settings.key.to_lowercase().as_str() {
-        // Alphabet keys (lowercase for Tauri)
-        "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
-        "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" => {
-            settings.key.to_lowercase()
-        }
-        
-        // Number keys  
-        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => {
-            settings.key.clone()
-        }
-        
-        // Function keys (lowercase for Tauri)
-        "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" => {
-            settings.key.to_lowercase()
-        }
-        
-        // Special modifier keys as main keys
-        "alt" => "alt".to_string(),
-        "altgr" => "alt".to_string(), // Tauri uses "alt" for AltGr
-        "ctrl" | "control" => "ctrl".to_string(),
-        "controlright" => "ctrl".to_string(), // Tauri doesn't distinguish left/right
-        "shift" => "shift".to_string(),
-        "shiftright" => "shift".to_string(),
-        "cmd" | "meta" | "win" | "windows" | "command" => "cmd".to_string(),
-        
-        // Special keys
-        "space" => "space".to_string(),
-        "enter" => "enter".to_string(),
-        "tab" => "tab".to_string(), 
-        "escape" => "escape".to_string(),
-        "backspace" => "backspace".to_string(),
-        "delete" => "delete".to_string(),
-        
-        // Arrow keys
-        "up" => "up".to_string(),
-        "down" => "down".to_string(), 
-        "left" => "left".to_string(),
-        "right" => "right".to_string(),
-        
-        _ => {
-            println!("[TAURI HOTKEY] Unsupported key: {}", settings.key);
-            return None;
-        }
-    };
-    
-    parts.push(tauri_key);
-    
-    // Join with '+' separator (Tauri format)
-    Some(parts.join("+"))
-}
+// Removed obsolete Tauri GlobalShortcut mapping function
 
 // --- rdev Event Callback ---
 fn rdev_callback(event: Event) {
@@ -528,42 +456,7 @@ fn rdev_callback(event: Event) {
     }
 }
 
-/// Gets supported key options for the UI
-fn get_supported_keys() -> Vec<(String, String)> {
-    vec![
-        // Function keys (most commonly used for hotkeys)
-        ("F1".to_string(), "F1".to_string()),
-        ("F2".to_string(), "F2".to_string()),
-        ("F3".to_string(), "F3".to_string()),
-        ("F4".to_string(), "F4".to_string()),
-        ("F5".to_string(), "F5".to_string()),
-        ("F6".to_string(), "F6".to_string()),
-        ("F7".to_string(), "F7".to_string()),
-        ("F8".to_string(), "F8".to_string()),
-        ("F9".to_string(), "F9".to_string()),
-        ("F10".to_string(), "F10".to_string()),
-        ("F11".to_string(), "F11".to_string()),
-        ("F12".to_string(), "F12".to_string()),
-        
-        // Current default (platform specific)
-        ("AltGr".to_string(), if cfg!(target_os = "macos") { "Option (Right Alt)".to_string() } else { "Right Alt (AltGr)".to_string() }),
-        
-        // Other modifier keys (platform specific labels)
-        ("Alt".to_string(), if cfg!(target_os = "macos") { "Option".to_string() } else { "Left Alt".to_string() }),
-        ("Ctrl".to_string(), if cfg!(target_os = "macos") { "Control".to_string() } else { "Ctrl".to_string() }),
-        ("Cmd".to_string(), if cfg!(target_os = "macos") { "Command (⌘)".to_string() } else { "Windows Key".to_string() }),
-        
-        // Special keys
-        ("Space".to_string(), "Spacebar".to_string()),
-        
-        // Common letters
-        ("Q".to_string(), "Q".to_string()),
-        ("W".to_string(), "W".to_string()),
-        ("E".to_string(), "E".to_string()),
-        ("R".to_string(), "R".to_string()),
-        ("T".to_string(), "T".to_string()),
-    ]
-}
+// Removed obsolete get_supported_keys function
 
 // --- rdev 2.0 Hotkey System ---
 
@@ -1094,7 +987,7 @@ fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
 
 // --- Tauri Commands for Hotkey Settings ---
 #[tauri::command]
-async fn update_hotkey_settings(app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
+async fn update_hotkey_settings(_app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
     println!("[RUST CMD] Updating hotkey settings: key={}, modifiers={:?}, hold_to_record={}, enabled={}", 
         hotkey_settings.key, hotkey_settings.modifiers, hotkey_settings.hold_to_record, hotkey_settings.enabled);
     
@@ -1554,41 +1447,7 @@ fn main() {
 
 
 // --- UI-Triggered Events (Mouse Click Support) ---
-#[tauri::command]
-fn trigger_press_event() {
-    println!("[RUST CMD] UI-triggered press event (mouse click)");
-    
-    // Get current hotkey settings to determine mode
-    let settings = {
-        match SETTINGS.lock() {
-            Ok(s) => s.hotkey.clone(),
-            Err(_) => return,
-        }
-    };
-    
-    // Simulate a hotkey press event
-    let event = HotkeyEvent {
-        key: "UI_CLICK".to_string(),
-        event_type: HotkeyEventType::KeyPress,
-        timestamp: Instant::now(),
-    };
-    
-    let _ = HOTKEY_CHANNEL.0.send(event);
-}
-
-#[tauri::command]
-fn trigger_release_event() {
-    println!("[RUST CMD] UI-triggered release event (mouse release)");
-    
-    // Simulate a hotkey release event
-    let event = HotkeyEvent {
-        key: "UI_CLICK".to_string(),
-        event_type: HotkeyEventType::KeyRelease,
-        timestamp: Instant::now(),
-    };
-    
-    let _ = HOTKEY_CHANNEL.0.send(event);
-}
+// UI-triggered event functions moved below to avoid duplicates
 
 // --- rdev 2.0 Implementation Complete ---
 // Improved hotkey system with bulletproof AltGr handling and comprehensive key support
@@ -1728,61 +1587,33 @@ async fn get_available_models(_app_handle: AppHandle) -> Result<Vec<String>, Str
 
 #[tauri::command]
 fn trigger_press_event(app_handle: AppHandle) {
-    println!("[RUST CMD] trigger_press_event received from UI (manual trigger).");
-    handle_hotkey_triggered(&app_handle);
+    println!("[RUST CMD] UI-triggered press event (mouse click)");
+    
+    // Simulate a hotkey press event
+    let event = HotkeyEvent {
+        key: "UI_CLICK".to_string(),
+        event_type: HotkeyEventType::KeyPress,
+        timestamp: Instant::now(),
+    };
+    
+    let _ = HOTKEY_CHANNEL.0.send(event);
 }
 
 #[tauri::command]
 fn trigger_release_event(app_handle: AppHandle) {
-    println!("[RUST CMD] trigger_release_event received from UI (manual stop).");
+    println!("[RUST CMD] UI-triggered release event (mouse release)");
     
-    // For manual release events (like mouse clicks), always stop recording
-    let current_state = {
-        RECORDING_STATE.lock().unwrap().clone()
+    // Simulate a hotkey release event
+    let event = HotkeyEvent {
+        key: "UI_CLICK".to_string(),
+        event_type: HotkeyEventType::KeyRelease,
+        timestamp: Instant::now(),
     };
     
-    if current_state == AppRecordingState::Recording {
-        {
-            let mut state = RECORDING_STATE.lock().unwrap();
-            *state = AppRecordingState::Transcribing;
-        }
-        
-        // Clear push-to-talk state if active
-        {
-            let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-            *ptt_state = None;
-        }
-        
-        println!("[RUST CMD] Manual stop triggered - stopping recording");
-        
-        // Emit UI update and stop recording
-        let payload = StateUpdatePayload { 
-            state: FrontendRecordingState::Transcribing, 
-            ..Default::default() 
-        };
-        emit_state_update(&app_handle, payload);
-        emit_stop_transcribe(&app_handle);
-    }
+    let _ = HOTKEY_CHANNEL.0.send(event);
 }
 
-#[tauri::command]
-async fn update_hotkey_settings(app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
-    println!("[RUST CMD] update_hotkey_settings received");
-    
-    // Update the settings
-    {
-        let mut settings_guard = SETTINGS.lock()
-            .map_err(|_| "Failed to lock settings mutex".to_string())?;
-        settings_guard.hotkey = hotkey_settings;
-        let _ = settings_guard.save(); // Save to file
-    }
-    
-    // Re-register the hotkey with new settings
-    register_global_hotkey(&app_handle)?;
-    
-    println!("[RUST CMD] Hotkey settings updated and re-registered successfully");
-    Ok(())
-}
+// Duplicate update_hotkey_settings removed - using the one defined earlier
 
 // --- ADD Update History Command ---
 #[tauri::command]
