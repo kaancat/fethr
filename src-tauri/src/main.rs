@@ -881,14 +881,14 @@ fn main() {
                     }
                     "view_history" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_settings_section(app_handle, "history".to_string()).await {
+                            if let Err(e) = navigate_to_page(app_handle, "/history".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open history: {}", e);
                             }
                         });
                     }
                     "edit_dictionary" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_settings_section(app_handle, "dictionary".to_string()).await {
+                            if let Err(e) = navigate_to_page(app_handle, "/dictionary".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open dictionary: {}", e);
                             }
                         });
@@ -916,7 +916,7 @@ fn main() {
                     }
                     "account" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_settings_section(app_handle, "account".to_string()).await {
+                            if let Err(e) = navigate_to_page(app_handle, "/settings".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open account: {}", e);
                             }
                         });
@@ -942,6 +942,7 @@ fn main() {
             update_history_entry,
             get_dashboard_stats,
             show_settings_window_and_focus,
+            navigate_to_page,
             navigate_to_settings_section,
             edit_latest_transcription,
             toggle_recording_pill_visibility,
@@ -1298,6 +1299,21 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
 // --- END Dashboard Stats Command ---
 
 // --- Navigation Commands for System Tray Context Menu ---
+#[tauri::command]
+async fn navigate_to_page(app_handle: tauri::AppHandle, route: String) -> Result<(), String> {
+    // First show and focus the main window
+    show_settings_window_and_focus(app_handle.clone()).await?;
+    
+    // Then navigate to the specific route
+    if let Some(main_window) = app_handle.get_window("main") {
+        if let Err(e) = main_window.emit("navigate-to-route", &route) {
+            return Err(format!("Failed to emit navigation event: {}", e));
+        }
+        println!("[RUST CMD] Navigated to route: {}", route);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: String) -> Result<(), String> {
     // First show and focus the settings window
