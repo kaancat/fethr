@@ -40,7 +40,7 @@ env_logger = "0.10"
 crossbeam-channel = "0.5"
 lazy_static = "1.4.0"
 mpsc = "0.1"
-rdev = "0.5.3"
+# rdev = "0.5.3" # Removed - using Tauri's built-in GlobalShortcut instead
 # Added dependencies for configuration management
 directories = "5.0"      # For finding standard config/data directories
 toml = "0.8"             # For parsing TOML config files
