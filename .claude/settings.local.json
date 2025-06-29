@@ -28,7 +28,8 @@
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
       "Bash(timeout 30s npm run tauri dev)",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Bash(powershell.exe -Command:*)"
     ],
     "deny": []
   }

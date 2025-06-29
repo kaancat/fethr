@@ -1305,14 +1305,16 @@ static NAVIGATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[tauri::command]
 async fn navigate_to_page(app_handle: tauri::AppHandle, route: String) -> Result<(), String> {
     // Acquire lock to prevent concurrent navigation
-    let _guard = match NAVIGATION_LOCK.try_lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            println!("[RUST CMD] Navigation already in progress, ignoring request for route: {}", route);
-            return Ok(());
-        }
-    };
-    println!("[RUST CMD] Starting navigation to route: {}", route);
+    {
+        let _guard = match NAVIGATION_LOCK.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                println!("[RUST CMD] Navigation already in progress, ignoring request for route: {}", route);
+                return Ok(());
+            }
+        };
+        println!("[RUST CMD] Starting navigation to route: {}", route);
+    } // Guard is dropped here before any async operations
     
     // First show and focus the main window
     show_settings_window_and_focus(app_handle.clone()).await?;
@@ -1333,14 +1335,16 @@ async fn navigate_to_page(app_handle: tauri::AppHandle, route: String) -> Result
 #[tauri::command]
 async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: String) -> Result<(), String> {
     // Acquire lock to prevent concurrent navigation
-    let _guard = match NAVIGATION_LOCK.try_lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            println!("[RUST CMD] Navigation already in progress, ignoring request for settings section: {}", section);
-            return Ok(());
-        }
-    };
-    println!("[RUST CMD] Starting navigation to settings section: {}", section);
+    {
+        let _guard = match NAVIGATION_LOCK.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                println!("[RUST CMD] Navigation already in progress, ignoring request for settings section: {}", section);
+                return Ok(());
+            }
+        };
+        println!("[RUST CMD] Starting navigation to settings section: {}", section);
+    } // Guard is dropped here before any async operations
     
     // First show and focus the settings window
     show_settings_window_and_focus(app_handle.clone()).await?;
@@ -1370,14 +1374,16 @@ async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: Str
 #[tauri::command]
 async fn edit_latest_transcription(app_handle: tauri::AppHandle) -> Result<(), String> {
     // Acquire lock to prevent concurrent navigation
-    let _guard = match NAVIGATION_LOCK.try_lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            println!("[RUST CMD] Navigation already in progress, ignoring edit transcription request");
-            return Ok(());
-        }
-    };
-    println!("[RUST CMD] Starting edit latest transcription");
+    {
+        let _guard = match NAVIGATION_LOCK.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                println!("[RUST CMD] Navigation already in progress, ignoring edit transcription request");
+                return Ok(());
+            }
+        };
+        println!("[RUST CMD] Starting edit latest transcription");
+    } // Guard is dropped here before any async operations
     
     // First navigate to history page
     navigate_to_page(app_handle.clone(), "/history".to_string()).await?;
