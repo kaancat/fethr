@@ -95,10 +95,19 @@ function App() {
               });
               console.log('[Auth Listener] Backend auth state updated');
               
-              // If user just logged in (session exists and event is SIGNED_IN), ensure pill is visible
+              // If user just logged in (session exists and event is SIGNED_IN), ensure pill visibility matches settings
               if (session && _event === 'SIGNED_IN') {
-                  console.log('[Auth Listener] User signed in, ensuring pill is visible');
-                  await invoke('set_pill_visibility', { visible: true });
+                  console.log('[Auth Listener] User signed in, checking pill visibility settings');
+                  try {
+                      // Get current settings to check pill_enabled
+                      const settings = await invoke<any>('get_settings');
+                      if (settings && settings.pill_enabled) {
+                          console.log('[Auth Listener] Pill should be visible according to settings, ensuring it is shown');
+                          await invoke('set_pill_visibility', { visible: true });
+                      }
+                  } catch (err) {
+                      console.error('[Auth Listener] Failed to check/update pill visibility:', err);
+                  }
               }
           } catch (err) {
               console.error('[Auth Listener] Failed to update backend auth state:', err);
@@ -117,9 +126,9 @@ function App() {
       <MemoryRouter initialEntries={[initialPathname]}>
         <Routes>
           {/* Main routes with layout */}
-          <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
-          <Route path="/dictionary" element={<MainLayout><DictionaryPage /></MainLayout>} />
-          <Route path="/history" element={<MainLayout><HistoryPage user={user} /></MainLayout>} />
+          <Route path="/" element={<MainLayout><HomePage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
+          <Route path="/dictionary" element={<MainLayout><DictionaryPage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
+          <Route path="/history" element={<MainLayout><HistoryPage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
           <Route path="/settings" element={<MainLayout><SettingsPage user={user} loadingAuth={loadingAuth} /></MainLayout>} />
           
           {/* Routes without layout */}

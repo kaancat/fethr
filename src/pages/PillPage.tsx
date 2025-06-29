@@ -365,7 +365,7 @@ function PillPage() {
                         handleErrorDismiss_MEMOIZED();
                     }, 10000);
                     
-                    // Check if pill is visible and temporarily show if hidden
+                    // Only temporarily show pill if it's currently hidden (respects manual show)
                     invoke('temporarily_show_pill_if_hidden', { duration: 10000 })
                         .catch(err => console.error("Failed to temporarily show pill:", err));
                 });
