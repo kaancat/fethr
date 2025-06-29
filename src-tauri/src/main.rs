@@ -1331,10 +1331,10 @@ async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: Str
 
 #[tauri::command]
 async fn edit_latest_transcription(app_handle: tauri::AppHandle) -> Result<(), String> {
-    // Show settings window and navigate to history section
-    show_settings_window_and_focus(app_handle.clone()).await?;
+    // First navigate to history page
+    navigate_to_page(app_handle.clone(), "/history".to_string()).await?;
     
-    // Emit event to edit latest transcription (this event already exists in the frontend)
+    // Then emit event to edit latest transcription (this event already exists in the frontend)
     if let Some(main_window) = app_handle.get_window("main") {
         if let Err(e) = main_window.emit("fethr-edit-latest-history", "") {
             return Err(format!("Failed to emit edit-latest event: {}", e));
