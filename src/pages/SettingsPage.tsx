@@ -154,9 +154,24 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     }, []);
 
 
-    const handleSettingChange = (key: keyof AppSettings, value: string | boolean) => {
+    const handleSettingChange = async (key: keyof AppSettings, value: string | boolean) => {
         console.log(`Updating setting: ${key} = ${value}`);
         setSettings(prev => prev ? { ...prev, [key]: value } : null);
+        
+        // Apply pill visibility immediately
+        if (key === 'pill_enabled') {
+            try {
+                await invoke('set_pill_visibility', { visible: value as boolean });
+                console.log(`Pill visibility set to: ${value}`);
+            } catch (err) {
+                console.error('Failed to set pill visibility:', err);
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Failed to toggle pill visibility",
+                });
+            }
+        }
     };
 
     const handleSave = async () => {
