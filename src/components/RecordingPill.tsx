@@ -5,6 +5,7 @@ import { RecordingState } from '../types';
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
+import { listen } from '@tauri-apps/api/event';
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -115,7 +116,34 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const isErrorUiState = currentState === RecordingState.ERROR || !!backendError;
     
     const [isHovered, setIsHovered] = useState(false);
+    const [isDraggable, setIsDraggable] = useState(true); // Default to true
     const pillRef = useRef<HTMLDivElement>(null);
+    
+    // Listen for draggable changes from backend
+    useEffect(() => {
+        const setupDraggableListener = async () => {
+            const unlisten = await listen<boolean>('pill-draggable-changed', (event) => {
+                console.log('[RecordingPill] Draggable changed:', event.payload);
+                setIsDraggable(event.payload);
+            });
+            
+            return unlisten;
+        };
+        
+        let unlisten: (() => void) | undefined;
+        setupDraggableListener().then(fn => { unlisten = fn; });
+        
+        // Load initial draggable state
+        invoke<any>('get_settings').then(settings => {
+            if (settings && typeof settings.pill_draggable === 'boolean') {
+                setIsDraggable(settings.pill_draggable);
+            }
+        }).catch(err => console.error('Failed to load draggable setting:', err));
+        
+        return () => {
+            if (unlisten) unlisten();
+        };
+    }, []);
     
     let targetVariant: PillVariant = 'idle';
     if (backendError) targetVariant = 'error';
@@ -338,7 +366,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     return (
         <motion.div
             ref={pillRef}
-            data-tauri-drag-region
+            {...(isDraggable ? { 'data-tauri-drag-region': true } : {})}
             variants={pillContainerVariants}
             initial={false}
             animate={isResizing ? false : targetVariant}
@@ -360,7 +388,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
             style={{ 
-                cursor: 'grab'
+                cursor: isDraggable ? 'grab' : 'pointer'
             }}
             onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
             onMouseDown={(e) => {

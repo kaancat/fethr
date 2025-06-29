@@ -12,12 +12,28 @@ export enum RecordingState {
   // CANCELLING might map to IDLE visually
 }
 
+export enum PillPosition {
+  TOP_LEFT = "top_left",
+  TOP_CENTER = "top_center", 
+  TOP_RIGHT = "top_right",
+  BOTTOM_LEFT = "bottom_left",
+  BOTTOM_CENTER = "bottom_center",
+  BOTTOM_RIGHT = "bottom_right",
+}
+
 export interface FuzzyCorrectionSettings {
   enabled: boolean;
   sensitivity: number;
   max_corrections_per_text: number;
   preserve_original_case: boolean;
   correction_log_enabled: boolean;
+}
+
+export interface AudioSettings {
+  selected_input_device?: string;
+  input_gain: number;
+  noise_suppression: boolean;
+  auto_gain_control: boolean;
 }
 
 export interface AppSettings {
@@ -31,6 +47,9 @@ export interface AppSettings {
   stripe_success_url: string;
   stripe_cancel_url: string;
   fuzzy_correction: FuzzyCorrectionSettings;
+  pill_position: PillPosition;
+  pill_draggable: boolean;
+  audio: AudioSettings;
 }
 
 // History entry for transcription results

@@ -232,7 +232,7 @@ const DictionarySettingsTab: React.FC = () => {
 
   return (
     <div className="space-y-6 text-neutral-100">
-      <h2 className="text-2xl font-semibold text-white">Custom Dictionary</h2>
+      <h2 className="text-3xl font-semibold text-white">Custom Dictionary</h2>
       <p className="text-sm text-neutral-400 max-w-xl">
         Add words, names, or acronyms that Whisper often mis-transcribes.
         This list helps improve accuracy for your specific terminology.
