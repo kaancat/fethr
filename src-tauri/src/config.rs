@@ -35,18 +35,6 @@ pub struct AudioSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct HotkeySettings {
-    #[serde(default = "default_hotkey_key")]
-    pub key: String,                           // Primary hotkey (e.g., "AltGr", "F1", "Space")
-    #[serde(default = "default_hotkey_modifiers")]
-    pub modifiers: Vec<String>,                // Modifier keys ("Ctrl", "Alt", "Shift")
-    #[serde(default = "default_hold_to_record")]
-    pub hold_to_record: bool,                  // true = hold to record, false = tap to toggle
-    #[serde(default = "default_hotkey_enabled")]
-    pub enabled: bool,                         // Enable/disable hotkey functionality
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     #[serde(default = "default_model_name")]
     pub model_name: String,
@@ -68,8 +56,6 @@ pub struct AppSettings {
     pub pill_draggable: bool,
     #[serde(default = "default_audio_settings")]
     pub audio: AudioSettings,
-    #[serde(default = "default_hotkey_settings")]
-    pub hotkey: HotkeySettings,
 }
 
 /// Settings for fuzzy dictionary correction
@@ -133,31 +119,6 @@ fn default_audio_settings() -> AudioSettings {
     }
 }
 
-fn default_hotkey_settings() -> HotkeySettings {
-    HotkeySettings {
-        key: default_hotkey_key(),
-        modifiers: default_hotkey_modifiers(),
-        hold_to_record: default_hold_to_record(),
-        enabled: default_hotkey_enabled(),
-    }
-}
-
-fn default_hotkey_key() -> String {
-    "AltGr".to_string()  // Current default key
-}
-
-fn default_hotkey_modifiers() -> Vec<String> {
-    vec![]  // No modifiers by default
-}
-
-fn default_hold_to_record() -> bool {
-    false  // Default to toggle mode (more intuitive for most users)
-}
-
-fn default_hotkey_enabled() -> bool {
-    true  // Hotkeys enabled by default
-}
-
 fn default_fuzzy_enabled() -> bool {
     true // Enable by default for better user experience 
 }
@@ -190,17 +151,6 @@ impl Default for FuzzyCorrectionSettings {
     }
 }
 
-impl Default for HotkeySettings {
-    fn default() -> Self {
-        Self {
-            key: default_hotkey_key(),
-            modifiers: default_hotkey_modifiers(),
-            hold_to_record: default_hold_to_record(),
-            enabled: default_hotkey_enabled(),
-        }
-    }
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -214,7 +164,6 @@ impl Default for AppSettings {
             pill_position: default_pill_position(),
             pill_draggable: default_pill_draggable(),
             audio: default_audio_settings(),
-            hotkey: default_hotkey_settings(),
         }
     }
 }

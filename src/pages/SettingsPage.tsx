@@ -23,7 +23,6 @@ import SettingsSection from '../components/SettingsSection';
 import PillPositionSelector from '../components/settings/PillPositionSelector';
 import AudioDeviceSelector from '../components/settings/AudioDeviceSelector';
 import MicrophoneTester from '../components/settings/MicrophoneTester';
-import HotkeySelector from '../components/settings/HotkeySelector';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -849,27 +848,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         <MicrophoneTester
                                             selectedDevice={selectedAudioDevice}
                                             disabled={isLoading || isSaving}
-                                        />
-                                    </div>
-                                </div>
-                                
-                                {/* Hotkey Settings */}
-                                <div className="pt-6 mt-6 border-t border-neutral-800">
-                                    <h3 className="text-md font-semibold mb-4 text-neutral-200">Hotkey</h3>
-                                    <div className="space-y-6">
-                                        <HotkeySelector
-                                            value={settings?.hotkey || {
-                                                key: "AltGr",
-                                                modifiers: [],
-                                                hold_to_record: true,
-                                                enabled: true
-                                            }}
-                                            onChange={(hotkeySettings) => {
-                                                if (settings) {
-                                                    const updatedSettings = { ...settings, hotkey: hotkeySettings };
-                                                    setSettings(updatedSettings);
-                                                }
-                                            }}
                                         />
                                     </div>
                                 </div>
