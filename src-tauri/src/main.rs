@@ -888,7 +888,7 @@ fn main() {
                     }
                     "edit_dictionary" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_settings_section(app_handle, "dictionary".to_string()).await {
+                            if let Err(e) = navigate_to_page(app_handle, "/dictionary".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open dictionary: {}", e);
                             }
                         });
