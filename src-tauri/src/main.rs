@@ -534,18 +534,21 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
         }
     }
     
-    // Apply debouncing to prevent double triggers
+    // Apply intelligent debouncing
     {
         let mut state = HOTKEY_STATE.lock().unwrap();
         let elapsed = state.last_event_time.elapsed().as_millis();
         
-        // For the same key event type, enforce minimum time between events
-        if elapsed < HOTKEY_DEBOUNCE_MS {
-            return;
+        // For press events when we're already holding, ignore (key repeat)
+        if event.event_type == HotkeyEventType::KeyPress && state.is_hotkey_held {
+            // Allow through if it's been a while (might be a legitimate re-press)
+            if elapsed < 500 {
+                return;
+            }
         }
         
-        // Check for rapid-fire (likely typing)
-        if elapsed < RAPID_FIRE_THRESHOLD_MS && !is_modifier_key(&event.key) {
+        // For very rapid events of the same type, ignore
+        if elapsed < HOTKEY_DEBOUNCE_MS {
             return;
         }
         
@@ -639,6 +642,13 @@ fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
     }
     
     let mut state = HOTKEY_STATE.lock().unwrap();
+    
+    // Prevent key repeat spam - ignore if we already have a press registered
+    if state.is_hotkey_held && state.hotkey_pressed_at.is_some() {
+        println!("[RDEV 2.0] Ignoring key repeat - already pressed");
+        return;
+    }
+    
     state.hotkey_pressed_at = Some(Instant::now());
     state.is_hotkey_held = true;
     state.recording_mode = if settings.hold_to_record {
@@ -654,21 +664,18 @@ fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
     
     println!("[RDEV 2.0] Current recording state: {:?}", current_recording_state);
     
-    match state.recording_mode {
-        RecordingMode::PushToTalk => {
-            // Start recording immediately for push-to-talk
-            if current_recording_state == AppRecordingState::Idle {
-                println!("[RDEV 2.0] Starting push-to-talk recording");
-                drop(state); // Release lock before starting recording
-                start_recording(app_handle);
-            } else {
-                println!("[RDEV 2.0] Not starting push-to-talk - already in state: {:?}", current_recording_state);
-            }
+    // For push-to-talk mode, start recording immediately
+    if settings.hold_to_record {
+        if current_recording_state == AppRecordingState::Idle {
+            println!("[RDEV 2.0] Starting push-to-talk recording");
+            drop(state); // Release lock before starting recording
+            start_recording(app_handle);
+        } else {
+            println!("[RDEV 2.0] Not starting push-to-talk - already in state: {:?}", current_recording_state);
         }
-        RecordingMode::Toggle => {
-            // Toggle mode - will be handled on release
-            println!("[RDEV 2.0] Toggle mode - waiting for release");
-        }
+    } else {
+        // Toggle mode - will be handled on release
+        println!("[RDEV 2.0] Toggle mode - waiting for release");
     }
 }
 
@@ -681,6 +688,12 @@ fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
     
     let mut state = HOTKEY_STATE.lock().unwrap();
     state.is_hotkey_held = false;
+    
+    // Check if we actually saw a press event (to avoid spurious releases)
+    if state.hotkey_pressed_at.is_none() {
+        println!("[RDEV 2.0] Ignoring release - no corresponding press event");
+        return;
+    }
     
     let press_duration = state.hotkey_pressed_at
         .map(|t| t.elapsed().as_millis())
@@ -695,47 +708,59 @@ fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
     
     println!("[RDEV 2.0] Current recording state: {:?}", current_recording_state);
     
-    match state.recording_mode {
-        RecordingMode::PushToTalk => {
-            // Stop recording when key is released
-            if current_recording_state == AppRecordingState::Recording {
-                println!("[RDEV 2.0] Stopping push-to-talk recording");
-                drop(state); // Release lock before stopping recording
-                stop_recording(app_handle);
-            } else {
-                println!("[RDEV 2.0] Not stopping push-to-talk - not in Recording state: {:?}", current_recording_state);
-            }
+    // CRITICAL: Use the current settings mode, not the stored one
+    let is_push_to_talk = settings.hold_to_record;
+    
+    if is_push_to_talk {
+        // Push-to-talk: Always stop on release if recording
+        if current_recording_state == AppRecordingState::Recording {
+            println!("[RDEV 2.0] Stopping push-to-talk recording");
+            // Clear the press timestamp before dropping lock
+            state.hotkey_pressed_at = None;
+            drop(state); // Release lock before stopping recording
+            stop_recording(app_handle);
+        } else {
+            println!("[RDEV 2.0] Not stopping push-to-talk - not in Recording state: {:?}", current_recording_state);
+            state.hotkey_pressed_at = None;
         }
-        RecordingMode::Toggle => {
-            // Only process if it was a tap (not a hold)
-            if press_duration < TAP_MAX_DURATION_MS {
-                println!("[RDEV 2.0] Toggle tap detected ({}ms < {}ms)", press_duration, TAP_MAX_DURATION_MS);
-                drop(state); // Release lock before toggling
-                match current_recording_state {
-                    AppRecordingState::Idle => {
-                        println!("[RDEV 2.0] Toggle: Starting recording");
-                        start_recording(app_handle);
-                    }
-                    AppRecordingState::Recording => {
-                        println!("[RDEV 2.0] Toggle: Stopping recording");
-                        stop_recording(app_handle);
-                    }
-                    _ => {
-                        println!("[RDEV 2.0] Ignoring toggle in state: {:?}", current_recording_state);
-                    }
+    } else {
+        // Toggle mode: Only process if it was a tap (not a hold)
+        if press_duration < TAP_MAX_DURATION_MS {
+            println!("[RDEV 2.0] Toggle tap detected ({}ms < {}ms)", press_duration, TAP_MAX_DURATION_MS);
+            // Clear the press timestamp before dropping lock
+            state.hotkey_pressed_at = None;
+            drop(state); // Release lock before toggling
+            match current_recording_state {
+                AppRecordingState::Idle => {
+                    println!("[RDEV 2.0] Toggle: Starting recording");
+                    start_recording(app_handle);
                 }
-            } else {
-                println!("[RDEV 2.0] Toggle hold detected ({}ms >= {}ms) - ignoring", press_duration, TAP_MAX_DURATION_MS);
+                AppRecordingState::Recording => {
+                    println!("[RDEV 2.0] Toggle: Stopping recording");
+                    stop_recording(app_handle);
+                }
+                _ => {
+                    println!("[RDEV 2.0] Ignoring toggle in state: {:?}", current_recording_state);
+                }
             }
+        } else {
+            println!("[RDEV 2.0] Toggle hold detected ({}ms >= {}ms) - ignoring", press_duration, TAP_MAX_DURATION_MS);
+            state.hotkey_pressed_at = None;
         }
     }
-    
-    // Clear the press timestamp
-    HOTKEY_STATE.lock().unwrap().hotkey_pressed_at = None;
 }
 
 /// Start recording helper
 fn start_recording(app_handle: &AppHandle) {
+    // Check if we're already recording (safeguard)
+    {
+        let state = RECORDING_STATE.lock().unwrap();
+        if *state != AppRecordingState::Idle {
+            println!("[RDEV 2.0] Warning: Attempted to start recording while in state: {:?}", *state);
+            return;
+        }
+    }
+    
     // Update state
     {
         let mut state = RECORDING_STATE.lock().unwrap();
@@ -755,6 +780,15 @@ fn start_recording(app_handle: &AppHandle) {
 
 /// Stop recording helper
 fn stop_recording(app_handle: &AppHandle) {
+    // Check if we're actually recording (safeguard)
+    {
+        let state = RECORDING_STATE.lock().unwrap();
+        if *state != AppRecordingState::Recording {
+            println!("[RDEV 2.0] Warning: Attempted to stop recording while in state: {:?}", *state);
+            return;
+        }
+    }
+    
     // Update state
     {
         let mut state = RECORDING_STATE.lock().unwrap();
@@ -1069,6 +1103,26 @@ async fn update_hotkey_settings(_app_handle: AppHandle, hotkey_settings: HotkeyS
         } else {
             RecordingMode::Toggle
         };
+    }
+    
+    // Force stop any ongoing recording when hotkey settings change
+    {
+        let recording_state = RECORDING_STATE.lock().unwrap().clone();
+        if recording_state == AppRecordingState::Recording {
+            println!("[RUST CMD] Forcing stop of ongoing recording due to hotkey settings change");
+            drop(recording_state);
+            // Force the state to transcribing to trigger cleanup
+            {
+                let mut state = RECORDING_STATE.lock().unwrap();
+                *state = AppRecordingState::Transcribing;
+            }
+            let payload = StateUpdatePayload { 
+                state: FrontendRecordingState::Transcribing, 
+                ..Default::default() 
+            };
+            emit_state_update(&app_handle, payload);
+            emit_stop_transcribe(&app_handle);
+        }
     }
     
     println!("[RUST CMD] Hotkey settings updated successfully");
