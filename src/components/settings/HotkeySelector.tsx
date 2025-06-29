@@ -25,52 +25,66 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
   const [isSaving, setIsSaving] = useState(false);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
+  const getHotkeyDisplayText = () => {
+    if (!value.key) return "Click to set hotkey";
+    
+    const parts = [];
+    if (value.modifiers.length > 0) {
+      parts.push(...value.modifiers);
+    }
+    parts.push(value.key);
+    
+    return parts.join(' + ');
+  };
+
   const handleKeyCapture = (event: React.KeyboardEvent) => {
     if (!isCapturing) return;
     
     event.preventDefault();
     event.stopPropagation();
     
-    // Map the key event to our key naming system
-    let keyName = '';
+    // Collect modifier keys
+    const modifiers = [];
+    if (event.ctrlKey) modifiers.push('Ctrl');
+    if (event.altKey) modifiers.push('Alt');
+    if (event.shiftKey) modifiers.push('Shift');
+    if (event.metaKey) modifiers.push('Cmd');
+    
+    // Map the main key
+    let mainKey = '';
+    
+    // Don't capture pure modifier keys - require a main key
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)) {
+      // Just a modifier key - don't capture yet
+      return;
+    }
     
     // Function keys
     if (event.key.startsWith('F') && event.key.length <= 3) {
-      keyName = event.key;
-    }
-    // Special modifier keys
-    else if (event.key === 'AltGraph' || event.key === 'AltGr') {
-      keyName = 'AltGr';
-    }
-    else if (event.key === 'Alt') {
-      keyName = 'Alt';
-    }
-    else if (event.key === 'Control') {
-      keyName = 'Ctrl';
-    }
-    else if (event.key === 'Meta' || event.key === 'Cmd') {
-      keyName = 'Cmd';
-    }
-    else if (event.key === 'Shift') {
-      keyName = 'Shift';
+      mainKey = event.key;
     }
     // Special keys
     else if (event.key === ' ') {
-      keyName = 'Space';
+      mainKey = 'Space';
     }
     else if (event.key === 'Enter') {
-      keyName = 'Enter';
+      mainKey = 'Enter';
     }
     else if (event.key === 'Escape') {
-      keyName = 'Escape';
+      mainKey = 'Escape';
     }
     // Letter keys
     else if (event.key.length === 1 && event.key.match(/[a-zA-Z]/)) {
-      keyName = event.key.toUpperCase();
+      mainKey = event.key.toUpperCase();
     }
     // Number keys
     else if (event.key.length === 1 && event.key.match(/[0-9]/)) {
-      keyName = event.key;
+      mainKey = event.key;
+    }
+    // Special case for AltGr (right alt)
+    else if (event.key === 'AltGraph') {
+      mainKey = 'AltGr';
+      modifiers.length = 0; // Clear modifiers for AltGr as it's standalone
     }
     else {
       // Unsupported key
@@ -83,7 +97,12 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
       return;
     }
     
-    onChange({ ...value, key: keyName });
+    // Update the hotkey configuration
+    onChange({ 
+      ...value, 
+      key: mainKey,
+      modifiers: modifiers
+    });
     setIsCapturing(false);
     
     if (captureInputRef.current) {
@@ -155,7 +174,7 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
                   ref={captureInputRef}
                   type="text"
                   id="hotkey-capture"
-                  value={isCapturing ? "Press a key..." : (value.key || "Click to set hotkey")}
+                  value={isCapturing ? "Press your hotkey combination..." : getHotkeyDisplayText()}
                   onClick={startCapture}
                   onKeyDown={handleKeyCapture}
                   onBlur={() => setIsCapturing(false)}
@@ -166,7 +185,7 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
                 <Keyboard className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               </div>
               <p className="text-xs text-gray-400">
-                Click the field above and press the key you want to use for recording
+                Click and press your desired key combination (e.g., Ctrl+Alt+R, F2, etc.)
               </p>
             </div>
           </div>
@@ -174,11 +193,11 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
           {/* Recording Mode */}
           <div className="flex items-center justify-between space-x-2">
             <Label htmlFor="hold-to-record" className="text-gray-300 flex flex-col">
-              <span>Hold to Record</span>
+              <span>Push-to-Talk Mode</span>
               <span className="text-xs text-gray-400">
                 {value.hold_to_record 
-                  ? "Hold down hotkey while speaking, release to stop"
-                  : "Tap hotkey to start recording, tap again to stop"
+                  ? "Hold hotkey while speaking (like a walkie-talkie)"
+                  : "Press hotkey once to start, press again to stop"
                 }
               </span>
             </Label>
