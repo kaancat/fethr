@@ -500,15 +500,19 @@ function PillPage() {
                         setCurrentState(RecordingState.ERROR);
                         setShowUpgradePrompt(true); // Reuse the upgrade prompt UI for sign in
                         
-                        // Auto-dismiss after 7 seconds
-                        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
-                        errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 7000);
+                        // CRITICAL: Signal backend to reset state immediately
+                        // This prevents the backend state machine from continuing in RECORDING state
+                        invoke('signal_reset_complete').catch(err => 
+                            console.error("[PillPage] Failed to signal backend reset after auth failure:", err)
+                        );
                         
-                        // Show notification if pill might be hidden
-                        invoke('show_notification', {
-                            title: 'Fethr - Sign In Required',
-                            body: 'Please sign in to start transcribing'
-                        }).catch(err => console.error("Failed to show notification:", err));
+                        // Auto-dismiss after 10 seconds to give user time to click Sign In
+                        if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+                        errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 10000);
+                        
+                        // Check if pill is visible and temporarily show if hidden
+                        invoke('temporarily_show_pill_if_hidden', { duration: 10000 })
+                            .catch(err => console.error("Failed to temporarily show pill:", err));
                         
                         return;
                     }

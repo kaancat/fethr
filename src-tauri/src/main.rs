@@ -889,6 +889,7 @@ fn main() {
             dictionary_manager::load_dictionary_from_file,
             // --- ADD NEW COMMAND ---
             set_pill_visibility,
+            temporarily_show_pill_if_hidden,
             // New command
             debug_window_info,
             // New command
@@ -1319,6 +1320,51 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
         log::error!("[CMD set_pill_visibility] Pill window with label 'pill' not found.");
         Err("Pill window not found.".to_string())
     }
+}
+
+#[tauri::command]
+async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -> Result<(), String> {
+    println!("[RUST] temporarily_show_pill_if_hidden called with duration: {}ms", duration);
+    
+    // Check if pill is currently hidden due to pill_enabled setting
+    let pill_enabled = {
+        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_enabled
+    };
+    
+    if !pill_enabled {
+        // Pill is disabled in settings, temporarily show it
+        if let Some(pill_window) = app_handle.get_window("pill") {
+            // Show the pill window
+            pill_window.show().map_err(|e| format!("Failed to show pill window: {}", e))?;
+            println!("[RUST] Temporarily showing pill window for {} ms", duration);
+            
+            // Schedule hiding it again after the duration
+            let app_handle_clone = app_handle.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(duration)).await;
+                
+                // Check again if pill should still be hidden
+                let should_hide = {
+                    let settings_guard = crate::config::SETTINGS.lock().unwrap();
+                    !settings_guard.pill_enabled
+                };
+                
+                if should_hide {
+                    if let Some(pill_window) = app_handle_clone.get_window("pill") {
+                        let _ = pill_window.hide();
+                        println!("[RUST] Re-hiding pill window after temporary display");
+                    }
+                }
+            });
+        } else {
+            return Err("Pill window not found".to_string());
+        }
+    } else {
+        println!("[RUST] Pill is already visible (pill_enabled = true), no action needed");
+    }
+    
+    Ok(())
 }
 
 #[tauri::command]
