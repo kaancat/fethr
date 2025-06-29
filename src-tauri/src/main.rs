@@ -239,6 +239,7 @@ enum RecordingMode {
 struct AltGrState {
     control_pressed_at: Option<Instant>,
     expecting_altgr: bool,
+    last_paste_time: Option<Instant>,
 }
 
 impl AltGrState {
@@ -246,15 +247,16 @@ impl AltGrState {
         Self {
             control_pressed_at: None,
             expecting_altgr: false,
+            last_paste_time: None,
         }
     }
 }
 
 const TAP_MAX_DURATION_MS: u128 = 300;
 const HOTKEY_DEBOUNCE_MS: u128 = 50; // Minimum time between hotkey events
-const RAPID_FIRE_THRESHOLD_MS: u128 = 100; // If events come faster than this, it's likely typing
-const PUSH_TO_TALK_TIMEOUT_MS: u128 = 150; // Time to wait for key release in push-to-talk mode
-const ALTGR_SEQUENCE_TIMEOUT_MS: u128 = 20; // Max time between Control and AltGr events
+const PUSH_TO_TALK_TIMEOUT_MS: u128 = 600000; // 10 minute timeout for push-to-talk safety
+const ALTGR_SEQUENCE_TIMEOUT_MS: u128 = 50; // Max time between Control and AltGr events  
+const PASTE_INTERFERENCE_TIMEOUT_MS: u128 = 500; // Ignore Ctrl events within 500ms of paste
 
 // --- Comprehensive Key Mapping for rdev 2.0 ---
 fn create_key_name_map() -> HashMap<RdevKey, String> {
@@ -360,8 +362,21 @@ fn is_modifier_key(key: &str) -> bool {
 }
 
 fn is_hotkey_match(key: &str, settings: &HotkeySettings, held_modifiers: &HashMap<String, Instant>) -> bool {
+    // Special normalization for key comparison
+    let normalized_key = match key {
+        "ControlLeft" => "Ctrl",
+        "ControlRight" => "Ctrl", 
+        _ => key
+    };
+    
+    let normalized_settings_key = match settings.key.as_str() {
+        "ControlLeft" => "Ctrl",
+        "ControlRight" => "Ctrl",
+        _ => &settings.key
+    };
+    
     // Check if the main key matches
-    if key != settings.key {
+    if normalized_key != normalized_settings_key {
         return false;
     }
     
@@ -381,7 +396,7 @@ fn is_hotkey_match(key: &str, settings: &HotkeySettings, held_modifiers: &HashMa
         // For other standalone modifiers, only the key itself should be in held_modifiers
         // (this happens during release events)
         for (held_key, _) in held_modifiers {
-            if held_key != key {
+            if held_key != key && held_key != normalized_key {
                 return false;
             }
         }
@@ -410,14 +425,24 @@ fn rdev_callback(event: Event) {
             if let Some(key_name) = rdev_key_to_string(&key) {
                 // Handle AltGr special case on Windows
                 if key == RdevKey::AltGr {
+                    println!("[RDEV 2.0] AltGr key detected");
                     let mut altgr_state = ALTGR_STATE.lock().unwrap();
                     // Check if we recently saw a Control press
                     if let Some(ctrl_time) = altgr_state.control_pressed_at {
                         if ctrl_time.elapsed().as_millis() < ALTGR_SEQUENCE_TIMEOUT_MS {
+                            println!("[RDEV 2.0] Removing phantom Control from AltGr sequence");
                             // This is part of the AltGr sequence, remove the false Control
                             let mut modifiers = HELD_MODIFIERS.lock().unwrap();
                             modifiers.remove("Ctrl");
                             modifiers.remove("ControlLeft");
+                            drop(modifiers);
+                            
+                            // Also remove any pending Control hotkey state
+                            let mut hotkey_state = HOTKEY_STATE.lock().unwrap();
+                            if hotkey_state.is_hotkey_held {
+                                hotkey_state.is_hotkey_held = false;
+                                hotkey_state.hotkey_pressed_at = None;
+                            }
                         }
                     }
                     altgr_state.control_pressed_at = None;
@@ -426,7 +451,12 @@ fn rdev_callback(event: Event) {
                     // Mark that we might be starting an AltGr sequence
                     let mut altgr_state = ALTGR_STATE.lock().unwrap();
                     altgr_state.control_pressed_at = Some(Instant::now());
-                    altgr_state.expecting_altgr = true;
+                    // Only expect AltGr if AltGr is configured as the hotkey
+                    let settings = SETTINGS.lock().unwrap();
+                    if settings.hotkey.key == "AltGr" {
+                        altgr_state.expecting_altgr = true;
+                        println!("[RDEV 2.0] Control pressed - expecting possible AltGr");
+                    }
                 }
                 
                 // Send key press event BEFORE updating modifier state
@@ -523,12 +553,20 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
         return;
     }
     
-    // Special handling: ignore ControlLeft events when AltGr is the hotkey
-    // (Windows sends ControlLeft+AltGr for AltGr key)
-    if event.key == "Ctrl" && hotkey_settings.key == "AltGr" {
-        // Check if we're expecting an AltGr
+    // Special handling for Control key to avoid paste interference
+    if event.key == "Ctrl" || event.key == "ControlLeft" {
         let altgr_state = ALTGR_STATE.lock().unwrap();
-        if altgr_state.expecting_altgr {
+        
+        // Ignore Control events shortly after paste operation
+        if let Some(paste_time) = altgr_state.last_paste_time {
+            if paste_time.elapsed().as_millis() < PASTE_INTERFERENCE_TIMEOUT_MS {
+                println!("[RDEV 2.0] Ignoring Control event - too close to paste operation");
+                return;
+            }
+        }
+        
+        // If AltGr is the hotkey and we're expecting it, ignore Control
+        if hotkey_settings.key == "AltGr" && altgr_state.expecting_altgr {
             println!("[RDEV 2.0] Ignoring ControlLeft - expecting AltGr");
             return;
         }
@@ -670,6 +708,32 @@ fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
             println!("[RDEV 2.0] Starting push-to-talk recording");
             drop(state); // Release lock before starting recording
             start_recording(app_handle);
+            
+            // Schedule a safety timeout to stop recording if key gets stuck  
+            // Using 10 minutes as a reasonable maximum for continuous recording
+            let app_handle_clone = app_handle.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(PUSH_TO_TALK_TIMEOUT_MS as u64));
+                
+                // Check if we're still in push-to-talk recording
+                let should_stop = {
+                    let state = HOTKEY_STATE.lock().unwrap();
+                    let recording_state = RECORDING_STATE.lock().unwrap();
+                    state.is_hotkey_held && 
+                    state.recording_mode == RecordingMode::PushToTalk &&
+                    *recording_state == AppRecordingState::Recording
+                };
+                
+                if should_stop {
+                    println!("[RDEV 2.0] Push-to-talk safety timeout (10 min) - stopping recording");
+                    stop_recording(&app_handle_clone);
+                    
+                    // Clean up hotkey state
+                    let mut state = HOTKEY_STATE.lock().unwrap();
+                    state.is_hotkey_held = false;
+                    state.hotkey_pressed_at = None;
+                }
+            });
         } else {
             println!("[RDEV 2.0] Not starting push-to-talk - already in state: {:?}", current_recording_state);
         }
@@ -687,10 +751,21 @@ fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
     );
     
     let mut state = HOTKEY_STATE.lock().unwrap();
+    let was_held = state.is_hotkey_held;
     state.is_hotkey_held = false;
     
     // Check if we actually saw a press event (to avoid spurious releases)
     if state.hotkey_pressed_at.is_none() {
+        // For reliability, if we're in recording state and using push-to-talk, stop anyway
+        if settings.hold_to_record && !was_held {
+            let recording_state = RECORDING_STATE.lock().unwrap().clone();
+            if recording_state == AppRecordingState::Recording {
+                println!("[RDEV 2.0] No press event but stopping push-to-talk recording for safety");
+                drop(state);
+                stop_recording(app_handle);
+                return;
+            }
+        }
         println!("[RDEV 2.0] Ignoring release - no corresponding press event");
         return;
     }
@@ -931,6 +1006,13 @@ Refined Written Text:"#,
 #[tauri::command]
 async fn paste_text_to_cursor() -> Result<(), String> {
     println!("[RUST PASTE] Received request to simulate paste shortcut.");
+    
+    // Mark paste time to prevent Control key interference
+    {
+        let mut altgr_state = ALTGR_STATE.lock().unwrap();
+        altgr_state.last_paste_time = Some(Instant::now());
+    }
+    
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let mut enigo = match Enigo::new(&Settings::default()) {
@@ -1110,7 +1192,7 @@ async fn update_hotkey_settings(app_handle: AppHandle, hotkey_settings: HotkeySe
         let recording_state = RECORDING_STATE.lock().unwrap().clone();
         if recording_state == AppRecordingState::Recording {
             println!("[RUST CMD] Forcing stop of ongoing recording due to hotkey settings change");
-            drop(recording_state);
+            // recording_state is Copy, no need to drop
             // Force the state to transcribing to trigger cleanup
             {
                 let mut state = RECORDING_STATE.lock().unwrap();

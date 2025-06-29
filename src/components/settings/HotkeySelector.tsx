@@ -23,6 +23,7 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
   const { toast } = useToast();
   const [isCapturing, setIsCapturing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingAltGr, setPendingAltGr] = useState(false);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
   const getHotkeyDisplayText = () => {
@@ -42,6 +43,36 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
     
     event.preventDefault();
     event.stopPropagation();
+    
+    // Special handling for AltGr on Windows
+    // Windows sends Control followed by AltGraph for AltGr
+    if (event.key === 'Control' && event.ctrlKey && event.altKey) {
+      // This might be the start of an AltGr sequence
+      setPendingAltGr(true);
+      // Don't process this Control event yet
+      setTimeout(() => setPendingAltGr(false), 100);
+      return;
+    }
+    
+    // If we see AltGraph, it's definitely AltGr
+    if (event.key === 'AltGraph') {
+      setPendingAltGr(false);
+      onChange({ 
+        ...value, 
+        key: 'AltGr',
+        modifiers: []
+      });
+      setIsCapturing(false);
+      if (captureInputRef.current) {
+        captureInputRef.current.blur();
+      }
+      return;
+    }
+    
+    // If we were waiting for AltGr but got something else, process the pending Control
+    if (pendingAltGr) {
+      setPendingAltGr(false);
+    }
     
     // Collect modifier keys
     const modifiers = [];
@@ -114,7 +145,7 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
     else if (event.key.length === 1 && event.key.match(/[0-9]/)) {
       mainKey = event.key;
     }
-    // Special case for AltGr (right alt)
+    // AltGraph is already handled above, this is just for safety
     else if (event.key === 'AltGraph') {
       mainKey = 'AltGr';
       modifiers.length = 0; // Clear modifiers for AltGr as it's standalone
