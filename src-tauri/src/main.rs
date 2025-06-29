@@ -20,7 +20,7 @@ use std::error::Error;
 
 // Crates
 use arboard;
-use crossbeam_channel::{unbounded, Sender, Receiver}; // Import channel types
+// crossbeam_channel removed - no longer needed with Tauri GlobalShortcut
 use enigo::{Enigo, Key, Settings, Direction, Keyboard}; // <<< Use Keyboard trait
 // Removed rdev dependency - using Tauri's GlobalShortcut instead
 use lazy_static::lazy_static;
@@ -328,7 +328,7 @@ fn register_global_hotkey(app_handle: &AppHandle) -> Result<(), String> {
     
     // Register the new hotkey
     let app_handle_clone = app_handle.clone();
-    let result = app_handle.global_shortcut().register(&hotkey_string, move || {
+    let result = app_handle.global_shortcut_manager().register(&hotkey_string, move || {
         handle_hotkey_triggered(&app_handle_clone);
     });
     
@@ -353,7 +353,7 @@ fn register_global_hotkey(app_handle: &AppHandle) -> Result<(), String> {
 fn unregister_global_hotkey(app_handle: &AppHandle) -> Result<(), String> {
     if let Ok(mut current) = CURRENT_HOTKEY.lock() {
         if let Some(hotkey_string) = current.take() {
-            match app_handle.global_shortcut().unregister(&hotkey_string) {
+            match app_handle.global_shortcut_manager().unregister(&hotkey_string) {
                 Ok(()) => {
                     println!("[TAURI HOTKEY] Unregistered: {}", hotkey_string);
                 }
@@ -719,222 +719,10 @@ async fn write_to_clipboard_command(text_to_copy: String) -> Result<(), String> 
     write_to_clipboard_internal(text_to_copy) // Call sync helper
 }
 
-// Re-introduce PostEventAction enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PostEventAction {
-    None,
-    StartRecordingAndEmitUi,
-    StopAndTranscribeAndEmitUi,
-    UpdateUiOnly, // For entering LockedRecording
-    AuthRequired, // For when auth is needed
-}
+// PostEventAction enum removed - Tauri GlobalShortcut handles actions directly
 
-// Comprehensive hotkey event processor with robust edge case handling
-// 
-// Edge cases handled:
-// 1. AltGr key: generates ControlLeft+AltGr events, only AltGr events are tracked
-// 2. Modifier keys as hotkeys: Shift/Ctrl/Alt used alone as hotkeys
-// 3. Auto-repeat keys: rapid-fire events from held keys
-// 4. International layouts: Danish/German/French keyboard variations
-// 5. Complex key sequences: keys that generate multiple system events
-// 6. State machine recovery: timeout and validation-based recovery
-// 7. Push-to-talk vs Toggle: different logic for press/release handling
-// 8. Spurious events: handling of unexpected or out-of-order events
-fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
-    let mut action_to_take = PostEventAction::None;
-    {
-        let mut state = HOTKEY_STATE.lock().unwrap();
-        let current_state = state.recording_state;
-        
-        // Safety check: If we're in an inconsistent state, reset
-        if state.hotkey_down_physically && state.press_start_time.is_none() {
-            println!("[State Processor WARNING] Inconsistent state detected - resetting");
-            state.hotkey_down_physically = false;
-            state.press_start_time = None;
-            state.recording_state = AppRecordingState::Idle;
-            return; // Skip this event to prevent further chaos
-        }
-        
-        // Emergency timeout recovery: if we've been in recording state too long without activity
-        if let Some(start_time) = state.press_start_time {
-            let elapsed = Instant::now().duration_since(start_time).as_secs();
-            if elapsed > 300 { // 5 minutes timeout
-                println!("[State Processor WARNING] Timeout detected - forcing state reset");
-                state.hotkey_down_physically = false;
-                state.press_start_time = None;
-                if current_state == AppRecordingState::Recording {
-                    state.recording_state = AppRecordingState::Transcribing;
-                    action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                }
-            }
-        }
-        
-        // Processing hotkey event
-
-        match event {
-            HotkeyEvent::Press(press_time) => {
-                // Get the recording mode
-                let hold_to_record = {
-                    match SETTINGS.lock() {
-                        Ok(settings) => settings.hotkey.hold_to_record,
-                        Err(_) => true, // Default to push-to-talk if settings unavailable
-                    }
-                };
-                
-                // Robust state management for different key types and modes
-                let should_process_press = if hold_to_record {
-                    // Push-to-talk mode: only process if not already down
-                    !state.hotkey_down_physically
-                } else {
-                    // Toggle mode: always process press events for state transitions
-                    true
-                };
-                
-                if should_process_press {
-                    // Set physical state tracking
-                    if !state.hotkey_down_physically {
-                        state.hotkey_down_physically = true;
-                        state.press_start_time = Some(press_time);
-                    }
-                    
-                    match current_state {
-                        AppRecordingState::Idle => {
-                            // Check auth before transitioning to recording
-                            let is_authenticated = {
-                                let auth = AUTH_STATE.lock().unwrap();
-                                auth.is_authenticated
-                            };
-                            
-                            if is_authenticated {
-                                // Starting recording
-                                state.recording_state = AppRecordingState::Recording;
-                                action_to_take = PostEventAction::StartRecordingAndEmitUi;
-                                println!("[State Processor] Starting recording (mode: {})", 
-                                        if hold_to_record { "push-to-talk" } else { "toggle" });
-                            } else {
-                                // Auth required - staying idle
-                                action_to_take = PostEventAction::AuthRequired;
-                            }
-                        }
-                        AppRecordingState::Recording => {
-                            // In toggle mode, pressing while recording stops it
-                            if !hold_to_record {
-                                state.recording_state = AppRecordingState::Transcribing;
-                                action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                                println!("[State Processor] Stopping recording via toggle press");
-                            } else {
-                                // In push-to-talk mode, ignore repeated presses while recording
-                                println!("[State Processor] Ignoring repeat press in push-to-talk mode");
-                            }
-                        }
-                        AppRecordingState::LockedRecording => {
-                            // Legacy state - treat as Recording for compatibility
-                            if !hold_to_record {
-                                state.recording_state = AppRecordingState::Transcribing;
-                                action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                                println!("[State Processor] Stopping locked recording via toggle press");
-                            }
-                        }
-                        _ => {
-                            println!("[State Processor] Ignoring press in state: {:?}", current_state);
-                        }
-                    }
-                } else {
-                    println!("[State Processor] Ignoring repeat press (already down: {})", state.hotkey_down_physically);
-                }
-            }
-            HotkeyEvent::Release(release_time) => {
-                // Get hold_to_record setting
-                let hold_to_record = {
-                    match SETTINGS.lock() {
-                        Ok(settings) => settings.hotkey.hold_to_record,
-                        Err(_) => false, // Default to tap-to-toggle mode if settings unavailable
-                    }
-                };
-                
-                // Always reset physical state on release
-                let was_down = state.hotkey_down_physically;
-                state.hotkey_down_physically = false;
-                let press_start = state.press_start_time.take();
-                
-                // Only process release if we were tracking a press
-                if was_down {
-                    if let Some(start) = press_start {
-                        let _duration_ms = release_time.duration_since(start).as_millis();
-                        
-                        // Processing release event
-                        match current_state {
-                            AppRecordingState::Recording => {
-                                if hold_to_record {
-                                    // Push-to-talk mode: always stop on release
-                                    state.recording_state = AppRecordingState::Transcribing;
-                                    action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                                    println!("[State Processor] Stopping recording via push-to-talk release");
-                                } else {
-                                    // Toggle mode: Release events don't stop recording for keyboard hotkeys
-                                    // Only mouse events (trigger_release_event) stop recording in toggle mode
-                                    action_to_take = PostEventAction::None;
-                                    println!("[State Processor] Ignoring release in toggle mode");
-                                }
-                            }
-                            _ => {
-                                // In other states, releases are generally ignored
-                                println!("[State Processor] Ignoring release in state: {:?}", current_state);
-                            }
-                        }
-                    } else { 
-                        println!("[State Processor] Release without matching press_start_time! (State: {:?})", current_state); 
-                        
-                        // Emergency state recovery for push-to-talk mode
-                        if hold_to_record && current_state == AppRecordingState::Recording {
-                            println!("[State Processor] Emergency stop for push-to-talk mode");
-                            state.recording_state = AppRecordingState::Transcribing;
-                            action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                        }
-                    }
-                } else {
-                    // Spurious release event - this can happen with complex keys like AltGr
-                    // Don't warn unless it's causing issues
-                    if hold_to_record && current_state == AppRecordingState::Recording {
-                        // In push-to-talk mode, if we're recording but not tracking press,
-                        // this might be a legitimate release event for complex keys
-                        println!("[State Processor] Possible spurious release in push-to-talk mode, emergency stop");
-                        state.recording_state = AppRecordingState::Transcribing;
-                        action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
-                    }
-                }
-            }
-        }
-        // State updated
-    } // State lock released
-
-    // Perform Action outside lock
-    // Executing action
-    match action_to_take {
-         PostEventAction::StartRecordingAndEmitUi => {
-             let payload = StateUpdatePayload { state: FrontendRecordingState::Recording, ..Default::default() };
-             emit_state_update(app_handle, payload);
-             emit_start_recording(app_handle);
-         }
-         PostEventAction::StopAndTranscribeAndEmitUi => {
-             let payload = StateUpdatePayload { state: FrontendRecordingState::Transcribing, ..Default::default() };
-             emit_state_update(app_handle, payload);
-             emit_stop_transcribe(app_handle);
-         }
-         PostEventAction::UpdateUiOnly => { // LockedRecording
-             let payload = StateUpdatePayload { state: FrontendRecordingState::LockedRecording, ..Default::default() };
-             emit_state_update(app_handle, payload);
-         }
-         PostEventAction::AuthRequired => {
-             println!("[State Processor (Simplified V2)] Emitting auth-required event");
-             app_handle.emit_all("fethr-auth-required", ()).unwrap_or_else(|e| {
-                 println!("[State Processor (Simplified V2)] Failed to emit auth-required: {}", e);
-             });
-         }
-         PostEventAction::None => { println!("[State Processor (Simplified V2)] No action needed."); }
-     }
-    println!("[State Processor (Simplified V2)] Finished processing event.");
-}
+// Old process_hotkey_event function removed - replaced by Tauri GlobalShortcut system
+// Function body removed - Tauri GlobalShortcut system replaces all this complexity
 
 #[tauri::command]
 fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
