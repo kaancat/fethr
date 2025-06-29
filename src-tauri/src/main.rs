@@ -888,7 +888,7 @@ fn main() {
                     }
                     "edit_dictionary" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_page(app_handle, "/dictionary".to_string()).await {
+                            if let Err(e) = navigate_to_settings_section(app_handle, "dictionary".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open dictionary: {}", e);
                             }
                         });
@@ -916,7 +916,7 @@ fn main() {
                     }
                     "account" => {
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = navigate_to_page(app_handle, "/settings".to_string()).await {
+                            if let Err(e) = navigate_to_page(app_handle, "/".to_string()).await {
                                 eprintln!("[Tray Menu Error] Failed to open account: {}", e);
                             }
                         });
@@ -1333,6 +1333,9 @@ async fn navigate_to_settings_section(app_handle: tauri::AppHandle, section: Str
 async fn edit_latest_transcription(app_handle: tauri::AppHandle) -> Result<(), String> {
     // First navigate to history page
     navigate_to_page(app_handle.clone(), "/history".to_string()).await?;
+    
+    // Wait a bit for the page to load and set up event listeners
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     // Then emit event to edit latest transcription (this event already exists in the frontend)
     if let Some(main_window) = app_handle.get_window("main") {
