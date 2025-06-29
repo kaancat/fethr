@@ -521,9 +521,14 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
 #[tauri::command]
 fn update_auth_state(is_authenticated: bool, user_id: Option<String>) -> Result<(), String> {
     let mut auth = AUTH_STATE.lock().unwrap();
+    let changed = auth.is_authenticated != is_authenticated || auth.user_id != user_id;
+    
     auth.is_authenticated = is_authenticated;
     auth.user_id = user_id.clone();
-    println!("[RUST] Auth state updated: authenticated={}, user_id={:?}", is_authenticated, user_id);
+    
+    if changed {
+        println!("[RUST] Auth state updated: authenticated={}, user_id={:?}", is_authenticated, user_id);
+    }
     Ok(())
 }
 
@@ -648,8 +653,8 @@ fn main() {
             match app.get_window("main") {
                 Some(window) => {
                     // Handle title() Result and url() Url
-                    let url_string = window.url().to_string(); // Convert tauri::Url to String
-                    let title_string = window.title() // This returns Result<String, Error>
+                    let _url_string = window.url().to_string(); // Convert tauri::Url to String
+                    let _title_string = window.title() // This returns Result<String, Error>
                         .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
                     // Main window found
                 },
@@ -658,8 +663,8 @@ fn main() {
             match app.get_window("pill") {
                 Some(window) => {
                     // Handle title() Result and url() Url
-                    let url_string = window.url().to_string(); // Convert tauri::Url to String
-                    let title_string = window.title() // This returns Result<String, Error>
+                    let _url_string = window.url().to_string(); // Convert tauri::Url to String
+                    let _title_string = window.title() // This returns Result<String, Error>
                         .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
                     // Pill window found
                 },
@@ -1560,6 +1565,12 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
 
 #[tauri::command]
 async fn set_pill_position(app_handle: AppHandle, position: PillPosition) -> Result<(), String> {
+    // Check if position actually changed
+    let position_changed = {
+        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_position != position
+    };
+    
     // Update the setting
     {
         let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
@@ -1594,7 +1605,9 @@ async fn set_pill_position(app_handle: AppHandle, position: PillPosition) -> Res
                     return Err(format!("Failed to set pill position: {}", e));
                 }
                 
-                println!("[RUST] Pill position set to {:?} at ({}, {})", position, x, y);
+                if position_changed {
+                    println!("[RUST] Pill position set to {:?} at ({}, {})", position, x, y);
+                }
             } else {
                 return Err("Could not get monitor information".to_string());
             }
