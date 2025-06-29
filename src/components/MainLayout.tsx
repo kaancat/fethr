@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { listen } from '@tauri-apps/api/event';
 import { Home, BookOpen, Clock, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabaseClient';
@@ -45,6 +46,31 @@ function MainLayout({ children }: MainLayoutProps) {
       subscription?.unsubscribe();
     };
   }, []);
+
+  // Navigation event listener for backend-triggered route changes
+  useEffect(() => {
+    console.log("[MainLayout] Setting up listener for navigate-to-route.");
+
+    const unlistenNavigate = listen<string>('navigate-to-route', (event) => {
+      console.log("[MainLayout] Received navigate-to-route event:", event.payload);
+      const route = event.payload;
+      
+      // Validate the route is one of our known routes
+      const validRoutes = ['/', '/dictionary', '/history', '/settings', '/pill'];
+      if (validRoutes.includes(route)) {
+        console.log("[MainLayout] Navigating to route:", route);
+        navigate(route);
+      } else {
+        console.warn("[MainLayout] Invalid route received:", route);
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      console.log("[MainLayout] Cleaning up navigate-to-route listener.");
+      unlistenNavigate.then(f => f());
+    };
+  }, [navigate]);
 
   const menuItems = [
     { path: '/', label: 'Home', icon: Home },
