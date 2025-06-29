@@ -241,7 +241,8 @@ fn string_to_rdev_key(key_str: &str) -> Option<RdevKey> {
         // Modifier keys
         "alt" => Some(RdevKey::Alt), "altgr" => Some(RdevKey::AltGr),
         "ctrl" => Some(RdevKey::ControlLeft), "control" => Some(RdevKey::ControlLeft),
-        "shift" => Some(RdevKey::ShiftLeft),
+        "controlright" => Some(RdevKey::ControlRight),
+        "shift" => Some(RdevKey::ShiftLeft), "shiftright" => Some(RdevKey::ShiftRight),
         "cmd" => Some(RdevKey::MetaLeft), "meta" => Some(RdevKey::MetaLeft),
         "win" => Some(RdevKey::MetaLeft), "windows" => Some(RdevKey::MetaLeft),
         

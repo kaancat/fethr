@@ -53,15 +53,39 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
     // Map the main key
     let mainKey = '';
     
-    // Don't capture pure modifier keys - require a main key
-    if (['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)) {
-      // Just a modifier key - don't capture yet
-      return;
+    // Handle standalone modifier keys (common for hotkeys)
+    if (event.key === 'Control') {
+      mainKey = event.location === 2 ? 'ControlRight' : 'Ctrl'; // Right Ctrl vs Left Ctrl
+      modifiers.length = 0; // Clear modifiers since this IS the main key
     }
-    
+    else if (event.key === 'Alt') {
+      mainKey = event.location === 2 ? 'AltGr' : 'Alt'; // Right Alt vs Left Alt  
+      modifiers.length = 0; // Clear modifiers since this IS the main key
+    }
+    else if (event.key === 'Shift') {
+      mainKey = event.location === 2 ? 'ShiftRight' : 'Shift'; // Right Shift vs Left Shift
+      modifiers.length = 0; // Clear modifiers since this IS the main key
+    }
+    else if (event.key === 'Meta') {
+      mainKey = 'Cmd';
+      modifiers.length = 0; // Clear modifiers since this IS the main key
+    }
     // Function keys
-    if (event.key.startsWith('F') && event.key.length <= 3) {
+    else if (event.key.startsWith('F') && event.key.length <= 3) {
       mainKey = event.key;
+    }
+    // Arrow keys (commonly requested)
+    else if (event.key === 'ArrowUp') {
+      mainKey = 'Up';
+    }
+    else if (event.key === 'ArrowDown') {
+      mainKey = 'Down';
+    }
+    else if (event.key === 'ArrowLeft') {
+      mainKey = 'Left';
+    }
+    else if (event.key === 'ArrowRight') {
+      mainKey = 'Right';
     }
     // Special keys
     else if (event.key === ' ') {
@@ -72,6 +96,15 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
     }
     else if (event.key === 'Escape') {
       mainKey = 'Escape';
+    }
+    else if (event.key === 'Tab') {
+      mainKey = 'Tab';
+    }
+    else if (event.key === 'Backspace') {
+      mainKey = 'Backspace';
+    }
+    else if (event.key === 'Delete') {
+      mainKey = 'Delete';
     }
     // Letter keys
     else if (event.key.length === 1 && event.key.match(/[a-zA-Z]/)) {
@@ -185,7 +218,7 @@ export default function HotkeySelector({ value, onChange, onSave }: HotkeySelect
                 <Keyboard className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               </div>
               <p className="text-xs text-gray-400">
-                Click and press your desired key combination (e.g., Ctrl+Alt+R, F2, etc.)
+                Click and press your desired key (e.g., Ctrl, Alt, F2, Arrow keys, etc.)
               </p>
             </div>
           </div>
