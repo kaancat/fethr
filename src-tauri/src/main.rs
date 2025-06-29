@@ -389,7 +389,7 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
     {
         let mut state = HOTKEY_STATE.lock().unwrap();
         let current_state = state.recording_state;
-        println!("[State Processor (Simplified V2)] Received event: {:?}. Current state: {:?}", event, current_state);
+        // Processing hotkey event
 
         match event {
             HotkeyEvent::Press(press_time) => {
@@ -405,22 +405,22 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                             };
                             
                             if is_authenticated {
-                                println!("[State Processor (Simplified V2)] State Transition: Idle -> Recording");
+                                // Starting recording
                                 state.recording_state = AppRecordingState::Recording;
                                 action_to_take = PostEventAction::StartRecordingAndEmitUi;
                             } else {
-                                println!("[State Processor (Simplified V2)] Auth required - staying in Idle");
+                                // Auth required - staying idle
                                 action_to_take = PostEventAction::AuthRequired;
                             }
                         }
                         AppRecordingState::LockedRecording => {
-                            println!("[State Processor (Simplified V2)] State Transition: LockedRecording -> Transcribing (Tap)");
+                            // Stopping recording
                             state.recording_state = AppRecordingState::Transcribing;
                             action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                         }
-                        _ => println!("[State Processor (Simplified V2)] Ignoring Press in state: {:?}", current_state),
+                        _ => {}, // Ignoring press in current state
                     }
-                } else { println!("[State Processor (Simplified V2)] Ignoring Repeat Press event."); }
+                } // Ignoring repeat press
             }
             HotkeyEvent::Release(release_time) => {
                  if state.hotkey_down_physically {
@@ -428,15 +428,15 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                     let press_start = state.press_start_time.take();
                     if let Some(start) = press_start {
                         let duration_ms = release_time.duration_since(start).as_millis();
-                        println!("[State Processor (Simplified V2)] Release duration: {} ms", duration_ms);
+                        // Processing release event
                         match current_state {
                             AppRecordingState::Recording => {
                                 if duration_ms <= TAP_MAX_DURATION_MS {
-                                    println!("[State Processor (Simplified V2)] State Transition: Recording -> LockedRecording (Tap)");
+                                    // Tap detected - locking recording
                                     state.recording_state = AppRecordingState::LockedRecording;
                                     action_to_take = PostEventAction::UpdateUiOnly; // Action to emit LockedRecording state
                                 } else {
-                                    println!("[State Processor (Simplified V2)] State Transition: Recording -> Transcribing (Hold)");
+                                    // Hold detected - stopping recording
                                     state.recording_state = AppRecordingState::Transcribing;
                                     action_to_take = PostEventAction::StopAndTranscribeAndEmitUi;
                                 }
@@ -447,11 +447,11 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
                  } else { println!("[State Processor (Simplified V2) WARN] Ignoring spurious Release event."); }
             }
         }
-        println!("[State Processor (Simplified V2)] New State determined: {:?}. Action: {:?}", state.recording_state, action_to_take);
+        // State updated
     } // State lock released
 
     // Perform Action outside lock
-    println!("[State Processor (Simplified V2)] Performing Action: {:?}", action_to_take);
+    // Executing action
     match action_to_take {
          PostEventAction::StartRecordingAndEmitUi => {
              let payload = StateUpdatePayload { state: FrontendRecordingState::Recording, ..Default::default() };
@@ -644,16 +644,16 @@ fn main() {
             // --- End Word Usage Tracker Init ---
 
             // --- Debug Window Handles (Final Correction) ---
-            println!("[RUST SETUP DEBUG] Checking window handles for URL/Title...");
+            // Checking window handles
             match app.get_window("main") {
                 Some(window) => {
                     // Handle title() Result and url() Url
                     let url_string = window.url().to_string(); // Convert tauri::Url to String
                     let title_string = window.title() // This returns Result<String, Error>
                         .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
-                    println!("[RUST SETUP DEBUG] Found window handle 'main'. Title: \"{}\", URL: \"{}\"", title_string, url_string);
+                    // Main window found
                 },
-                None => println!("[RUST SETUP DEBUG ERROR] Could NOT find window handle 'main' during debug check."),
+                None => eprintln!("[RUST SETUP ERROR] Could not find main window handle"),
             }
             match app.get_window("pill") {
                 Some(window) => {
@@ -661,11 +661,10 @@ fn main() {
                     let url_string = window.url().to_string(); // Convert tauri::Url to String
                     let title_string = window.title() // This returns Result<String, Error>
                         .unwrap_or_else(|e| format!("Error getting title: {}", e)); // Provide fallback on error
-                    println!("[RUST SETUP DEBUG] Found window handle 'pill'. Title: \"{}\", URL: \"{}\"", title_string, url_string);
+                    // Pill window found
                 },
-                None => println!("[RUST SETUP DEBUG ERROR] Could NOT find window handle 'pill' during debug check."),
+                None => eprintln!("[RUST SETUP ERROR] Could not find pill window handle"),
             }
-            println!("[RUST SETUP DEBUG] Proceeding with safe handle retrieval...");
             // --- End Debug Window Handles (Final Correction) ---
 
             // --- Get Window Handles Safely ---
@@ -759,12 +758,10 @@ fn main() {
             // --- Start State Processing Thread ---
             let app_handle_for_state = app.handle(); // Clone handle for the new thread
             thread::spawn(move || {
-                println!("[State Thread] Started (Simplified - No Timeout).");
+                // State thread started
                 loop {
-                    println!("[State Thread] Waiting for next hotkey event...");
-                    match EVENT_RECEIVER.recv() { // Use blocking recv()
+                    match EVENT_RECEIVER.recv() {
                         Ok(hotkey_event) => {
-                            println!("[State Thread] Received event via channel: {:?}", hotkey_event);
                             process_hotkey_event(hotkey_event, &app_handle_for_state);
                         }
                         Err(e) => {
@@ -1005,13 +1002,13 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
 
     match event.event_type {
         EventType::KeyPress(key) if key == RdevKey::AltGr => {
-            println!("[RDEV Callback] Detected AltGr Press. Sending to channel.");
+            // AltGr press detected
             if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Press(event_time)) {
                 println!("[RDEV Callback ERROR] Failed to send Press event: {}", e);
             }
         }
         EventType::KeyRelease(key) if key == RdevKey::AltGr => {
-             println!("[RDEV Callback] Detected AltGr Release. Sending to channel.");
+             // AltGr release detected
              if let Err(e) = EVENT_SENDER.send(HotkeyEvent::Release(event_time)) {
                  println!("[RDEV Callback ERROR] Failed to send Release event: {}", e);
              }

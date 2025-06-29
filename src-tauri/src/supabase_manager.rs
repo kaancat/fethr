@@ -202,7 +202,7 @@ pub async fn execute_increment_word_usage_rpc(
     access_token: String,
     words_transcribed: i32,
 ) -> Result<(), String> {
-    println!("[RUST DEBUG SupabaseManager RPC] execute_increment_word_usage_rpc called for user_id: {}, words: {}", user_id, words_transcribed);
+    // Syncing word usage to Supabase
 
     if user_id.trim().is_empty() || access_token.trim().is_empty() {
         let err_msg = "[SupabaseManager RPC] ERROR: User ID or Access Token is empty for usage update.";
@@ -211,7 +211,7 @@ pub async fn execute_increment_word_usage_rpc(
     }
 
     if words_transcribed <= 0 {
-        println!("[RUST DEBUG SupabaseManager RPC] No words transcribed ({}), skipping usage update.", words_transcribed);
+        // No words to sync
         return Ok(());
     }
 
@@ -232,7 +232,7 @@ pub async fn execute_increment_word_usage_rpc(
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
     // 1. Call get_user_subscription_limits
-    println!("[RUST DEBUG SupabaseManager RPC] Attempting to fetch subscription limits for user_id: {}", user_id);
+    // Checking subscription limits
     let limits_rpc_url = format!(
         "{}/rest/v1/rpc/get_user_subscription_limits",
         current_supabase_url
@@ -250,7 +250,7 @@ pub async fn execute_increment_word_usage_rpc(
         Ok(limits_response) => { 
             if limits_response.status().is_success() {
                 let limits_body = limits_response.text().await.map_err(|e| format!("Error reading limits response body: {}", e))?;
-                println!("[RUST DEBUG SupabaseManager RPC] get_user_subscription_limits raw response: {}", limits_body);
+                // Subscription limits retrieved
                 
                 let limits_vec: Vec<SubscriptionLimits> = serde_json::from_str(&limits_body)
                     .map_err(|e| format!("Parse SubscriptionLimits failed: {}. Resp: {}", e, limits_body))?;
