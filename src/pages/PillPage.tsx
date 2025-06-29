@@ -256,6 +256,8 @@ function PillPage() {
         // Check if this is a sign-in case
         if (!userId) {
             console.log("[PillPage] User not logged in, opening settings for sign in");
+            // Navigate to account tab first
+            await invoke('navigate_to_settings_section', { section: 'account' });
             await invoke('show_settings_window_and_focus');
             // Clear error state and auth failure flag after opening settings
             authFailureActiveRef.current = false;

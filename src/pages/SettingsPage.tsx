@@ -1024,6 +1024,21 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                                     console.error("Error logging out:", error);
                                                     toast({ variant: "destructive", title: "Logout Failed", description: error.message });
                                                 } else {
+                                                    // Reset pill visibility to true on logout
+                                                    try {
+                                                        await invoke('set_pill_visibility', { visible: true });
+                                                        // Update local settings state
+                                                        setSettings(prev => prev ? { ...prev, pill_enabled: true } : null);
+                                                        // Save settings with pill_enabled = true
+                                                        if (settings) {
+                                                            await invoke('save_settings', { 
+                                                                settings: { ...settings, pill_enabled: true } 
+                                                            });
+                                                        }
+                                                    } catch (err) {
+                                                        console.error("Failed to reset pill visibility on logout:", err);
+                                                    }
+                                                    
                                                     toast({ title: "Logged out successfully." });
                                                     // User state will update via the listener in App.tsx
                                                 }

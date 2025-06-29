@@ -1400,30 +1400,48 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
 async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -> Result<(), String> {
     println!("[RUST] temporarily_show_pill_if_hidden called with duration: {}ms", duration);
     
-    // Check if pill is currently hidden due to pill_enabled setting
-    let pill_enabled = {
-        let settings_guard = crate::config::SETTINGS.lock().unwrap();
-        settings_guard.pill_enabled
-    };
-    
-    if !pill_enabled {
-        // Pill is disabled in settings, temporarily show it
-        if let Some(pill_window) = app_handle.get_window("pill") {
+    // Always try to show the pill for important messages, regardless of setting
+    if let Some(pill_window) = app_handle.get_window("pill") {
+        // Check current visibility
+        let is_visible = pill_window.is_visible().unwrap_or(false);
+        println!("[RUST] Pill window current visibility: {}", is_visible);
+        
+        if !is_visible {
             // Show the pill window
-            pill_window.show().map_err(|e| format!("Failed to show pill window: {}", e))?;
+            println!("[RUST] Attempting to show hidden pill window");
+            pill_window.show().map_err(|e| {
+                println!("[RUST ERROR] Failed to show pill window: {}", e);
+                format!("Failed to show pill window: {}", e)
+            })?;
             
-            // Try to bring it to front and focus
+            // Force window to front
             let _ = pill_window.set_focus();
             let _ = pill_window.set_always_on_top(true);
             
-            println!("[RUST] Temporarily showing pill window for {} ms", duration);
+            // Ensure window is in a good position
+            if let Ok(monitor) = pill_window.current_monitor() {
+                if let Some(monitor) = monitor {
+                    let screen_size = monitor.size();
+                    let window_width = 200;
+                    let window_height = 100;
+                    let x = (screen_size.width as i32 - window_width) / 2;
+                    let y = 50; // Near top of screen
+                    
+                    let _ = pill_window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                        x: x as f64,
+                        y: y as f64,
+                    }));
+                }
+            }
+            
+            println!("[RUST] Pill window shown successfully, will hide after {} ms", duration);
             
             // Schedule hiding it again after the duration
             let app_handle_clone = app_handle.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(duration)).await;
                 
-                // Check again if pill should still be hidden
+                // Check if pill should be hidden based on settings
                 let should_hide = {
                     let settings_guard = crate::config::SETTINGS.lock().unwrap();
                     !settings_guard.pill_enabled
@@ -1431,16 +1449,18 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
                 
                 if should_hide {
                     if let Some(pill_window) = app_handle_clone.get_window("pill") {
+                        let _ = pill_window.set_always_on_top(false);
                         let _ = pill_window.hide();
                         println!("[RUST] Re-hiding pill window after temporary display");
                     }
                 }
             });
         } else {
-            return Err("Pill window not found".to_string());
+            println!("[RUST] Pill window is already visible");
         }
     } else {
-        println!("[RUST] Pill is already visible (pill_enabled = true), no action needed");
+        println!("[RUST ERROR] Pill window not found!");
+        return Err("Pill window not found".to_string());
     }
     
     Ok(())
