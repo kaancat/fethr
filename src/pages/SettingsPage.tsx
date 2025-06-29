@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/api/shell';
 import type { AppSettings, HistoryEntry } from '../types';
+import { PillPosition } from '../types';
 import { useToast } from "@/hooks/use-toast";
 import { format } from 'date-fns';
 
@@ -19,6 +20,9 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { LoginForm } from '@/components/LoginForm';
 import SettingsSection from '../components/SettingsSection';
+import PillPositionSelector from '../components/settings/PillPositionSelector';
+import AudioDeviceSelector from '../components/settings/AudioDeviceSelector';
+import MicrophoneTester from '../components/settings/MicrophoneTester';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -87,6 +91,9 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const [wordLimit, setWordLimit] = useState<number | null>(null);
     const lastUpdateTimeRef = useRef(0);
     const [loadingUsage, setLoadingUsage] = useState<boolean>(false);
+    
+    // Audio device state
+    const [selectedAudioDevice, setSelectedAudioDevice] = useState<string | null>(null);
 
     // Placeholder for About content - Define outside component or fetch if needed
     const aboutContent = {
@@ -123,6 +130,9 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                 setSettings(settingsResult);
                 setAvailableModels(modelsResult);
+                
+                // Set selected audio device from settings
+                setSelectedAudioDevice(settingsResult.audio?.selected_input_device || null);
             } catch (err) {
                 console.error('Error loading settings:', err);
                 const errorMsg = err instanceof Error ? err.message : String(err);
@@ -173,7 +183,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     }, []);
 
 
-    const handleSettingChange = async (key: keyof AppSettings, value: string | boolean) => {
+    const handleSettingChange = async (key: keyof AppSettings, value: string | boolean | PillPosition) => {
         console.log(`Updating setting: ${key} = ${value}`);
         setSettings(prev => prev ? { ...prev, [key]: value } : null);
         
@@ -191,6 +201,54 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                 });
             }
         }
+        
+        // Apply pill position immediately
+        if (key === 'pill_position') {
+            try {
+                await invoke('set_pill_position', { position: value as PillPosition });
+                console.log(`Pill position set to: ${value}`);
+                toast({
+                    title: "Position Updated",
+                    description: "Pill position has been changed",
+                });
+            } catch (err) {
+                console.error('Failed to set pill position:', err);
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Failed to update pill position",
+                });
+            }
+        }
+        
+        // Apply draggable setting immediately
+        if (key === 'pill_draggable') {
+            try {
+                await invoke('set_pill_draggable', { draggable: value as boolean });
+                console.log(`Pill draggable set to: ${value}`);
+            } catch (err) {
+                console.error('Failed to set pill draggable:', err);
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Failed to update draggable setting",
+                });
+            }
+        }
+    };
+
+    const handleAudioDeviceChange = async (deviceId: string) => {
+        console.log(`[SettingsPage] Audio device changed to: ${deviceId}`);
+        setSelectedAudioDevice(deviceId);
+        
+        // Update the settings state
+        setSettings(prev => prev ? {
+            ...prev,
+            audio: {
+                ...prev.audio,
+                selected_input_device: deviceId
+            }
+        } : null);
     };
 
     const handleSave = async () => {
@@ -747,21 +805,50 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             />
                                         ) : <p className="text-gray-400">...</p>}
                                     </div>
+                                    
+                                    {/* Pill Position */}
+                                    {settings?.pill_enabled && (
+                                        <div className="mt-6 space-y-4">
+                                            <div>
+                                                <Label className="text-gray-300 mb-2 block">Pill Position</Label>
+                                                <PillPositionSelector
+                                                    value={settings.pill_position || PillPosition.BOTTOM_RIGHT}
+                                                    onChange={(position) => handleSettingChange('pill_position', position)}
+                                                    disabled={isLoading || isSaving}
+                                                />
+                                            </div>
+                                            
+                                            {/* Pill Draggable */}
+                                            <div className="flex items-center justify-between mt-4">
+                                                <Label htmlFor="pill-draggable-switch" className="text-gray-300 flex flex-col">
+                                                    <span>Enable Dragging</span>
+                                                    <span className="text-xs text-gray-400">Allow the pill to be dragged to any position.</span>
+                                                </Label>
+                                                <Switch
+                                                    id="pill-draggable-switch"
+                                                    checked={settings.pill_draggable ?? true}
+                                                    onCheckedChange={(checked: boolean) => handleSettingChange('pill_draggable', checked)}
+                                                    disabled={isLoading || isSaving}
+                                                    className="data-[state=checked]:bg-[#8A2BE2]/80 data-[state=unchecked]:bg-gray-600"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                                 
-                                {/* Audio Settings (Placeholder) */}
+                                {/* Audio Settings */}
                                 <div className="pt-6 mt-6 border-t border-neutral-800">
                                     <h3 className="text-md font-semibold mb-4 text-neutral-200">Audio</h3>
-                                    <div className="space-y-4">
-                                        <div className="opacity-50">
-                                            <Label className="text-gray-300">Microphone Input</Label>
-                                            <Select disabled>
-                                                <SelectTrigger className="w-full bg-[#0b0719] border border-[#8A2BE2]/30 text-gray-500">
-                                                    <SelectValue placeholder="Default Microphone (Coming Soon)" />
-                                                </SelectTrigger>
-                                            </Select>
-                                        </div>
-                                        <p className="text-xs text-gray-500">Audio device selection will be available in a future update.</p>
+                                    <div className="space-y-6">
+                                        <AudioDeviceSelector
+                                            selectedDevice={selectedAudioDevice}
+                                            onDeviceChange={handleAudioDeviceChange}
+                                            disabled={isLoading || isSaving}
+                                        />
+                                        <MicrophoneTester
+                                            selectedDevice={selectedAudioDevice}
+                                            disabled={isLoading || isSaving}
+                                        />
                                     </div>
                                 </div>
                             </div>

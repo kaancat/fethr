@@ -153,7 +153,7 @@ function HistoryPage({ user, loadingAuth }: HistoryPageProps) {
     <div className="h-full flex flex-col p-8">
       <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
         <div>
-          <h1 className="text-2xl font-semibold text-white mb-2">History</h1>
+          <h1 className="text-3xl font-semibold text-white mb-2">History</h1>
           <p className="text-neutral-400">
             View and edit your transcription history. Click edit to modify any entry.
           </p>

@@ -87,9 +87,15 @@ pub async fn start_backend_recording(
     println!("[RUST AUDIO] Recording path: {}", temp_wav_path.display());
     let (tx_stop, rx_stop) = mpsc::channel();
 
-    let host = cpal::default_host();
-    let device = host.default_input_device().ok_or_else(|| "No input device available".to_string())?;
-    println!("[RUST AUDIO DEBUG] Default input device: {:?}", device.name().unwrap_or_else(|_| "Unnamed".to_string()));
+    let _host = cpal::default_host();
+    
+    // Use the audio device manager to get the selected device
+    use crate::audio_devices::AUDIO_DEVICE_MANAGER;
+    let device = AUDIO_DEVICE_MANAGER.get_selected_device()
+        .ok_or_else(|| "No input device available".to_string())?;
+    
+    let device_name = device.name().unwrap_or_else(|_| "Unnamed".to_string());
+    println!("[RUST AUDIO DEBUG] Using input device: {}", device_name);
 
     println!("[RUST AUDIO DEBUG] Finding best supported input config...");
     let preferred_format_order = [SampleFormat::I16, SampleFormat::F32];

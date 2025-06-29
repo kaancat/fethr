@@ -4,7 +4,7 @@
 )]
 
 // Core Tauri imports
-use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, CustomMenuItem};
+use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, CustomMenuItem, Position, LogicalPosition};
 
 // Standard library imports
 use std::path::PathBuf;
@@ -40,10 +40,13 @@ mod common_words; // <<< ADDED: Common words whitelist protection
 mod word_usage_tracker; // <<< ADDED: Track dictionary word usage
 mod whisper_variations; // <<< ADDED: Handle common Whisper transcription variations
 mod user_statistics; // User statistics tracking for Supabase
+mod audio_devices; // Audio device management
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
 pub use config::AppSettings; // Export AppSettings for use by other modules
+pub use config::PillPosition; // Export PillPosition enum
+pub use config::{AudioDeviceInfo, AudioSettings}; // Export audio types
 
 // Import necessary types from submodules
 use crate::transcription::TranscriptionState; // Make sure TranscriptionState is pub in transcription.rs
@@ -972,6 +975,14 @@ fn main() {
             // --- ADD NEW COMMAND ---
             set_pill_visibility,
             temporarily_show_pill_if_hidden,
+            set_pill_position,
+            set_pill_draggable,
+            // Audio device commands
+            get_audio_devices,
+            set_audio_device,
+            test_microphone_levels,
+            get_current_audio_settings,
+            update_audio_settings,
             // New command
             debug_window_info,
             // New command
@@ -1445,16 +1456,26 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
             match pill_window.show() {
                 Ok(_) => {
                     log::info!("[CMD set_pill_visibility] Pill window shown successfully.");
-                    // Don't reposition - let it use the default position from tauri.conf.json
+                    
+                    // Apply saved position
+                    let position = {
+                        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+                        settings_guard.pill_position
+                    };
+                    
+                    // Use the set_pill_position logic to apply position
+                    if let Err(e) = set_pill_position(app_handle.clone(), position).await {
+                        log::warn!("[CMD set_pill_visibility] Failed to apply saved position: {}", e);
+                    }
+                    
                     // Optional: Attempt to focus after showing.
                     if let Err(e_focus) = pill_window.set_focus() {
                         log::warn!("[CMD set_pill_visibility] Failed to focus pill window after show (non-fatal): {}", e_focus);
                     }
-                    Ok(())
                 }
                 Err(e) => {
                     log::error!("[CMD set_pill_visibility] Failed to show pill window: {}", e);
-                    Err(format!("Failed to show pill: {}", e))
+                    return Err(format!("Failed to show pill: {}", e));
                 }
             }
         } else {
@@ -1462,7 +1483,7 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
             pill_window.hide().map_err(|e| {
                 log::error!("[CMD set_pill_visibility] Failed to hide pill window: {}", e);
                 format!("Failed to hide pill: {}", e)
-            })
+            })?;
         }
     } else {
         log::error!("[CMD set_pill_visibility] Pill window with label 'pill' not found.");
@@ -1537,6 +1558,148 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
         return Err("Pill window not found".to_string());
     }
     
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_pill_position(app_handle: AppHandle, position: PillPosition) -> Result<(), String> {
+    // Update the setting
+    {
+        let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_position = position;
+        let _ = settings_guard.save();
+    }
+    
+    if let Some(pill_window) = app_handle.get_window("pill") {
+        // Get current monitor to calculate position
+        if let Ok(monitor) = pill_window.current_monitor() {
+            if let Some(monitor) = monitor {
+                let screen_size = monitor.size();
+                let scale_factor = monitor.scale_factor();
+                
+                // Window dimensions (adjust these as needed)
+                let window_width = 280.0;
+                let window_height = 75.0;
+                let margin = 30.0;
+                
+                // Calculate position based on enum
+                let (x, y) = match position {
+                    PillPosition::TopLeft => (margin, margin),
+                    PillPosition::TopCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, margin),
+                    PillPosition::TopRight => (screen_size.width as f64 / scale_factor - window_width - margin, margin),
+                    PillPosition::BottomLeft => (margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+                    PillPosition::BottomCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+                    PillPosition::BottomRight => (screen_size.width as f64 / scale_factor - window_width - margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+                };
+                
+                // Apply position
+                if let Err(e) = pill_window.set_position(Position::Logical(LogicalPosition { x, y })) {
+                    return Err(format!("Failed to set pill position: {}", e));
+                }
+                
+                println!("[RUST] Pill position set to {:?} at ({}, {})", position, x, y);
+            } else {
+                return Err("Could not get monitor information".to_string());
+            }
+        } else {
+            return Err("Could not get current monitor".to_string());
+        }
+    } else {
+        return Err("Pill window not found".to_string());
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_pill_draggable(app_handle: AppHandle, draggable: bool) -> Result<(), String> {
+    // Update the setting
+    {
+        let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_draggable = draggable;
+        let _ = settings_guard.save();
+    }
+    
+    // Emit event to frontend to update drag region
+    app_handle.emit_all("pill-draggable-changed", draggable)
+        .map_err(|e| format!("Failed to emit draggable event: {}", e))?;
+    
+    println!("[RUST] Pill draggable set to: {}", draggable);
+    Ok(())
+}
+
+// Audio Device Management Commands
+
+#[tauri::command]
+async fn get_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    use crate::audio_devices::AUDIO_DEVICE_MANAGER;
+    
+    println!("[RUST] Getting available audio devices");
+    AUDIO_DEVICE_MANAGER.refresh_devices()
+}
+
+#[tauri::command]
+async fn set_audio_device(device_id: String) -> Result<(), String> {
+    println!("[RUST] Setting audio device to: {}", device_id);
+    
+    // Verify the device exists
+    use crate::audio_devices::AUDIO_DEVICE_MANAGER;
+    if AUDIO_DEVICE_MANAGER.get_device_by_id(&device_id).is_none() {
+        return Err(format!("Device with ID '{}' not found", device_id));
+    }
+    
+    // Update settings
+    {
+        let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.audio.selected_input_device = Some(device_id.clone());
+        let _ = settings_guard.save();
+    }
+    
+    println!("[RUST] Audio device set successfully");
+    Ok(())
+}
+
+#[tauri::command]
+async fn test_microphone_levels(device_id: String, duration_ms: Option<u64>) -> Result<f32, String> {
+    use crate::audio_devices::AUDIO_DEVICE_MANAGER;
+    
+    let test_duration = duration_ms.unwrap_or(3000); // Default 3 seconds
+    println!("[RUST] Testing microphone levels for device: {} ({}ms)", device_id, test_duration);
+    
+    AUDIO_DEVICE_MANAGER.test_device_levels(&device_id, test_duration)
+}
+
+#[tauri::command]
+async fn get_current_audio_settings() -> Result<AudioSettings, String> {
+    let settings = {
+        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.audio.clone()
+    };
+    
+    println!("[RUST] Returning current audio settings");
+    Ok(settings)
+}
+
+#[tauri::command]
+async fn update_audio_settings(audio_settings: AudioSettings) -> Result<(), String> {
+    println!("[RUST] Updating audio settings");
+    
+    // Validate device if specified
+    if let Some(ref device_id) = audio_settings.selected_input_device {
+        use crate::audio_devices::AUDIO_DEVICE_MANAGER;
+        if AUDIO_DEVICE_MANAGER.get_device_by_id(device_id).is_none() {
+            return Err(format!("Device with ID '{}' not found", device_id));
+        }
+    }
+    
+    // Update settings
+    {
+        let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.audio = audio_settings;
+        let _ = settings_guard.save();
+    }
+    
+    println!("[RUST] Audio settings updated successfully");
     Ok(())
 }
 

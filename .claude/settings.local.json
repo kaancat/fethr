@@ -25,7 +25,10 @@
       "Bash(cargo:*)",
       "Bash(git restore:*)",
       "WebFetch(domain:cookbook.openai.com)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(timeout 30s npm run tauri dev)",
+      "Bash(/dev/null)"
     ],
     "deny": []
   }

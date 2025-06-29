@@ -6,6 +6,34 @@ use once_cell::sync::Lazy; // Use Lazy for thread-safe static initialization
 use std::sync::Mutex;
 use toml;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PillPosition {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AudioDeviceInfo {
+    pub id: String,           // Unique device identifier
+    pub name: String,         // Human-readable name
+    pub is_default: bool,     // System default device
+    pub sample_rate: u32,     // Preferred sample rate
+    pub channels: u16,        // Input channels
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AudioSettings {
+    pub selected_input_device: Option<String>,  // Device ID
+    pub input_gain: f32,                       // Microphone gain (0.5-2.0)
+    pub noise_suppression: bool,               // Enable noise reduction
+    pub auto_gain_control: bool,               // Enable AGC
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     #[serde(default = "default_model_name")]
@@ -22,6 +50,12 @@ pub struct AppSettings {
     pub supabase_anon_key: String,
     #[serde(default = "default_fuzzy_correction")]
     pub fuzzy_correction: FuzzyCorrectionSettings,
+    #[serde(default = "default_pill_position")]
+    pub pill_position: PillPosition,
+    #[serde(default = "default_pill_draggable")]
+    pub pill_draggable: bool,
+    #[serde(default = "default_audio_settings")]
+    pub audio: AudioSettings,
 }
 
 /// Settings for fuzzy dictionary correction
@@ -68,6 +102,23 @@ fn default_fuzzy_correction() -> FuzzyCorrectionSettings {
     FuzzyCorrectionSettings::default()
 }
 
+fn default_pill_position() -> PillPosition {
+    PillPosition::BottomRight
+}
+
+fn default_pill_draggable() -> bool {
+    true
+}
+
+fn default_audio_settings() -> AudioSettings {
+    AudioSettings {
+        selected_input_device: None,  // Will auto-detect default device
+        input_gain: 1.0,             // Normal gain
+        noise_suppression: false,     // Disabled by default
+        auto_gain_control: false,     // Disabled by default
+    }
+}
+
 fn default_fuzzy_enabled() -> bool {
     true // Enable by default for better user experience 
 }
@@ -110,6 +161,9 @@ impl Default for AppSettings {
             supabase_url: default_supabase_url(),
             supabase_anon_key: default_supabase_anon_key(),
             fuzzy_correction: default_fuzzy_correction(),
+            pill_position: default_pill_position(),
+            pill_draggable: default_pill_draggable(),
+            audio: default_audio_settings(),
         }
     }
 }
