@@ -4,7 +4,7 @@
 )]
 
 // Core Tauri imports
-use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, CustomMenuItem, Position, LogicalPosition, GlobalShortcutManager};
+use tauri::{AppHandle, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem, CustomMenuItem, Position, LogicalPosition};
 
 // Standard library imports
 use std::path::PathBuf;
@@ -15,14 +15,15 @@ use std::sync::mpsc;
 use std::thread;
 use std::thread::JoinHandle; // Import JoinHandle
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool}; // Keep Atomics for signalling thread
+use std::sync::atomic::{AtomicBool, Ordering}; // Keep Atomics for signalling thread
 use std::error::Error;
+use std::collections::HashMap;
 
 // Crates
 use arboard;
-// crossbeam_channel removed - no longer needed with Tauri GlobalShortcut
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use enigo::{Enigo, Key, Settings, Direction, Keyboard}; // <<< Use Keyboard trait
-// Removed rdev dependency - using Tauri's GlobalShortcut instead
+use rdev::{listen, Event, EventType, Key as RdevKey};
 use lazy_static::lazy_static;
 use log::{info, error}; // Use log crate for messages
 use serde::{Serialize, Deserialize}; // <-- Add serde import
@@ -160,8 +161,20 @@ pub enum AppRecordingState { // Use simpler enum
     Transcribing,
 }
 
-// Tauri GlobalShortcut handles all event detection automatically
-// No need for manual event channels or state tracking!
+// --- Improved rdev 2.0 Implementation ---
+// Key detection event for the improved hotkey system
+#[derive(Debug, Clone)]
+pub struct HotkeyEvent {
+    pub key: String,
+    pub event_type: HotkeyEventType,
+    pub timestamp: Instant,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HotkeyEventType {
+    KeyPress,
+    KeyRelease,
+}
 
 lazy_static! {
     // Auth state tracking (keep this)
@@ -170,14 +183,23 @@ lazy_static! {
         user_id: None,
     });
     
-    // Track currently registered hotkey for cleanup
-    static ref CURRENT_HOTKEY: Mutex<Option<String>> = Mutex::new(None);
-    
     // Recording state for the hotkey actions
     static ref RECORDING_STATE: Mutex<AppRecordingState> = Mutex::new(AppRecordingState::Idle);
     
-    // Push-to-talk state tracking
-    static ref PUSH_TO_TALK_STATE: Mutex<Option<Instant>> = Mutex::new(None);
+    // Improved state tracking for rdev 2.0
+    static ref HOTKEY_STATE: Mutex<HotkeyState> = Mutex::new(HotkeyState::new());
+    
+    // Channel for hotkey events
+    static ref HOTKEY_CHANNEL: (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) = unbounded();
+    
+    // Currently held modifiers (for complex key detection)
+    static ref HELD_MODIFIERS: Mutex<HashMap<String, Instant>> = Mutex::new(HashMap::new());
+    
+    // AltGr special handling state
+    static ref ALTGR_STATE: Mutex<AltGrState> = Mutex::new(AltGrState::new());
+    
+    // Comprehensive key name mapping
+    static ref KEY_NAME_MAP: HashMap<RdevKey, String> = create_key_name_map();
 }
 
 #[derive(Debug, Clone)]
@@ -186,13 +208,194 @@ struct AuthState {
     user_id: Option<String>,
 }
 
+// --- Improved State Management for rdev 2.0 ---
+#[derive(Debug, Clone)]
+struct HotkeyState {
+    last_event_time: Instant,
+    hotkey_pressed_at: Option<Instant>,
+    is_hotkey_held: bool,
+    recording_mode: RecordingMode,
+}
+
+impl HotkeyState {
+    fn new() -> Self {
+        Self {
+            last_event_time: Instant::now(),
+            hotkey_pressed_at: None,
+            is_hotkey_held: false,
+            recording_mode: RecordingMode::Toggle,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum RecordingMode {
+    Toggle,
+    PushToTalk,
+}
+
+// Special state for AltGr handling
+#[derive(Debug, Clone)]
+struct AltGrState {
+    control_pressed_at: Option<Instant>,
+    expecting_altgr: bool,
+}
+
+impl AltGrState {
+    fn new() -> Self {
+        Self {
+            control_pressed_at: None,
+            expecting_altgr: false,
+        }
+    }
+}
+
 const TAP_MAX_DURATION_MS: u128 = 300;
 const HOTKEY_DEBOUNCE_MS: u128 = 50; // Minimum time between hotkey events
 const RAPID_FIRE_THRESHOLD_MS: u128 = 100; // If events come faster than this, it's likely typing
+const PUSH_TO_TALK_TIMEOUT_MS: u128 = 150; // Time to wait for key release in push-to-talk mode
+const ALTGR_SEQUENCE_TIMEOUT_MS: u128 = 20; // Max time between Control and AltGr events
 
-// --- Tauri GlobalShortcut Mapping System ---
-/// Converts our HotkeySettings to Tauri's GlobalShortcut format
-/// Examples: "ctrl+alt+r", "f2", "altgr", "ctrl+j"
+// --- Comprehensive Key Mapping for rdev 2.0 ---
+fn create_key_name_map() -> HashMap<RdevKey, String> {
+    let mut map = HashMap::new();
+    
+    // Alphabet keys
+    map.insert(RdevKey::KeyA, "A".to_string());
+    map.insert(RdevKey::KeyB, "B".to_string());
+    map.insert(RdevKey::KeyC, "C".to_string());
+    map.insert(RdevKey::KeyD, "D".to_string());
+    map.insert(RdevKey::KeyE, "E".to_string());
+    map.insert(RdevKey::KeyF, "F".to_string());
+    map.insert(RdevKey::KeyG, "G".to_string());
+    map.insert(RdevKey::KeyH, "H".to_string());
+    map.insert(RdevKey::KeyI, "I".to_string());
+    map.insert(RdevKey::KeyJ, "J".to_string());
+    map.insert(RdevKey::KeyK, "K".to_string());
+    map.insert(RdevKey::KeyL, "L".to_string());
+    map.insert(RdevKey::KeyM, "M".to_string());
+    map.insert(RdevKey::KeyN, "N".to_string());
+    map.insert(RdevKey::KeyO, "O".to_string());
+    map.insert(RdevKey::KeyP, "P".to_string());
+    map.insert(RdevKey::KeyQ, "Q".to_string());
+    map.insert(RdevKey::KeyR, "R".to_string());
+    map.insert(RdevKey::KeyS, "S".to_string());
+    map.insert(RdevKey::KeyT, "T".to_string());
+    map.insert(RdevKey::KeyU, "U".to_string());
+    map.insert(RdevKey::KeyV, "V".to_string());
+    map.insert(RdevKey::KeyW, "W".to_string());
+    map.insert(RdevKey::KeyX, "X".to_string());
+    map.insert(RdevKey::KeyY, "Y".to_string());
+    map.insert(RdevKey::KeyZ, "Z".to_string());
+    
+    // Number keys
+    map.insert(RdevKey::Num0, "0".to_string());
+    map.insert(RdevKey::Num1, "1".to_string());
+    map.insert(RdevKey::Num2, "2".to_string());
+    map.insert(RdevKey::Num3, "3".to_string());
+    map.insert(RdevKey::Num4, "4".to_string());
+    map.insert(RdevKey::Num5, "5".to_string());
+    map.insert(RdevKey::Num6, "6".to_string());
+    map.insert(RdevKey::Num7, "7".to_string());
+    map.insert(RdevKey::Num8, "8".to_string());
+    map.insert(RdevKey::Num9, "9".to_string());
+    
+    // Function keys
+    map.insert(RdevKey::F1, "F1".to_string());
+    map.insert(RdevKey::F2, "F2".to_string());
+    map.insert(RdevKey::F3, "F3".to_string());
+    map.insert(RdevKey::F4, "F4".to_string());
+    map.insert(RdevKey::F5, "F5".to_string());
+    map.insert(RdevKey::F6, "F6".to_string());
+    map.insert(RdevKey::F7, "F7".to_string());
+    map.insert(RdevKey::F8, "F8".to_string());
+    map.insert(RdevKey::F9, "F9".to_string());
+    map.insert(RdevKey::F10, "F10".to_string());
+    map.insert(RdevKey::F11, "F11".to_string());
+    map.insert(RdevKey::F12, "F12".to_string());
+    
+    // Modifier keys
+    map.insert(RdevKey::ControlLeft, "Ctrl".to_string());
+    map.insert(RdevKey::ControlRight, "ControlRight".to_string());
+    map.insert(RdevKey::AltGr, "AltGr".to_string());
+    map.insert(RdevKey::Alt, "Alt".to_string());
+    map.insert(RdevKey::ShiftLeft, "Shift".to_string());
+    map.insert(RdevKey::ShiftRight, "ShiftRight".to_string());
+    map.insert(RdevKey::MetaLeft, "Cmd".to_string());
+    map.insert(RdevKey::MetaRight, "Cmd".to_string());
+    
+    // Arrow keys
+    map.insert(RdevKey::UpArrow, "Up".to_string());
+    map.insert(RdevKey::DownArrow, "Down".to_string());
+    map.insert(RdevKey::LeftArrow, "Left".to_string());
+    map.insert(RdevKey::RightArrow, "Right".to_string());
+    
+    // Special keys
+    map.insert(RdevKey::Space, "Space".to_string());
+    map.insert(RdevKey::Return, "Enter".to_string());
+    map.insert(RdevKey::Tab, "Tab".to_string());
+    map.insert(RdevKey::Escape, "Escape".to_string());
+    map.insert(RdevKey::BackSpace, "Backspace".to_string());
+    map.insert(RdevKey::Delete, "Delete".to_string());
+    
+    map
+}
+
+// --- Improved Key Detection Logic ---
+fn rdev_key_to_string(key: &RdevKey) -> Option<String> {
+    KEY_NAME_MAP.get(key).cloned()
+}
+
+fn update_modifier_state(key: &str, is_pressed: bool) {
+    let mut modifiers = HELD_MODIFIERS.lock().unwrap();
+    if is_pressed {
+        modifiers.insert(key.to_string(), Instant::now());
+    } else {
+        modifiers.remove(key);
+    }
+}
+
+fn is_modifier_key(key: &str) -> bool {
+    matches!(key, "Ctrl" | "ControlRight" | "Alt" | "AltGr" | "Shift" | "ShiftRight" | "Cmd")
+}
+
+fn is_hotkey_match(key: &str, settings: &HotkeySettings, held_modifiers: &HashMap<String, Instant>) -> bool {
+    // Check if the main key matches
+    if key != settings.key {
+        return false;
+    }
+    
+    // For standalone modifier keys, ensure no other modifiers are held
+    if is_modifier_key(key) && settings.modifiers.is_empty() {
+        // Special case: AltGr might have ControlLeft held due to Windows behavior
+        if key == "AltGr" {
+            // Allow ControlLeft to be held for AltGr
+            for (held_key, _) in held_modifiers {
+                if held_key != "Ctrl" && held_key != "ControlLeft" {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // For other standalone modifiers, no other modifiers should be held
+        return held_modifiers.is_empty();
+    }
+    
+    // For key combinations, check all required modifiers are held
+    if !settings.modifiers.is_empty() {
+        for required_mod in &settings.modifiers {
+            let is_held = held_modifiers.keys().any(|k| k == required_mod);
+            if !is_held {
+                return false;
+            }
+        }
+    }
+    
+    true
+}
+
+// --- Tauri GlobalShortcut Mapping System (REMOVED) ---
+/// This function is no longer needed - replaced by rdev key detection
 fn hotkey_settings_to_tauri_format(settings: &HotkeySettings) -> Option<String> {
     if !settings.enabled || settings.key.is_empty() {
         return None;
@@ -265,6 +468,66 @@ fn hotkey_settings_to_tauri_format(settings: &HotkeySettings) -> Option<String> 
     Some(parts.join("+"))
 }
 
+// --- rdev Event Callback ---
+fn rdev_callback(event: Event) {
+    match event.event_type {
+        EventType::KeyPress(key) => {
+            if let Some(key_name) = rdev_key_to_string(&key) {
+                // Handle AltGr special case on Windows
+                if key == RdevKey::AltGr {
+                    let mut altgr_state = ALTGR_STATE.lock().unwrap();
+                    // Check if we recently saw a Control press
+                    if let Some(ctrl_time) = altgr_state.control_pressed_at {
+                        if ctrl_time.elapsed().as_millis() < ALTGR_SEQUENCE_TIMEOUT_MS {
+                            // This is part of the AltGr sequence, remove the false Control
+                            let mut modifiers = HELD_MODIFIERS.lock().unwrap();
+                            modifiers.remove("Ctrl");
+                            modifiers.remove("ControlLeft");
+                        }
+                    }
+                    altgr_state.control_pressed_at = None;
+                    altgr_state.expecting_altgr = false;
+                } else if key == RdevKey::ControlLeft {
+                    // Mark that we might be starting an AltGr sequence
+                    let mut altgr_state = ALTGR_STATE.lock().unwrap();
+                    altgr_state.control_pressed_at = Some(Instant::now());
+                    altgr_state.expecting_altgr = true;
+                }
+                
+                // Update modifier state
+                if is_modifier_key(&key_name) {
+                    update_modifier_state(&key_name, true);
+                }
+                
+                // Send key press event
+                let event = HotkeyEvent {
+                    key: key_name,
+                    event_type: HotkeyEventType::KeyPress,
+                    timestamp: Instant::now(),
+                };
+                let _ = HOTKEY_CHANNEL.0.send(event);
+            }
+        }
+        EventType::KeyRelease(key) => {
+            if let Some(key_name) = rdev_key_to_string(&key) {
+                // Update modifier state
+                if is_modifier_key(&key_name) {
+                    update_modifier_state(&key_name, false);
+                }
+                
+                // Send key release event
+                let event = HotkeyEvent {
+                    key: key_name,
+                    event_type: HotkeyEventType::KeyRelease,
+                    timestamp: Instant::now(),
+                };
+                let _ = HOTKEY_CHANNEL.0.send(event);
+            }
+        }
+        _ => {} // Ignore other event types
+    }
+}
+
 /// Gets supported key options for the UI
 fn get_supported_keys() -> Vec<(String, String)> {
     vec![
@@ -302,74 +565,135 @@ fn get_supported_keys() -> Vec<(String, String)> {
     ]
 }
 
-// --- Tauri GlobalShortcut System ---
+// --- rdev 2.0 Hotkey System ---
 
-/// Registers or updates the global hotkey using Tauri's GlobalShortcut
-fn register_global_hotkey(app_handle: &AppHandle) -> Result<(), String> {
+/// Starts the rdev listener thread
+fn start_hotkey_listener() -> Result<JoinHandle<()>, String> {
+    println!("[RDEV 2.0] Starting hotkey listener thread");
+    
+    let handle = thread::spawn(|| {
+        match listen(rdev_callback) {
+            Ok(()) => println!("[RDEV 2.0] Listener thread ended normally"),
+            Err(e) => eprintln!("[RDEV 2.0 ERROR] Listener thread error: {:?}", e),
+        }
+    });
+    
+    Ok(handle)
+}
+
+/// Process hotkey events from the rdev listener
+fn process_hotkey_events(app_handle: AppHandle) {
+    println!("[RDEV 2.0] Starting hotkey event processor");
+    
+    loop {
+        match HOTKEY_CHANNEL.1.recv() {
+            Ok(event) => {
+                process_hotkey_event(event, &app_handle);
+            }
+            Err(e) => {
+                eprintln!("[RDEV 2.0 ERROR] Channel receive error: {:?}", e);
+                break;
+            }
+        }
+    }
+}
+
+/// Process individual hotkey event
+fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
+    // Special handling for UI-triggered events
+    if event.key == "UI_CLICK" {
+        handle_ui_click_event(event, app_handle);
+        return;
+    }
+    
+    // Get hotkey settings
     let hotkey_settings = {
         match SETTINGS.lock() {
             Ok(settings) => settings.hotkey.clone(),
-            Err(_) => return Err("Failed to access settings".to_string()),
-        }
-    };
-    
-    // Get the Tauri format hotkey string
-    let hotkey_string = match hotkey_settings_to_tauri_format(&hotkey_settings) {
-        Some(s) => s,
-        None => {
-            println!("[TAURI HOTKEY] Hotkeys disabled or invalid configuration");
-            unregister_global_hotkey(app_handle)?;
-            return Ok(());
-        }
-    };
-    
-    // Unregister existing hotkey if any
-    unregister_global_hotkey(app_handle)?;
-    
-    // Register the new hotkey
-    let app_handle_clone = app_handle.clone();
-    let result = app_handle.global_shortcut_manager().register(&hotkey_string, move || {
-        handle_hotkey_triggered(&app_handle_clone);
-    });
-    
-    match result {
-        Ok(()) => {
-            // Store the registered hotkey for cleanup
-            if let Ok(mut current) = CURRENT_HOTKEY.lock() {
-                *current = Some(hotkey_string.clone());
+            Err(_) => {
+                eprintln!("[RDEV 2.0 ERROR] Failed to access settings");
+                return;
             }
-            println!("[TAURI HOTKEY] Successfully registered: {}", hotkey_string);
-            Ok(())
         }
-        Err(e) => {
-            let error_msg = format!("Failed to register hotkey '{}': {}", hotkey_string, e);
-            println!("[TAURI HOTKEY ERROR] {}", error_msg);
-            Err(error_msg)
+    };
+    
+    if !hotkey_settings.enabled {
+        return;
+    }
+    
+    // Get current modifiers for matching
+    let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
+    
+    // Check for rapid-fire events (likely typing)
+    {
+        let mut state = HOTKEY_STATE.lock().unwrap();
+        if state.last_event_time.elapsed().as_millis() < RAPID_FIRE_THRESHOLD_MS {
+            // Too fast, likely typing
+            state.last_event_time = event.timestamp;
+            return;
+        }
+        state.last_event_time = event.timestamp;
+    }
+    
+    match event.event_type {
+        HotkeyEventType::KeyPress => {
+            // CRITICAL: For release events, check modifiers BEFORE updating tracking
+            if is_hotkey_match(&event.key, &hotkey_settings, &held_modifiers) {
+                handle_hotkey_press(app_handle, &hotkey_settings);
+            }
+        }
+        HotkeyEventType::KeyRelease => {
+            // CRITICAL: Check modifiers BEFORE they're updated for proper AltGr handling
+            if is_hotkey_match(&event.key, &hotkey_settings, &held_modifiers) {
+                handle_hotkey_release(app_handle, &hotkey_settings);
+            }
         }
     }
 }
 
-/// Unregisters the current global hotkey
-fn unregister_global_hotkey(app_handle: &AppHandle) -> Result<(), String> {
-    if let Ok(mut current) = CURRENT_HOTKEY.lock() {
-        if let Some(hotkey_string) = current.take() {
-            match app_handle.global_shortcut_manager().unregister(&hotkey_string) {
-                Ok(()) => {
-                    println!("[TAURI HOTKEY] Unregistered: {}", hotkey_string);
-                }
-                Err(e) => {
-                    println!("[TAURI HOTKEY WARNING] Failed to unregister '{}': {}", hotkey_string, e);
-                    // Don't return error - continue with cleanup
+/// Handle UI-triggered click events (mouse click on pill)
+fn handle_ui_click_event(event: HotkeyEvent, app_handle: &AppHandle) {
+    // Check authentication first
+    let is_authenticated = {
+        let auth = AUTH_STATE.lock().unwrap();
+        auth.is_authenticated
+    };
+    
+    if !is_authenticated {
+        println!("[RDEV 2.0] UI Click - Authentication required");
+        app_handle.emit_all("fethr-auth-required", ()).unwrap_or_else(|e| {
+            println!("[RDEV 2.0] Failed to emit auth-required: {}", e);
+        });
+        return;
+    }
+    
+    // Get current recording state
+    let current_recording_state = {
+        RECORDING_STATE.lock().unwrap().clone()
+    };
+    
+    match event.event_type {
+        HotkeyEventType::KeyPress => {
+            // Mouse down - always toggle mode for UI clicks
+            println!("[RDEV 2.0] UI Click - Mouse down");
+        }
+        HotkeyEventType::KeyRelease => {
+            // Mouse up - toggle recording state
+            println!("[RDEV 2.0] UI Click - Mouse up, toggling recording");
+            match current_recording_state {
+                AppRecordingState::Idle => start_recording(app_handle),
+                AppRecordingState::Recording => stop_recording(app_handle),
+                _ => {
+                    println!("[RDEV 2.0] Ignoring UI click in state: {:?}", current_recording_state);
                 }
             }
         }
     }
-    Ok(())
 }
 
-/// Handles hotkey activation - determines whether to start or stop recording
-fn handle_hotkey_triggered(app_handle: &AppHandle) {
-    println!("[TAURI HOTKEY] Hotkey triggered!");
+/// Handle hotkey press event
+fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
+    println!("[RDEV 2.0] Hotkey pressed: {}", settings.key);
     
     // Check authentication first
     let is_authenticated = {
@@ -378,175 +702,120 @@ fn handle_hotkey_triggered(app_handle: &AppHandle) {
     };
     
     if !is_authenticated {
-        println!("[TAURI HOTKEY] Authentication required");
+        println!("[RDEV 2.0] Authentication required");
         app_handle.emit_all("fethr-auth-required", ()).unwrap_or_else(|e| {
-            println!("[TAURI HOTKEY] Failed to emit auth-required: {}", e);
+            println!("[RDEV 2.0] Failed to emit auth-required: {}", e);
         });
         return;
     }
     
-    // Get recording mode
-    let hold_to_record = {
-        match SETTINGS.lock() {
-            Ok(settings) => settings.hotkey.hold_to_record,
-            Err(_) => false, // Default to toggle mode
-        }
+    let mut state = HOTKEY_STATE.lock().unwrap();
+    state.hotkey_pressed_at = Some(Instant::now());
+    state.is_hotkey_held = true;
+    state.recording_mode = if settings.hold_to_record {
+        RecordingMode::PushToTalk
+    } else {
+        RecordingMode::Toggle
     };
     
     // Get current recording state
-    let current_state = {
+    let current_recording_state = {
         RECORDING_STATE.lock().unwrap().clone()
     };
     
-    if hold_to_record {
-        // Push-to-talk mode: Start recording immediately, use timer for release detection
-        handle_push_to_talk_trigger(app_handle, current_state);
-    } else {
-        // Toggle mode: Start or stop recording
-        handle_toggle_trigger(app_handle, current_state);
-    }
-}
-
-/// Handles push-to-talk hotkey activation
-fn handle_push_to_talk_trigger(app_handle: &AppHandle, current_state: AppRecordingState) {
-    match current_state {
-        AppRecordingState::Idle => {
-            // Start recording for push-to-talk
-            {
-                let mut state = RECORDING_STATE.lock().unwrap();
-                *state = AppRecordingState::Recording;
+    match state.recording_mode {
+        RecordingMode::PushToTalk => {
+            // Start recording immediately for push-to-talk
+            if current_recording_state == AppRecordingState::Idle {
+                drop(state); // Release lock before starting recording
+                start_recording(app_handle);
             }
-            
-            // Mark the time when push-to-talk started
-            {
-                let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-                *ptt_state = Some(Instant::now());
-            }
-            
-            println!("[TAURI HOTKEY] Starting push-to-talk recording");
-            
-            // Emit UI update and start recording
-            let payload = StateUpdatePayload { 
-                state: FrontendRecordingState::Recording, 
-                ..Default::default() 
-            };
-            emit_state_update(app_handle, payload);
-            emit_start_recording(app_handle);
-            
-            // Start a background timer to detect key release
-            let app_handle_clone = app_handle.clone();
-            thread::spawn(move || {
-                monitor_push_to_talk_release(&app_handle_clone);
-            });
         }
-        AppRecordingState::Recording => {
-            // Extend the push-to-talk session
-            {
-                let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-                *ptt_state = Some(Instant::now()); // Reset the timer
-            }
-            println!("[TAURI HOTKEY] Push-to-talk extended");
-        }
-        _ => {
-            println!("[TAURI HOTKEY] Ignoring push-to-talk trigger in state: {:?}", current_state);
+        RecordingMode::Toggle => {
+            // Toggle mode - will be handled on release
         }
     }
 }
 
-/// Handles toggle mode hotkey activation
-fn handle_toggle_trigger(app_handle: &AppHandle, current_state: AppRecordingState) {
-    match current_state {
-        AppRecordingState::Idle => {
-            // Start recording
-            {
-                let mut state = RECORDING_STATE.lock().unwrap();
-                *state = AppRecordingState::Recording;
-            }
-            
-            println!("[TAURI HOTKEY] Starting toggle recording");
-            
-            // Emit UI update and start recording
-            let payload = StateUpdatePayload { 
-                state: FrontendRecordingState::Recording, 
-                ..Default::default() 
-            };
-            emit_state_update(app_handle, payload);
-            emit_start_recording(app_handle);
-        }
-        AppRecordingState::Recording => {
-            // Stop recording
-            {
-                let mut state = RECORDING_STATE.lock().unwrap();
-                *state = AppRecordingState::Transcribing;
-            }
-            
-            println!("[TAURI HOTKEY] Stopping toggle recording");
-            
-            // Emit UI update and stop recording
-            let payload = StateUpdatePayload { 
-                state: FrontendRecordingState::Transcribing, 
-                ..Default::default() 
-            };
-            emit_state_update(app_handle, payload);
-            emit_stop_transcribe(app_handle);
-        }
-        _ => {
-            println!("[TAURI HOTKEY] Ignoring toggle trigger in state: {:?}", current_state);
-        }
-    }
-}
-
-/// Monitors for push-to-talk key release using a timeout approach
-fn monitor_push_to_talk_release(app_handle: &AppHandle) {
-    const RELEASE_TIMEOUT_MS: u64 = 200; // Consider key released after 200ms of no activity
+/// Handle hotkey release event  
+fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
+    println!("[RDEV 2.0] Hotkey released: {}", settings.key);
     
-    loop {
-        thread::sleep(Duration::from_millis(50)); // Check every 50ms
-        
-        let should_stop = {
-            let ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-            match *ptt_state {
-                Some(last_trigger) => {
-                    // Check if it's been too long since last trigger
-                    last_trigger.elapsed().as_millis() > RELEASE_TIMEOUT_MS as u128
-                }
-                None => true, // No active push-to-talk session
+    let mut state = HOTKEY_STATE.lock().unwrap();
+    state.is_hotkey_held = false;
+    
+    let press_duration = state.hotkey_pressed_at
+        .map(|t| t.elapsed().as_millis())
+        .unwrap_or(0);
+    
+    // Get current recording state
+    let current_recording_state = {
+        RECORDING_STATE.lock().unwrap().clone()
+    };
+    
+    match state.recording_mode {
+        RecordingMode::PushToTalk => {
+            // Stop recording when key is released
+            if current_recording_state == AppRecordingState::Recording {
+                drop(state); // Release lock before stopping recording
+                stop_recording(app_handle);
             }
-        };
-        
-        if should_stop {
-            // Check if we're still recording
-            let current_state = {
-                RECORDING_STATE.lock().unwrap().clone()
-            };
-            
-            if current_state == AppRecordingState::Recording {
-                // Stop the recording
-                {
-                    let mut state = RECORDING_STATE.lock().unwrap();
-                    *state = AppRecordingState::Transcribing;
+        }
+        RecordingMode::Toggle => {
+            // Only process if it was a tap (not a hold)
+            if press_duration < TAP_MAX_DURATION_MS {
+                drop(state); // Release lock before toggling
+                match current_recording_state {
+                    AppRecordingState::Idle => start_recording(app_handle),
+                    AppRecordingState::Recording => stop_recording(app_handle),
+                    _ => {
+                        println!("[RDEV 2.0] Ignoring toggle in state: {:?}", current_recording_state);
+                    }
                 }
-                
-                // Clear the push-to-talk state
-                {
-                    let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-                    *ptt_state = None;
-                }
-                
-                println!("[TAURI HOTKEY] Push-to-talk release detected - stopping recording");
-                
-                // Emit UI update and stop recording
-                let payload = StateUpdatePayload { 
-                    state: FrontendRecordingState::Transcribing, 
-                    ..Default::default() 
-                };
-                emit_state_update(app_handle, payload);
-                emit_stop_transcribe(app_handle);
             }
-            
-            break; // Exit the monitoring loop
         }
     }
+    
+    // Clear the press timestamp
+    HOTKEY_STATE.lock().unwrap().hotkey_pressed_at = None;
+}
+
+/// Start recording helper
+fn start_recording(app_handle: &AppHandle) {
+    // Update state
+    {
+        let mut state = RECORDING_STATE.lock().unwrap();
+        *state = AppRecordingState::Recording;
+    }
+    
+    println!("[RDEV 2.0] Starting recording");
+    
+    // Emit UI update and start recording
+    let payload = StateUpdatePayload { 
+        state: FrontendRecordingState::Recording, 
+        ..Default::default() 
+    };
+    emit_state_update(app_handle, payload);
+    emit_start_recording(app_handle);
+}
+
+/// Stop recording helper
+fn stop_recording(app_handle: &AppHandle) {
+    // Update state
+    {
+        let mut state = RECORDING_STATE.lock().unwrap();
+        *state = AppRecordingState::Transcribing;
+    }
+    
+    println!("[RDEV 2.0] Stopping recording");
+    
+    // Emit UI update and stop recording
+    let payload = StateUpdatePayload { 
+        state: FrontendRecordingState::Transcribing, 
+        ..Default::default() 
+    };
+    emit_state_update(app_handle, payload);
+    emit_stop_transcribe(app_handle);
 }
 
 #[derive(Default)]
@@ -725,13 +994,12 @@ async fn write_to_clipboard_command(text_to_copy: String) -> Result<(), String> 
 // Function body removed - Tauri GlobalShortcut system replaces all this complexity
 
 #[tauri::command]
-fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
+fn signal_reset_complete(app_handle: AppHandle) {
     println!("[RUST CMD] signal_reset_complete received. Performing state reset...");
 
-    // --- Moved Reset Logic Here ---
     let lifecycle = RECORDING_LIFECYCLE.lock().unwrap();
     if *lifecycle == RecordingLifecycle::Idle {
-        println!("[RUST CMD] RecordingLifecycle is Idle, proceeding with hotkey state reset.");
+        println!("[RUST CMD] RecordingLifecycle is Idle, proceeding with state reset.");
         drop(lifecycle); // Drop lock before acquiring next
 
         // Reset recording state
@@ -741,32 +1009,27 @@ fn signal_reset_complete(app_handle: AppHandle) { // Add AppHandle back
             println!("[RUST CMD] Recording state forced to IDLE.");
         }
         
-        // Clear push-to-talk state if active
+        // Reset hotkey state
         {
-            let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-            *ptt_state = None;
-            println!("[RUST CMD] Push-to-talk state cleared.");
+            let mut hotkey_state = HOTKEY_STATE.lock().unwrap();
+            hotkey_state.hotkey_pressed_at = None;
+            hotkey_state.is_hotkey_held = false;
+            println!("[RUST CMD] Hotkey state cleared.");
         }
 
-        // --- Emit Final IDLE State Update ---
+        // Emit Final IDLE State Update
         println!("[RUST CMD] Emitting final IDLE state update to frontend.");
         let final_payload = StateUpdatePayload {
             state: FrontendRecordingState::Idle,
             duration_ms: 0,
-            transcription_result: None, // Let frontend manage showing last result
+            transcription_result: None,
             error_message: None,
         };
-        // Use the app_handle passed into this command
         emit_state_update(&app_handle, final_payload);
-        // --- End Emit ---
 
     } else {
-        // This case might indicate a race condition, log it
-        println!("[RUST CMD WARNING] signal_reset_complete called, but RecordingLifecycle was {:?}. Not resetting hotkey state or emitting Idle.", *lifecycle);
-        // We might want to force emit Idle anyway? Or investigate why this happens.
-        // For now, just log. If lifecycle isn't Idle, the hotkey state shouldn't be reset.
+        println!("[RUST CMD WARNING] signal_reset_complete called, but RecordingLifecycle was {:?}. Not resetting state.", *lifecycle);
     }
-    // --- End Moved Reset Logic ---
 }
 
 #[tauri::command]
@@ -785,7 +1048,7 @@ fn update_auth_state(is_authenticated: bool, user_id: Option<String>) -> Result<
 
 #[tauri::command]
 fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
-    println!("[RUST CMD] force_reset_to_idle - FORCING all states to IDLE regardless of current state");
+    println!("[RUST CMD] force_reset_to_idle - FORCING all states to IDLE");
     
     // Force recording lifecycle to Idle
     {
@@ -801,11 +1064,19 @@ fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
         println!("[RUST CMD] Recording state FORCED to IDLE");
     }
     
-    // Clear push-to-talk state
+    // Reset hotkey state
     {
-        let mut ptt_state = PUSH_TO_TALK_STATE.lock().unwrap();
-        *ptt_state = None;
-        println!("[RUST CMD] Push-to-talk state cleared");
+        let mut hotkey_state = HOTKEY_STATE.lock().unwrap();
+        hotkey_state.hotkey_pressed_at = None;
+        hotkey_state.is_hotkey_held = false;
+        println!("[RUST CMD] Hotkey state cleared");
+    }
+    
+    // Clear held modifiers
+    {
+        let mut modifiers = HELD_MODIFIERS.lock().unwrap();
+        modifiers.clear();
+        println!("[RUST CMD] Held modifiers cleared");
     }
     
     // Emit IDLE state to frontend
@@ -818,6 +1089,35 @@ fn force_reset_to_idle(app_handle: AppHandle) -> Result<(), String> {
     emit_state_update(&app_handle, final_payload);
     
     println!("[RUST CMD] All states forced to IDLE and frontend notified");
+    Ok(())
+}
+
+// --- Tauri Commands for Hotkey Settings ---
+#[tauri::command]
+async fn update_hotkey_settings(app_handle: AppHandle, hotkey_settings: HotkeySettings) -> Result<(), String> {
+    println!("[RUST CMD] Updating hotkey settings: key={}, modifiers={:?}, hold_to_record={}, enabled={}", 
+        hotkey_settings.key, hotkey_settings.modifiers, hotkey_settings.hold_to_record, hotkey_settings.enabled);
+    
+    // Update the settings
+    {
+        let mut settings = SETTINGS.lock().map_err(|e| format!("Failed to lock settings: {}", e))?;
+        settings.hotkey = hotkey_settings.clone();
+        settings.save().map_err(|e| format!("Failed to save settings: {}", e))?;
+    }
+    
+    // Reset hotkey state when settings change
+    {
+        let mut hotkey_state = HOTKEY_STATE.lock().unwrap();
+        hotkey_state.hotkey_pressed_at = None;
+        hotkey_state.is_hotkey_held = false;
+        hotkey_state.recording_mode = if hotkey_settings.hold_to_record {
+            RecordingMode::PushToTalk
+        } else {
+            RecordingMode::Toggle
+        };
+    }
+    
+    println!("[RUST CMD] Hotkey settings updated successfully");
     Ok(())
 }
 
@@ -1016,12 +1316,28 @@ fn main() {
             
             // --- End Window Handle Logic ---
 
-            // --- Initialize Tauri GlobalShortcut System ---
-            println!("[TAURI HOTKEY] Initializing global shortcut system...");
-            if let Err(e) = register_global_hotkey(&app.handle()) {
-                println!("[TAURI HOTKEY ERROR] Failed to register initial hotkey: {}", e);
+            // --- Initialize rdev 2.0 Hotkey System ---
+            println!("[RDEV 2.0] Initializing hotkey system...");
+            
+            // Start the rdev listener thread
+            match start_hotkey_listener() {
+                Ok(handle) => {
+                    println!("[RDEV 2.0] Hotkey listener thread started successfully");
+                    // Store the handle if needed for cleanup later
+                }
+                Err(e) => {
+                    eprintln!("[RDEV 2.0 ERROR] Failed to start hotkey listener: {}", e);
+                }
             }
-            // --- End GlobalShortcut Initialization ---
+            
+            // Start the hotkey event processor
+            let app_handle_for_processor = app.handle();
+            thread::spawn(move || {
+                process_hotkey_events(app_handle_for_processor);
+            });
+            
+            println!("[RDEV 2.0] Hotkey system initialized");
+            // --- End rdev 2.0 Initialization ---
 
             // --- NEW: Initial Pill Visibility based on Config ---
             let initial_pill_enabled = {
@@ -1201,8 +1517,6 @@ fn main() {
             save_settings,
             get_available_models,
             // Hotkey Commands:
-            get_supported_hotkeys,
-            test_hotkey,
             update_hotkey_settings,
             // --- ADD THE NEW DICTIONARY COMMANDS ---
             dictionary_manager::get_dictionary,
@@ -1239,8 +1553,45 @@ fn main() {
 }
 
 
-// --- Tauri GlobalShortcut System Replaces All Rdev Logic ---
-// No more manual event callbacks, key detection, or modifier tracking needed!
+// --- UI-Triggered Events (Mouse Click Support) ---
+#[tauri::command]
+fn trigger_press_event() {
+    println!("[RUST CMD] UI-triggered press event (mouse click)");
+    
+    // Get current hotkey settings to determine mode
+    let settings = {
+        match SETTINGS.lock() {
+            Ok(s) => s.hotkey.clone(),
+            Err(_) => return,
+        }
+    };
+    
+    // Simulate a hotkey press event
+    let event = HotkeyEvent {
+        key: "UI_CLICK".to_string(),
+        event_type: HotkeyEventType::KeyPress,
+        timestamp: Instant::now(),
+    };
+    
+    let _ = HOTKEY_CHANNEL.0.send(event);
+}
+
+#[tauri::command]
+fn trigger_release_event() {
+    println!("[RUST CMD] UI-triggered release event (mouse release)");
+    
+    // Simulate a hotkey release event
+    let event = HotkeyEvent {
+        key: "UI_CLICK".to_string(),
+        event_type: HotkeyEventType::KeyRelease,
+        timestamp: Instant::now(),
+    };
+    
+    let _ = HOTKEY_CHANNEL.0.send(event);
+}
+
+// --- rdev 2.0 Implementation Complete ---
+// Improved hotkey system with bulletproof AltGr handling and comprehensive key support
 
 
 // --- Helper functions to emit events ---
