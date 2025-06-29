@@ -570,7 +570,15 @@ fn main() {
     let edit_dictionary = CustomMenuItem::new("edit_dictionary".to_string(), "Edit Dictionary");
     let separator1 = SystemTrayMenuItem::Separator;
     let edit_last = CustomMenuItem::new("edit_last".to_string(), "Edit Last Transcription");
-    let toggle_pill = CustomMenuItem::new("toggle_pill".to_string(), "Toggle Recording Pill");
+    
+    // Get current pill visibility state
+    let pill_enabled = {
+        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_enabled
+    };
+    let toggle_pill_text = if pill_enabled { "✓ Show Recording Pill" } else { "Show Recording Pill" };
+    let toggle_pill = CustomMenuItem::new("toggle_pill".to_string(), toggle_pill_text);
+    
     let separator2 = SystemTrayMenuItem::Separator;
     let ai_actions = CustomMenuItem::new("ai_actions".to_string(), "AI Actions");
     let account = CustomMenuItem::new("account".to_string(), "Account & Usage");
@@ -1312,23 +1320,80 @@ async fn toggle_recording_pill_visibility(app_handle: tauri::AppHandle) -> Resul
     if let Some(pill_window) = app_handle.get_window("pill") {
         match pill_window.is_visible() {
             Ok(is_visible) => {
-                if is_visible {
-                    if let Err(e) = pill_window.hide() {
-                        return Err(format!("Failed to hide pill window: {}", e));
-                    }
-                    println!("[RUST CMD] Recording pill hidden");
-                } else {
+                // Update the setting to match the new state
+                let new_visibility = !is_visible;
+                {
+                    let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+                    settings_guard.pill_enabled = new_visibility;
+                    // Save settings to persist the change
+                    let _ = settings_guard.save();
+                }
+                
+                // Now actually show/hide the window
+                if new_visibility {
                     if let Err(e) = pill_window.show() {
                         return Err(format!("Failed to show pill window: {}", e));
                     }
-                    println!("[RUST CMD] Recording pill shown");
+                    println!("[RUST CMD] Recording pill shown and setting updated");
+                } else {
+                    if let Err(e) = pill_window.hide() {
+                        return Err(format!("Failed to hide pill window: {}", e));
+                    }
+                    println!("[RUST CMD] Recording pill hidden and setting updated");
                 }
+                
+                // Update tray menu to reflect new state
+                update_tray_menu(&app_handle);
+                
                 Ok(())
             }
             Err(e) => Err(format!("Failed to check pill window visibility: {}", e))
         }
     } else {
         Err("Pill window not found".to_string())
+    }
+}
+
+// Helper function to update tray menu with current state
+fn update_tray_menu(app_handle: &tauri::AppHandle) {
+    // Get current pill visibility state
+    let pill_enabled = {
+        let settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_enabled
+    };
+    
+    // Create new menu with updated checkmark
+    let open_settings = CustomMenuItem::new("open_settings".to_string(), "Open Settings");
+    let view_history = CustomMenuItem::new("view_history".to_string(), "View History");
+    let edit_dictionary = CustomMenuItem::new("edit_dictionary".to_string(), "Edit Dictionary");
+    let separator1 = SystemTrayMenuItem::Separator;
+    let edit_last = CustomMenuItem::new("edit_last".to_string(), "Edit Last Transcription");
+    
+    let toggle_pill_text = if pill_enabled { "✓ Show Recording Pill" } else { "Show Recording Pill" };
+    let toggle_pill = CustomMenuItem::new("toggle_pill".to_string(), toggle_pill_text);
+    
+    let separator2 = SystemTrayMenuItem::Separator;
+    let ai_actions = CustomMenuItem::new("ai_actions".to_string(), "AI Actions");
+    let account = CustomMenuItem::new("account".to_string(), "Account & Usage");
+    let separator3 = SystemTrayMenuItem::Separator;
+    let quit = CustomMenuItem::new("quit".to_string(), "Quit Fethr");
+    
+    let tray_menu = SystemTrayMenu::new()
+        .add_item(open_settings)
+        .add_item(view_history)
+        .add_item(edit_dictionary)
+        .add_native_item(separator1)
+        .add_item(edit_last)
+        .add_item(toggle_pill)
+        .add_native_item(separator2)
+        .add_item(ai_actions)
+        .add_item(account)
+        .add_native_item(separator3)
+        .add_item(quit);
+    
+    // Update the system tray menu
+    if let Err(e) = app_handle.tray_handle().set_menu(tray_menu) {
+        println!("[RUST] Failed to update tray menu: {}", e);
     }
 }
 
@@ -1366,12 +1431,21 @@ async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<
 
 #[tauri::command]
 async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(), String> {
+    // Update the setting first
+    {
+        let mut settings_guard = crate::config::SETTINGS.lock().unwrap();
+        settings_guard.pill_enabled = visible;
+        // Save settings to persist the change
+        let _ = settings_guard.save();
+    }
+    
     if let Some(pill_window) = app_handle.get_window("pill") {
         if visible {
             log::info!("[CMD set_pill_visibility] Attempting to show pill window.");
             match pill_window.show() {
                 Ok(_) => {
                     log::info!("[CMD set_pill_visibility] Pill window shown successfully.");
+                    // Don't reposition - let it use the default position from tauri.conf.json
                     // Optional: Attempt to focus after showing.
                     if let Err(e_focus) = pill_window.set_focus() {
                         log::warn!("[CMD set_pill_visibility] Failed to focus pill window after show (non-fatal): {}", e_focus);
@@ -1392,8 +1466,13 @@ async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(),
         }
     } else {
         log::error!("[CMD set_pill_visibility] Pill window with label 'pill' not found.");
-        Err("Pill window not found.".to_string())
+        return Err("Pill window not found.".to_string());
     }
+    
+    // Update tray menu to reflect new state
+    update_tray_menu(&app_handle);
+    
+    Ok(())
 }
 
 #[tauri::command]
@@ -1418,21 +1497,7 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
             let _ = pill_window.set_focus();
             let _ = pill_window.set_always_on_top(true);
             
-            // Ensure window is in a good position
-            if let Ok(monitor) = pill_window.current_monitor() {
-                if let Some(monitor) = monitor {
-                    let screen_size = monitor.size();
-                    let window_width = 200;
-                    let window_height = 100;
-                    let x = (screen_size.width as i32 - window_width) / 2;
-                    let y = 50; // Near top of screen
-                    
-                    let _ = pill_window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
-                        x: x as f64,
-                        y: y as f64,
-                    }));
-                }
-            }
+            // Don't reposition - let it use the default position from tauri.conf.json
             
             println!("[RUST] Pill window shown successfully, will hide after {} ms", duration);
             
@@ -1441,7 +1506,7 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
             tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(duration)).await;
                 
-                // Check if pill should be hidden based on settings
+                // Check if pill should be hidden based on settings AND if it wasn't manually shown
                 let should_hide = {
                     let settings_guard = crate::config::SETTINGS.lock().unwrap();
                     !settings_guard.pill_enabled
@@ -1449,9 +1514,18 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
                 
                 if should_hide {
                     if let Some(pill_window) = app_handle_clone.get_window("pill") {
-                        let _ = pill_window.set_always_on_top(false);
-                        let _ = pill_window.hide();
-                        println!("[RUST] Re-hiding pill window after temporary display");
+                        // Double-check that it's still supposed to be hidden
+                        // (user might have changed settings while we were waiting)
+                        let still_should_hide = {
+                            let settings_guard = crate::config::SETTINGS.lock().unwrap();
+                            !settings_guard.pill_enabled
+                        };
+                        
+                        if still_should_hide {
+                            let _ = pill_window.set_always_on_top(false);
+                            let _ = pill_window.hide();
+                            println!("[RUST] Re-hiding pill window after temporary display");
+                        }
                     }
                 }
             });

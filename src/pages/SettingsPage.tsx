@@ -143,6 +143,25 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         loadData();
     }, [toast]);
 
+    // Reload settings when user changes (login/logout)
+    useEffect(() => {
+        if (!loadingAuth) {
+            console.log("[SettingsPage] User auth state changed, reloading settings...");
+            const loadData = async () => {
+                try {
+                    const settingsResult = await invoke<AppSettings>('get_settings');
+                    if (settingsResult) {
+                        setSettings(settingsResult);
+                        console.log("Reloaded settings after auth change:", settingsResult);
+                    }
+                } catch (err) {
+                    console.error("Failed to reload settings after auth change:", err);
+                }
+            };
+            loadData();
+        }
+    }, [user, loadingAuth]);
+
     // useEffect to Load API Key from Local Storage on Mount
     useEffect(() => {
         const storedUserApiKey = localStorage.getItem('fethr_user_openrouter_api_key');
@@ -537,7 +556,44 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         return <div className="flex items-center justify-center min-h-screen bg-[#0b0719] text-[#FF4D6D] p-4">Error loading settings: {error}</div>;
     }
 
-    // Render settings form (even if there was a non-fatal error during load/save)
+    // Show only Account tab for logged-out users
+    if (!loadingAuth && !user) {
+        return (
+            <div className="h-full flex flex-col p-8">
+                <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
+                    <div className="mb-6">
+                        <h1 className="text-3xl font-semibold text-white mb-2">Settings</h1>
+                        <p className="text-neutral-400">
+                            Sign in to access all settings
+                        </p>
+                    </div>
+                    
+                    {/* Only show Account tab for logged-out users */}
+                    <div className="border-b border-neutral-800">
+                        <nav className="flex space-x-8">
+                            <button
+                                className="py-2 px-1 relative font-medium text-sm text-white"
+                            >
+                                Account
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#8A2BE2]" />
+                            </button>
+                        </nav>
+                    </div>
+                    
+                    {/* Account Tab Content */}
+                    <ScrollArea className="mt-6 flex-1">
+                        <div className="max-w-2xl">
+                            <SettingsSection title="Authentication" description="Sign in to unlock all features">
+                                <LoginForm />
+                            </SettingsSection>
+                        </div>
+                    </ScrollArea>
+                </div>
+            </div>
+        );
+    }
+
+    // Render full settings for authenticated users
     return (
         <div className="h-full flex flex-col p-8">
             <div className="max-w-5xl mx-auto w-full flex flex-col h-full">

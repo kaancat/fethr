@@ -7,6 +7,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, TrendingUp, Clock, Zap, Copy } from 'lucide-react';
 import type { HistoryEntry } from '../types';
 import { supabase } from '@/lib/supabaseClient';
+import type { User } from '@supabase/supabase-js';
+import LoggedOutState from '../components/LoggedOutState';
 
 interface DashboardStats {
   total_words: number;
@@ -19,7 +21,12 @@ interface DashboardStats {
   recent_transcriptions: HistoryEntry[];
 }
 
-function HomePage() {
+interface HomePageProps {
+  user: User | null;
+  loadingAuth: boolean;
+}
+
+function HomePage({ user, loadingAuth }: HomePageProps) {
   const { toast } = useToast();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,27 +48,26 @@ function HomePage() {
         setIsLoading(true);
       }
       
-      // Check if user is authenticated
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session?.user) {
+      // Only load stats if user is authenticated
+      if (user) {
         // Get user statistics from Supabase
         try {
-          const stats = await invoke<DashboardStats>('get_user_statistics', {
-            userId: session.user.id,
-            accessToken: session.access_token
-          });
-          setStats(stats);
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const stats = await invoke<DashboardStats>('get_user_statistics', {
+              userId: session.user.id,
+              accessToken: session.access_token
+            });
+            setStats(stats);
+          }
         } catch (error) {
-          console.error('Failed to load user statistics, falling back to local stats:', error);
-          // Fall back to local stats if Supabase fails
-          const localStats = await invoke<DashboardStats>('get_dashboard_stats');
-          setStats(localStats);
+          console.error('Failed to load user statistics:', error);
+          // Don't fall back to local stats - maintain privacy
+          setStats(null);
         }
       } else {
-        // Not authenticated, use local stats only
-        const stats = await invoke<DashboardStats>('get_dashboard_stats');
-        setStats(stats);
+        // Not authenticated, don't show any stats
+        setStats(null);
       }
       
       // Get user name from settings or use default
@@ -161,12 +167,17 @@ function HomePage() {
       });
   };
 
-  if (isLoading) {
+  if (isLoading || loadingAuth) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0b0719]">
         <Loader2 className="h-8 w-8 animate-spin text-[#87CEFA]" />
       </div>
     );
+  }
+
+  // Show logged-out state if user is not authenticated
+  if (!user) {
+    return <LoggedOutState page="home" />;
   }
 
   return (

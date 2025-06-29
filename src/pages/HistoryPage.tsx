@@ -9,12 +9,14 @@ import { Loader2, Copy } from 'lucide-react';
 import HistoryItemEditor from '../components/HistoryItemEditor';
 import type { HistoryEntry } from '../types';
 import type { User } from '@supabase/supabase-js';
+import LoggedOutState from '../components/LoggedOutState';
 
 interface HistoryPageProps {
   user: User | null;
+  loadingAuth: boolean;
 }
 
-function HistoryPage({ user }: HistoryPageProps) {
+function HistoryPage({ user, loadingAuth }: HistoryPageProps) {
   const { toast } = useToast();
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState<boolean>(true);
@@ -24,6 +26,12 @@ function HistoryPage({ user }: HistoryPageProps) {
 
   // Load history function
   const loadHistory = useCallback(async (skipLoadingState = false) => {
+    // Don't load history if user is not authenticated
+    if (!user) {
+      setHistoryEntries([]);
+      setHistoryLoading(false);
+      return;
+    }
     // Debounce: Skip if we just updated less than 2 seconds ago
     const now = Date.now();
     if (skipLoadingState && now - lastUpdateTimeRef.current < 2000) {
@@ -55,7 +63,7 @@ function HistoryPage({ user }: HistoryPageProps) {
         setHistoryLoading(false);
       }
     }
-  }, [toast]);
+  }, [toast, user]);
 
   // Setup history and listener
   useEffect(() => {
@@ -89,7 +97,7 @@ function HistoryPage({ user }: HistoryPageProps) {
     }
     
     setupHistoryAndListener();
-  }, [loadHistory, historyEntries.length]);
+  }, [loadHistory, historyEntries.length, user]);
 
   const copyHistoryItem = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -126,6 +134,20 @@ function HistoryPage({ user }: HistoryPageProps) {
       setEditingEntry(null);
     }
   };
+
+  // Show loading state while auth is loading
+  if (loadingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-[#87CEFA]" />
+      </div>
+    );
+  }
+
+  // Show logged-out state if user is not authenticated
+  if (!user) {
+    return <LoggedOutState page="history" />;
+  }
 
   return (
     <div className="h-full flex flex-col p-8">
