@@ -300,19 +300,40 @@ fn get_supported_keys() -> Vec<(String, String)> {
 
 /// Checks if a hotkey matches the current event
 fn is_hotkey_match(event_key: RdevKey, hotkey_settings: &HotkeySettings, held_modifiers: &[RdevKey]) -> bool {
-    // Check if the primary key matches
-    if let Some(configured_key) = string_to_rdev_key(&hotkey_settings.key) {
-        if event_key != configured_key {
-            return false;
+    let configured_key = match string_to_rdev_key(&hotkey_settings.key) {
+        Some(key) => key,
+        None => return false,
+    };
+    
+    // Special case: AltGr detection with rdev workaround
+    if configured_key == RdevKey::AltGr && hotkey_settings.modifiers.is_empty() {
+        println!("[ALTGR DEBUG] Checking AltGr match - event_key: {:?}, held_modifiers: {:?}", event_key, held_modifiers);
+        let is_altgr_combo = is_altgr_combination(held_modifiers);
+        println!("[ALTGR DEBUG] is_altgr_combination result: {}", is_altgr_combo);
+        
+        // AltGr can be detected in two ways:
+        // 1. Direct AltGr key event
+        if event_key == RdevKey::AltGr && is_altgr_combo {
+            println!("[ALTGR DEBUG] Match via direct AltGr key");
+            return true;
         }
-    } else {
+        // 2. LeftControl or Alt event when AltGr combination is held
+        if (event_key == RdevKey::ControlLeft || event_key == RdevKey::Alt) && is_altgr_combo {
+            println!("[ALTGR DEBUG] Match via LeftControl/Alt with AltGr combination");
+            return true;
+        }
+        println!("[ALTGR DEBUG] No AltGr match");
         return false;
     }
     
-    // Special case: If the main key is a modifier key (like AltGr) and no additional modifiers are required
-    let configured_key = string_to_rdev_key(&hotkey_settings.key).unwrap(); // Safe because we checked above
+    // Standard key matching
+    if event_key != configured_key {
+        return false;
+    }
+    
+    // Special case: If the main key is a modifier key and no additional modifiers are required
     if is_modifier_key(configured_key) && hotkey_settings.modifiers.is_empty() {
-        // The only held modifier should be the main key itself
+        // For modifier keys, the only held modifier should be the main key itself
         return held_modifiers.len() == 1 && held_modifiers.contains(&configured_key);
     }
     
@@ -340,6 +361,24 @@ fn is_modifier_key(key: RdevKey) -> bool {
         RdevKey::ShiftLeft | RdevKey::ShiftRight |
         RdevKey::MetaLeft | RdevKey::MetaRight
     )
+}
+
+/// Checks if the current held modifiers represent AltGr (Right Alt)
+/// rdev reports AltGr as LeftControl + RightAlt on many systems
+fn is_altgr_combination(held_modifiers: &[RdevKey]) -> bool {
+    // Method 1: True AltGr key detection
+    if held_modifiers.len() == 1 && held_modifiers.contains(&RdevKey::AltGr) {
+        return true;
+    }
+    
+    // Method 2: AltGr workaround - LeftControl + Alt (could be right alt)
+    if held_modifiers.len() == 2 && 
+       held_modifiers.contains(&RdevKey::ControlLeft) && 
+       held_modifiers.contains(&RdevKey::Alt) {
+        return true;
+    }
+    
+    false
 }
 
 #[derive(Default)]
@@ -1216,6 +1255,12 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
 
     match event.event_type {
         EventType::KeyPress(key) => {
+            // Debug logging for AltGr investigation
+            if matches!(key, RdevKey::AltGr | RdevKey::ControlLeft | RdevKey::Alt) {
+                let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
+                println!("[RDEV DEBUG] KeyPress: {:?}, Currently held: {:?}", key, held_modifiers);
+            }
+            
             // Update modifier tracking
             if is_modifier_key(key) {
                 let mut modifiers = HELD_MODIFIERS.lock().unwrap();
@@ -1264,6 +1309,12 @@ fn callback(event: Event, _app_handle: &AppHandle) { // app_handle not needed he
             }
         }
         EventType::KeyRelease(key) => {
+            // Debug logging for AltGr investigation
+            if matches!(key, RdevKey::AltGr | RdevKey::ControlLeft | RdevKey::Alt) {
+                let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
+                println!("[RDEV DEBUG] KeyRelease: {:?}, Currently held: {:?}", key, held_modifiers);
+            }
+            
             // Update modifier tracking
             if is_modifier_key(key) {
                 let mut modifiers = HELD_MODIFIERS.lock().unwrap();
