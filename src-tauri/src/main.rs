@@ -369,16 +369,23 @@ fn is_hotkey_match(key: &str, settings: &HotkeySettings, held_modifiers: &HashMa
     if is_modifier_key(key) && settings.modifiers.is_empty() {
         // Special case: AltGr might have ControlLeft held due to Windows behavior
         if key == "AltGr" {
-            // Allow ControlLeft to be held for AltGr
+            // On Windows, AltGr sends Ctrl+AltGr, so we need to allow Ctrl to be held
             for (held_key, _) in held_modifiers {
-                if held_key != "Ctrl" && held_key != "ControlLeft" {
+                if held_key != "Ctrl" && held_key != "ControlLeft" && held_key != key {
                     return false;
                 }
             }
             return true;
         }
-        // For other standalone modifiers, no other modifiers should be held
-        return held_modifiers.is_empty();
+        
+        // For other standalone modifiers, only the key itself should be in held_modifiers
+        // (this happens during release events)
+        for (held_key, _) in held_modifiers {
+            if held_key != key {
+                return false;
+            }
+        }
+        return true;
     }
     
     // For key combinations, check all required modifiers are held
@@ -422,34 +429,36 @@ fn rdev_callback(event: Event) {
                     altgr_state.expecting_altgr = true;
                 }
                 
-                // Update modifier state
-                if is_modifier_key(&key_name) {
-                    update_modifier_state(&key_name, true);
-                }
-                
-                // Send key press event
+                // Send key press event BEFORE updating modifier state
+                // This is critical for standalone modifier keys to work
                 let event = HotkeyEvent {
-                    key: key_name,
+                    key: key_name.clone(),
                     event_type: HotkeyEventType::KeyPress,
                     timestamp: Instant::now(),
                 };
                 let _ = HOTKEY_CHANNEL.0.send(event);
+                
+                // Update modifier state AFTER sending the event
+                if is_modifier_key(&key_name) {
+                    update_modifier_state(&key_name, true);
+                }
             }
         }
         EventType::KeyRelease(key) => {
             if let Some(key_name) = rdev_key_to_string(&key) {
-                // Update modifier state
-                if is_modifier_key(&key_name) {
-                    update_modifier_state(&key_name, false);
-                }
-                
-                // Send key release event
+                // Send key release event BEFORE updating modifier state
+                // This ensures proper detection for standalone modifiers
                 let event = HotkeyEvent {
-                    key: key_name,
+                    key: key_name.clone(),
                     event_type: HotkeyEventType::KeyRelease,
                     timestamp: Instant::now(),
                 };
                 let _ = HOTKEY_CHANNEL.0.send(event);
+                
+                // Update modifier state AFTER sending the event
+                if is_modifier_key(&key_name) {
+                    update_modifier_state(&key_name, false);
+                }
             }
         }
         _ => {} // Ignore other event types
@@ -514,32 +523,56 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
         return;
     }
     
+    // Special handling: ignore ControlLeft events when AltGr is the hotkey
+    // (Windows sends ControlLeft+AltGr for AltGr key)
+    if event.key == "Ctrl" && hotkey_settings.key == "AltGr" {
+        // Check if we're expecting an AltGr
+        let altgr_state = ALTGR_STATE.lock().unwrap();
+        if altgr_state.expecting_altgr {
+            println!("[RDEV 2.0] Ignoring ControlLeft - expecting AltGr");
+            return;
+        }
+    }
+    
+    // Apply debouncing to prevent double triggers
+    {
+        let mut state = HOTKEY_STATE.lock().unwrap();
+        let elapsed = state.last_event_time.elapsed().as_millis();
+        
+        // For the same key event type, enforce minimum time between events
+        if elapsed < HOTKEY_DEBOUNCE_MS {
+            return;
+        }
+        
+        // Check for rapid-fire (likely typing)
+        if elapsed < RAPID_FIRE_THRESHOLD_MS && !is_modifier_key(&event.key) {
+            return;
+        }
+        
+        state.last_event_time = event.timestamp;
+    }
+    
     // Get current modifiers for matching
     let held_modifiers = HELD_MODIFIERS.lock().unwrap().clone();
     
-    // Check for rapid-fire events (likely typing)
-    {
-        let mut state = HOTKEY_STATE.lock().unwrap();
-        if state.last_event_time.elapsed().as_millis() < RAPID_FIRE_THRESHOLD_MS {
-            // Too fast, likely typing
-            state.last_event_time = event.timestamp;
-            return;
+    // Check if this key event matches our hotkey
+    let is_match = is_hotkey_match(&event.key, &hotkey_settings, &held_modifiers);
+    
+    if !is_match {
+        // Debug log for non-matching events
+        if is_modifier_key(&event.key) || event.key == hotkey_settings.key {
+            println!("[RDEV 2.0] Key {} did not match hotkey. Settings key: {}, Held modifiers: {:?}", 
+                event.key, hotkey_settings.key, held_modifiers.keys().collect::<Vec<_>>());
         }
-        state.last_event_time = event.timestamp;
+        return;
     }
     
     match event.event_type {
         HotkeyEventType::KeyPress => {
-            // CRITICAL: For release events, check modifiers BEFORE updating tracking
-            if is_hotkey_match(&event.key, &hotkey_settings, &held_modifiers) {
-                handle_hotkey_press(app_handle, &hotkey_settings);
-            }
+            handle_hotkey_press(app_handle, &hotkey_settings);
         }
         HotkeyEventType::KeyRelease => {
-            // CRITICAL: Check modifiers BEFORE they're updated for proper AltGr handling
-            if is_hotkey_match(&event.key, &hotkey_settings, &held_modifiers) {
-                handle_hotkey_release(app_handle, &hotkey_settings);
-            }
+            handle_hotkey_release(app_handle, &hotkey_settings);
         }
     }
 }
@@ -586,7 +619,10 @@ fn handle_ui_click_event(event: HotkeyEvent, app_handle: &AppHandle) {
 
 /// Handle hotkey press event
 fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
-    println!("[RDEV 2.0] Hotkey pressed: {}", settings.key);
+    println!("[RDEV 2.0] Hotkey pressed: {} (mode: {})", 
+        settings.key, 
+        if settings.hold_to_record { "push-to-talk" } else { "toggle" }
+    );
     
     // Check authentication first
     let is_authenticated = {
@@ -616,23 +652,32 @@ fn handle_hotkey_press(app_handle: &AppHandle, settings: &HotkeySettings) {
         RECORDING_STATE.lock().unwrap().clone()
     };
     
+    println!("[RDEV 2.0] Current recording state: {:?}", current_recording_state);
+    
     match state.recording_mode {
         RecordingMode::PushToTalk => {
             // Start recording immediately for push-to-talk
             if current_recording_state == AppRecordingState::Idle {
+                println!("[RDEV 2.0] Starting push-to-talk recording");
                 drop(state); // Release lock before starting recording
                 start_recording(app_handle);
+            } else {
+                println!("[RDEV 2.0] Not starting push-to-talk - already in state: {:?}", current_recording_state);
             }
         }
         RecordingMode::Toggle => {
             // Toggle mode - will be handled on release
+            println!("[RDEV 2.0] Toggle mode - waiting for release");
         }
     }
 }
 
 /// Handle hotkey release event  
 fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
-    println!("[RDEV 2.0] Hotkey released: {}", settings.key);
+    println!("[RDEV 2.0] Hotkey released: {} (mode: {})", 
+        settings.key,
+        if settings.hold_to_record { "push-to-talk" } else { "toggle" }
+    );
     
     let mut state = HOTKEY_STATE.lock().unwrap();
     state.is_hotkey_held = false;
@@ -641,30 +686,46 @@ fn handle_hotkey_release(app_handle: &AppHandle, settings: &HotkeySettings) {
         .map(|t| t.elapsed().as_millis())
         .unwrap_or(0);
     
+    println!("[RDEV 2.0] Press duration: {}ms", press_duration);
+    
     // Get current recording state
     let current_recording_state = {
         RECORDING_STATE.lock().unwrap().clone()
     };
     
+    println!("[RDEV 2.0] Current recording state: {:?}", current_recording_state);
+    
     match state.recording_mode {
         RecordingMode::PushToTalk => {
             // Stop recording when key is released
             if current_recording_state == AppRecordingState::Recording {
+                println!("[RDEV 2.0] Stopping push-to-talk recording");
                 drop(state); // Release lock before stopping recording
                 stop_recording(app_handle);
+            } else {
+                println!("[RDEV 2.0] Not stopping push-to-talk - not in Recording state: {:?}", current_recording_state);
             }
         }
         RecordingMode::Toggle => {
             // Only process if it was a tap (not a hold)
             if press_duration < TAP_MAX_DURATION_MS {
+                println!("[RDEV 2.0] Toggle tap detected ({}ms < {}ms)", press_duration, TAP_MAX_DURATION_MS);
                 drop(state); // Release lock before toggling
                 match current_recording_state {
-                    AppRecordingState::Idle => start_recording(app_handle),
-                    AppRecordingState::Recording => stop_recording(app_handle),
+                    AppRecordingState::Idle => {
+                        println!("[RDEV 2.0] Toggle: Starting recording");
+                        start_recording(app_handle);
+                    }
+                    AppRecordingState::Recording => {
+                        println!("[RDEV 2.0] Toggle: Stopping recording");
+                        stop_recording(app_handle);
+                    }
                     _ => {
                         println!("[RDEV 2.0] Ignoring toggle in state: {:?}", current_recording_state);
                     }
                 }
+            } else {
+                println!("[RDEV 2.0] Toggle hold detected ({}ms >= {}ms) - ignoring", press_duration, TAP_MAX_DURATION_MS);
             }
         }
     }
