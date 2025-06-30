@@ -716,7 +716,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                                 {/* Model Selection */}
                                 <div className="space-y-2">
-                                    <Label className="text-gray-300">Whisper Model</Label>
+                                    <Label className="text-gray-300">Choose Your Transcription Model</Label>
                                     {settings ? (
                                         <WhisperModelSelector
                                             value={settings.model_name}

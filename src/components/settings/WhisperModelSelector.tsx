@@ -11,7 +11,6 @@ interface ModelInfo {
   stats: {
     accuracy: string;
     speed: string;
-    size: string;
   };
   imagePath: string;
   recommended?: boolean;
@@ -25,13 +24,12 @@ const models: ModelInfo[] = [
     description: 'Lightning-fast transcription for everyday use',
     benefits: [
       'Perfect for daily conversations',
-      'Minimal resource usage',
-      'Near-instant results'
+      'Optimized for real-time processing',
+      'Best for short to medium recordings'
     ],
     stats: {
-      accuracy: '95%',
-      speed: 'Lightning Fast',
-      size: '~39MB'
+      accuracy: 'Good',
+      speed: 'Lightning Fast'
     },
     imagePath: '/assets/ai-model-images/fethr_swift.png',
     recommended: true
@@ -47,9 +45,8 @@ const models: ModelInfo[] = [
       'Ideal for professional documents'
     ],
     stats: {
-      accuracy: '98%',
-      speed: 'Fast',
-      size: '~142MB'
+      accuracy: 'Excellent',
+      speed: 'Fast'
     },
     imagePath: '/assets/ai-model-images/fethr_glide.png'
   }
@@ -71,7 +68,8 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Add padding to prevent hover cutoff */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-2">
         {models.map((model) => {
           const isSelected = selectedModel.fileName === model.fileName;
           
@@ -115,13 +113,13 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
                 )}
                 
                 {/* Hero Image */}
-                <div className="relative h-32 bg-gradient-to-br from-[#0b0719] to-[#1a0f2e] overflow-hidden">
+                <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#0b0719] to-[#1a0f2e]">
                   <img 
                     src={model.imagePath} 
                     alt={model.displayName}
-                    className="absolute inset-0 w-full h-full object-contain p-4"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 </div>
                 
                 {/* Content */}
@@ -144,7 +142,7 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
                   </ul>
                   
                   {/* Stats */}
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-neutral-800">
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-neutral-800">
                     <div className="text-center">
                       <p className="text-xs text-gray-500">Accuracy</p>
                       <p className="text-sm font-semibold text-white">{model.stats.accuracy}</p>
@@ -152,10 +150,6 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
                     <div className="text-center">
                       <p className="text-xs text-gray-500">Speed</p>
                       <p className="text-sm font-semibold text-white">{model.stats.speed}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-gray-500">Size</p>
-                      <p className="text-sm font-semibold text-white">{model.stats.size}</p>
                     </div>
                   </div>
                 </div>
