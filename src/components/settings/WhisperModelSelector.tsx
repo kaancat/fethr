@@ -83,7 +83,7 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
             >
               {model.recommended && (
                 <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 z-10">
-                  <span className="px-3 py-1 bg-gradient-to-r from-[#8A2BE2] to-[#DA70D6] text-white text-xs font-semibold rounded-full shadow-lg">
+                  <span className="px-3 py-1 bg-gradient-to-r from-[#87CEFA] to-[#8A2BE2] text-white text-xs font-semibold rounded-full shadow-lg">
                     RECOMMENDED
                   </span>
                 </div>
@@ -95,19 +95,19 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
                 className={`
                   relative w-full text-left rounded-lg border-2 transition-all overflow-hidden
                   ${isSelected 
-                    ? 'border-[#8A2BE2] bg-[#8A2BE2]/10' 
+                    ? 'border-[#87CEFA] bg-[#87CEFA]/10' 
                     : 'border-neutral-800 bg-neutral-900/50 hover:border-neutral-700'
                   }
                   ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   ${model.recommended ? 'shadow-lg shadow-[#8A2BE2]/20' : ''}
                 `}
                 whileHover={disabled ? {} : {
-                  boxShadow: '0 10px 30px -10px rgba(138, 43, 226, 0.3)'
+                  boxShadow: '0 10px 30px -10px rgba(135, 206, 250, 0.3)'
                 }}
               >
                 {/* Selection indicator */}
                 {isSelected && (
-                  <div className="absolute top-3 right-3 w-6 h-6 bg-[#8A2BE2] rounded-full flex items-center justify-center">
+                  <div className="absolute top-3 right-3 w-6 h-6 bg-[#87CEFA] rounded-full flex items-center justify-center">
                     <Check className="w-4 h-4 text-white" />
                   </div>
                 )}
@@ -135,7 +135,7 @@ const WhisperModelSelector: React.FC<WhisperModelSelectorProps> = ({
                   <ul className="space-y-2 mb-4">
                     {model.benefits.map((benefit, idx) => (
                       <li key={idx} className="flex items-start gap-2 text-sm">
-                        <div className="w-1 h-1 bg-[#8A2BE2] rounded-full mt-1.5 flex-shrink-0" />
+                        <div className="w-1 h-1 bg-[#87CEFA] rounded-full mt-1.5 flex-shrink-0" />
                         <span className="text-gray-300">{benefit}</span>
                       </li>
                     ))}
