@@ -292,6 +292,16 @@ pub async fn stop_backend_recording(
              }
         }
     } // Lifecycle lock released
+    
+    // CRITICAL: Emit transcribing state IMMEDIATELY for instant UI feedback
+    println!("[RUST AUDIO STOP] Emitting transcribing state for instant UI feedback");
+    let transcribing_payload = StateUpdatePayload {
+        state: FrontendRecordingState::Transcribing,
+        duration_ms: 0,
+        transcription_result: None,
+        error_message: None,
+    };
+    let _ = app_handle.emit_all("fethr-update-ui-state", transcribing_payload);
 
     // --- Signal thread using BOTH channel and atomic flag ---
     println!("[RUST AUDIO STOP] Setting session active flag FALSE.");
