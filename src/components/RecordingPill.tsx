@@ -121,6 +121,11 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const [isDraggable, setIsDraggable] = useState(true); // Default to true
     const pillRef = useRef<HTMLDivElement>(null);
     
+    // Debug: Log when currentState changes
+    useEffect(() => {
+        console.log(`[RecordingPill] currentState prop changed to: ${RecordingState[currentState]}`);
+    }, [currentState]);
+    
     // Listen for draggable changes from backend
     useEffect(() => {
         const setupDraggableListener = async () => {
