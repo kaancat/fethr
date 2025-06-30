@@ -194,20 +194,22 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         
         if (currentPillState === RecordingState.IDLE) {
             console.log('[RecordingPill] --> Emitting fethr-start-recording');
-            setIsProcessingClick(true);
+            // Emit IMMEDIATELY for instant feedback
             emit('fethr-start-recording', {}).catch(err => console.error("Error emitting fethr-start-recording:", err));
             
-            // Clear processing flag after a short delay
+            // Set flag AFTER emitting to prevent subsequent clicks
+            setIsProcessingClick(true);
             if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 200);
+            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 400);
         } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
             console.log('[RecordingPill] --> Emitting fethr-stop-and-transcribe');
-            setIsProcessingClick(true);
+            // Emit IMMEDIATELY for instant feedback
             emit('fethr-stop-and-transcribe', true).catch(err => console.error("Error emitting fethr-stop-and-transcribe:", err));
             
-            // Clear processing flag after a short delay for stop action
+            // Set flag AFTER emitting to prevent subsequent clicks
+            setIsProcessingClick(true);
             if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 300);
+            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 600);
         } else {
             console.log(`[RecordingPill] --> No action for state: ${RecordingState[currentPillState]}`);
         }
