@@ -59,7 +59,7 @@ function PillPage() {
     }, [currentState]);
 
     // 🎯 DYNAMIC WINDOW RESIZING: Pre-resize window before state changes to prevent jumping
-    const resizeWindowForState = async (state: RecordingState) => {
+    const resizeWindowForState = (state: RecordingState) => {
         let width: number, height: number;
         const PADDING = 24; // 12px padding on each side
         
@@ -98,12 +98,12 @@ function PillPage() {
         try {
             // Resize logging removed for performance
             setIsResizing(true);
-            await invoke('resize_pill_window', { width, height });
-            await new Promise(resolve => setTimeout(resolve, 100)); // Wait for resize to complete
+            invoke('resize_pill_window', { width, height }).catch(e => 
+                console.error(`Failed to resize window for state ${RecordingState[state]}:`, e)
+            );
+            setIsResizing(false);
         } catch (e) {
             console.error(`Failed to resize window for state ${RecordingState[state]}:`, e);
-        } finally {
-            setIsResizing(false);
         }
     };
 
@@ -408,8 +408,8 @@ function PillPage() {
                     console.log("[PillPage] Edit sequence starting - ensuring backend hotkey state is clean for immediate hotkey functionality.");
                     invoke('signal_reset_complete').catch(err => console.error("[PillPage] Failed to signal reset at edit sequence start:", err));
                     
-                    // Pre-resize for SUCCESS state to prevent jumping
-                    await resizeWindowForState(RecordingState.SUCCESS);
+                    // Resize for SUCCESS state (async, non-blocking)
+                    resizeWindowForState(RecordingState.SUCCESS);
                     setCurrentState(RecordingState.SUCCESS);
                     console.log(`[PillPage STATE] Set to SUCCESS, isEditActive: ${isEditSequenceActiveRef.current}`);
 
@@ -419,8 +419,8 @@ function PillPage() {
                             console.log("[PillPage] Edit sequence cancelled before success timeout fired.");
                             return;
                         }
-                        // Pre-resize for IDLE_EDIT_READY state to prevent jumping
-                        await resizeWindowForState(RecordingState.IDLE_EDIT_READY);
+                        // Resize for IDLE_EDIT_READY state (async, non-blocking)
+                        resizeWindowForState(RecordingState.IDLE_EDIT_READY);
                         setCurrentState(RecordingState.IDLE_EDIT_READY);
                         console.log(`[PillPage STATE] Set to IDLE_EDIT_READY, isEditActive: ${isEditSequenceActiveRef.current}`);
                         successTimeoutRef.current = null;
@@ -474,8 +474,8 @@ function PillPage() {
                             return;
                         } else {
                             console.log(`[PillPage STATE] Backend pushed IDLE. Edit sequence not active. Setting to clean IDLE.`);
-                            // Pre-resize before state change
-                            await resizeWindowForState(RecordingState.IDLE);
+                            // Resize for IDLE state (async, non-blocking)
+                            resizeWindowForState(RecordingState.IDLE);
                             console.log('[PillPage] --> Actually calling setCurrentState(IDLE)');
                             setCurrentState(RecordingState.IDLE);
                             setLastTranscriptionText(null);
@@ -489,8 +489,8 @@ function PillPage() {
                             endEditSequence(); // Gracefully end the edit sequence
                         }
                         console.log(`[PillPage STATE] Setting state to: ${RecordingState[newTsState]} from backend update`);
-                        // Pre-resize before state change
-                        await resizeWindowForState(newTsState);
+                        // Resize for new state (async, non-blocking)
+                        resizeWindowForState(newTsState);
                         console.log(`[PillPage] --> Actually calling setCurrentState(${RecordingState[newTsState]})`);
                         setCurrentState(newTsState);
                         // Clear relevant state based on new state

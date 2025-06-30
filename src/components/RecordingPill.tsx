@@ -101,9 +101,9 @@ const pillContainerVariants = {
 // Animation variants for the inner content; controls fade/scale transitions when the pill switches content blocks.
 // Why: Keeps content transitions smooth and visually consistent between states.
 const contentAnimationVariants = {
-    initial: { opacity: 0, scale: 0.9 },
-    animate: { opacity: 1, scale: 1, transition: { duration: 0.2, ease: "circOut" } },
-    exit: { opacity: 0, scale: 0.9, transition: { duration: 0.1, ease: "circIn" } }
+    initial: { opacity: 0, scale: 0.95 },
+    animate: { opacity: 1, scale: 1, transition: { duration: 0.05, ease: "easeOut" } },
+    exit: { opacity: 0, scale: 0.95, transition: { duration: 0.05, ease: "easeIn" } }
 };
 
 const featherIconPath = "/feather-logo.png";
@@ -384,9 +384,9 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
             // Animation logging removed for performance
             transition={{ 
                 type: "tween", 
-                duration: 0.3, 
-                ease: "easeInOut",
-                delay: isResizing ? 0.2 : 0  // Add delay when resizing
+                duration: 0.1, // Much faster animation for instant feel
+                ease: "easeOut",
+                delay: 0  // No delay ever
             }}
             className={`${basePillClasses} ${stateClasses}`}
             title={backendError ? String(backendError) : (targetVariant === 'edit_pending' ? "Edit Transcription" : "Fethr")}
