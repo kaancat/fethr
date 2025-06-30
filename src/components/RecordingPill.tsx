@@ -79,8 +79,8 @@ const pillContainerVariants = {
   },
   processing: { 
     width: "36px", height: "36px", padding: "6px", borderRadius: "18px",
-    backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(139, 158, 255, 0.4)", 
-    border: "1px solid rgba(139, 158, 255, 0.5)", opacity: 1,
+    backgroundColor: "rgba(2, 4, 9, 1)", boxShadow: "0 0 10px rgba(138, 43, 226, 0.4)", 
+    border: "1px solid rgba(138, 43, 226, 0.5)", opacity: 1,
     x: 0,
     y: 0
   },
@@ -177,7 +177,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     if ([ 'ready', 'recording', 'error', 'processing'].includes(targetVariant) ) {
         stateClasses += " text-xs font-mono";
     }
-    if (targetVariant === 'processing') stateClasses += " text-indigo-300";
+    if (targetVariant === 'processing') stateClasses += " text-purple-300";
     if (targetVariant === 'idle' && !isHovered) stateClasses += " hover:shadow-[0_0_12px_rgba(138,43,226,0.5)]";
     else if (targetVariant === 'edit_pending') stateClasses += " hover:shadow-[0_0_10px_#22C55E99]";
             
@@ -291,9 +291,9 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                         className={`${iconClass} filter drop-shadow-[0_0_4px_#87CEFA]`} 
                     />
                     <div className="flex-grow h-[55%] min-w-[35px]">
-                        <LiveWaveform barColor="#87CEFA" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
+                        <LiveWaveform barColor="#8A2BE2" idleHeight={10} barWidth={3.5} gap={2} isRecording={true} />
                     </div>
-                    <span className={`text-[#87CEFA] tabular-nums`}> 
+                    <span className={`text-[#8A2BE2] tabular-nums`}> 
                         0s
                     </span>
                 </motion.div>
@@ -334,7 +334,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
                     exit="exit"
                     className="flex items-center justify-center w-full h-full"
                 >
-                    <Loader2 className="w-5 h-5 animate-spin text-indigo-300 flex-shrink-0" />
+                    <Loader2 className="w-5 h-5 animate-spin text-purple-300 flex-shrink-0" />
                 </motion.div>
             );
             break;
