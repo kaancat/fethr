@@ -201,6 +201,12 @@ function PillPage() {
         
         resultPromise
             .then(resultText => {
+                // Handle backend returning empty string for duplicate stop requests
+                if (resultText === '') {
+                    console.log("[PillPage] Backend returned empty string - likely duplicate stop request, ignoring");
+                    return;
+                }
+                
                 if (!resultText || resultText.trim() === '') {
                     console.warn("[PillPage] Empty transcription result");
                     setError('Transcription empty');
@@ -222,8 +228,15 @@ function PillPage() {
                 }
             })
             .catch(errorObj => {
-                console.error("[PillPage] Transcription error:", errorObj);
                 const errorString = errorObj instanceof Error ? errorObj.message : String(errorObj);
+                
+                // Ignore "already idle" errors from duplicate stop requests
+                if (errorString.includes("Not currently recording") || errorString.includes("Already stopping")) {
+                    console.log("[PillPage] Ignoring expected error from duplicate stop request:", errorString);
+                    return;
+                }
+                
+                console.error("[PillPage] Transcription error:", errorObj);
                 // End any active edit sequence on error
                 if (isEditSequenceActiveRef.current) {
                     console.log("[PillPage] Ending edit sequence due to transcription error");

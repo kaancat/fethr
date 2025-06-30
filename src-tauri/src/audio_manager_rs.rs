@@ -256,6 +256,19 @@ pub async fn stop_backend_recording(
     info!("[RUST AUDIO STOP] Received stop command. Payload: {:?}", args);
     info!("[RUST AUDIO STOP] User ID: {:?}, Access Token present: {}", args.user_id, args.access_token.is_some());
 
+    // Early check to prevent processing if already idle
+    {
+        let lifecycle_guard = RECORDING_LIFECYCLE.lock().unwrap();
+        if matches!(*lifecycle_guard, RecordingLifecycle::Idle) {
+            println!("[RUST AUDIO STOP] Ignoring stop request - already idle");
+            return Ok("".to_string()); // Return empty string for already stopped state
+        }
+        if matches!(*lifecycle_guard, RecordingLifecycle::Stopping) {
+            println!("[RUST AUDIO STOP] Ignoring stop request - already stopping");
+            return Ok("".to_string()); // Return empty string for already stopping state
+        }
+    }
+
     // Get auto_paste setting from config if needed
     let effective_auto_paste = {
         if !args.auto_paste {
