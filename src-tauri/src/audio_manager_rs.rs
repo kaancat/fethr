@@ -26,6 +26,7 @@ use crate::config::SETTINGS; // Import the config settings
 
 // --- ADD THESE IMPORTS ---
 use crate::{write_to_clipboard_internal, paste_text_to_cursor}; // Import from main.rs
+use crate::{StateUpdatePayload, FrontendRecordingState}; // Import state types from main.rs
 // --- END IMPORTS ---
 
 #[derive(Deserialize, Debug)]
@@ -230,6 +231,17 @@ pub async fn start_backend_recording(
 
     println!("[RUST AUDIO] Backend recording started successfully.");
     let _ = app_handle.emit_all("recording_status_changed", "started");
+    
+    // Emit UI state update to ensure frontend updates properly
+    let state_payload = StateUpdatePayload {
+        state: FrontendRecordingState::Recording,
+        duration_ms: 0,
+        transcription_result: None,
+        error_message: None,
+    };
+    println!("[RUST AUDIO] Emitting fethr-update-ui-state with Recording state");
+    let _ = app_handle.emit_all("fethr-update-ui-state", state_payload);
+    
     Ok(())
 }
 
