@@ -126,8 +126,6 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         console.log(`[RecordingPill] currentState prop changed to: ${RecordingState[currentState]} (${currentState})`);
     }, [currentState]);
     
-    // Debug: Log on every render
-    console.log(`[RecordingPill] RENDER - currentState: ${RecordingState[currentState]}, targetVariant: ${targetVariant || 'calculating...'}, isHovered: ${isHovered}`);
     
     // Listen for draggable changes from backend
     useEffect(() => {
@@ -163,6 +161,9 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     else if (isProcessingState || isSuccessState) targetVariant = 'processing'; // CRITICAL FIX: SUCCESS shows processing spinner
     else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
+    
+    // Debug: Log on every render
+    console.log(`[RecordingPill] RENDER - currentState: ${RecordingState[currentState]}, targetVariant: ${targetVariant}, isHovered: ${isHovered}`);
 
     // State transition logging removed for performance
     
