@@ -1,20 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/api/shell';
-import type { AppSettings, HistoryEntry } from '../types';
+import type { AppSettings } from '../types';
 import { PillPosition } from '../types';
 import { useToast } from "@/hooks/use-toast";
-import { format } from 'date-fns';
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Crown, RefreshCw, Copy } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
@@ -23,6 +21,7 @@ import SettingsSection from '../components/SettingsSection';
 import PillPositionSelector from '../components/settings/PillPositionSelector';
 import AudioDeviceSelector from '../components/settings/AudioDeviceSelector';
 import MicrophoneTester from '../components/settings/MicrophoneTester';
+import WhisperModelSelector from '../components/settings/WhisperModelSelector';
 
 // Language options for the dropdown
 const languageOptions = [
@@ -64,7 +63,6 @@ interface UserProfile {
 function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     const { toast } = useToast();
     const [settings, setSettings] = useState<AppSettings | null>(null);
-    const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isSaving, setIsSaving] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
@@ -113,23 +111,18 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             try {
                 setIsLoading(true);
                 setError(null);
-                console.log("Fetching application settings and available models...");
+                console.log("Fetching application settings...");
 
-                // Fetch settings and models in parallel
-                const [settingsResult, modelsResult] = await Promise.all([
-                    invoke<AppSettings>('get_settings'),
-                    invoke<string[]>('get_available_models')
-                ]);
+                // Fetch settings
+                const settingsResult = await invoke<AppSettings>('get_settings');
 
                 console.log("Fetched settings:", settingsResult);
-                console.log("Fetched available models:", modelsResult);
                 
                 if (!settingsResult) {
                     throw new Error("Received empty settings from backend");
                 }
 
                 setSettings(settingsResult);
-                setAvailableModels(modelsResult);
                 
                 // Set selected audio device from settings
                 setSelectedAudioDevice(settingsResult.audio?.selected_input_device || null);
@@ -143,8 +136,6 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     description: errorMsg.substring(0, 100) + (errorMsg.length > 100 ? '...' : ''),
                 });
                 
-                // Set default empty models array if fetch failed
-                setAvailableModels([]);
             } finally {
                 setIsLoading(false);
             }
@@ -641,8 +632,12 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                     {/* Account Tab Content */}
                     <ScrollArea className="mt-6 flex-1">
                         <div className="max-w-2xl">
-                            <SettingsSection title="Authentication" description="Sign in to unlock all features">
-                                <LoginForm />
+                            <SettingsSection>
+                                <div>
+                                    <h3 className="text-sm font-medium text-gray-300 mb-2">Authentication</h3>
+                                    <p className="text-xs text-gray-400 mb-4">Sign in to unlock all features</p>
+                                    <LoginForm />
+                                </div>
                             </SettingsSection>
                         </div>
                     </ScrollArea>
@@ -721,28 +716,13 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
 
                                 {/* Model Selection */}
                                 <div className="space-y-2">
-                                    <Label htmlFor="model-select" className="text-gray-300">Whisper Model</Label>
+                                    <Label className="text-gray-300">Whisper Model</Label>
                                     {settings ? (
-                                        <Select
+                                        <WhisperModelSelector
                                             value={settings.model_name}
-                                            onValueChange={(value: string) => handleSettingChange('model_name', value)}
+                                            onChange={(value: string) => handleSettingChange('model_name', value)}
                                             disabled={isLoading || isSaving}
-                                        >
-                                            <SelectTrigger 
-                                                id="model-select" 
-                                                className="w-full bg-[#0b0719] border border-[#8A2BE2]/30 text-white ring-offset-[#020409] focus:ring-2 focus:ring-[#8A2BE2]/50 focus:ring-offset-2"
-                                            >
-                                                <SelectValue placeholder="Select a model" />
-                                            </SelectTrigger>
-                                            <SelectContent className="bg-[#0b0719] border-[#8A2BE2]/30 text-white">
-                                                {availableModels.map(model => (
-                                                    <SelectItem key={model} value={model} className="focus:bg-[#8A2BE2]/20 text-white">
-                                                        {model}
-                                                    </SelectItem>
-                                                ))}
-                                                {availableModels.length === 0 && <SelectItem value="" disabled className="text-gray-400">No models found</SelectItem>}
-                                            </SelectContent>
-                                        </Select>
+                                        />
                                     ) : <p className="text-gray-400">Loading models...</p>}
                                 </div>
 
