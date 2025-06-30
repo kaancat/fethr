@@ -715,7 +715,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                 {error && <p className="text-sm text-[#FF4D6D] bg-[#FF4D6D]/10 p-2 rounded border border-[#FF4D6D]/30">{error}</p>}
 
                                 {/* Model Selection */}
-                                <div className="space-y-4">
+                                <div className="space-y-6">
                                     <Label className="text-gray-300">Choose Your Transcription Model</Label>
                                     {settings ? (
                                         <WhisperModelSelector
