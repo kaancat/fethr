@@ -178,6 +178,26 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
         console.log(`Updating setting: ${key} = ${value}`);
         setSettings(prev => prev ? { ...prev, [key]: value } : null);
         
+        // Apply model change immediately and save
+        if (key === 'model_name') {
+            try {
+                const updatedSettings = { ...settings!, [key]: value };
+                await invoke('save_settings', { settings: updatedSettings });
+                console.log(`Model changed to: ${value}`);
+                toast({
+                    title: "Model Updated",
+                    description: `Switched to ${value.includes('tiny') ? 'Fethr Swift' : 'Fethr Glide'}`,
+                });
+            } catch (err) {
+                console.error('Failed to save model change:', err);
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Failed to change model",
+                });
+            }
+        }
+        
         // Apply pill visibility immediately
         if (key === 'pill_enabled') {
             try {

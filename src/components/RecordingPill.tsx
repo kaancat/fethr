@@ -39,7 +39,7 @@ const pillContainerVariants = {
     padding: "4px",
     borderRadius: "50%", 
     backgroundColor: "rgba(10, 15, 26, 0.0)", 
-    boxShadow: "0 0 5px rgba(166, 246, 255, 0.2)", 
+    boxShadow: "0 0 8px rgba(138, 43, 226, 0.3)", 
     border: "1px solid transparent", 
     opacity: 1,
     x: 0,
@@ -62,6 +62,8 @@ const pillContainerVariants = {
     padding: "4px 8px", 
     borderRadius: "16px", 
     backgroundColor: "rgba(10, 15, 26, 0.9)", 
+    boxShadow: "0 0 10px rgba(138, 43, 226, 0.4)",
+    border: "1px solid rgba(138, 43, 226, 0.3)",
     opacity: 1,
     x: 0,
     y: 0
@@ -176,7 +178,7 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         stateClasses += " text-xs font-mono";
     }
     if (targetVariant === 'processing') stateClasses += " text-indigo-300";
-    if (targetVariant === 'idle' && !isHovered) stateClasses += " hover:shadow-[0_0_10px_#A6F6FF66]";
+    if (targetVariant === 'idle' && !isHovered) stateClasses += " hover:shadow-[0_0_12px_rgba(138,43,226,0.5)]";
     else if (targetVariant === 'edit_pending') stateClasses += " hover:shadow-[0_0_10px_#22C55E99]";
             
     let pillContent: React.ReactNode = null;
