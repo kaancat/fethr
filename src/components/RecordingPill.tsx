@@ -5,7 +5,7 @@ import { RecordingState } from '../types';
 import LiveWaveform from './LiveWaveform'; // Import the new LiveWaveform component
 import { invoke } from '@tauri-apps/api/tauri';
 import { appWindow } from '@tauri-apps/api/window'; // <-- Import appWindow
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 
 /**
  * RecordingPill is a floating UI component that shows recording status and hotkey info
@@ -167,9 +167,9 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const handleContentAreaClick = (currentPillState: RecordingState) => {
         console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]}`);
         if (currentPillState === RecordingState.IDLE) {
-            invoke('trigger_press_event').catch(err => console.error("Error invoking trigger_press_event:", err));
+            emit('fethr-start-recording', {}).catch(err => console.error("Error emitting fethr-start-recording:", err));
         } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
-            invoke('trigger_release_event').catch(err => console.error("Error invoking trigger_release_event:", err));
+            emit('fethr-stop-recording', {}).catch(err => console.error("Error emitting fethr-stop-recording:", err));
         }
     };
 
