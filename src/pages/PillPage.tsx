@@ -54,6 +54,7 @@ function PillPage() {
 
     // Effect to keep currentStateRef updated
     useEffect(() => {
+        console.log(`[PillPage] State changed to: ${RecordingState[currentState]} (${currentState})`);
         currentStateRef.current = currentState;
     }, [currentState]);
 
@@ -456,6 +457,7 @@ function PillPage() {
                             console.log(`[PillPage STATE] Backend pushed IDLE. Edit sequence not active. Setting to clean IDLE.`);
                             // Pre-resize before state change
                             await resizeWindowForState(RecordingState.IDLE);
+                            console.log('[PillPage] --> Actually calling setCurrentState(IDLE)');
                             setCurrentState(RecordingState.IDLE);
                             setLastTranscriptionText(null);
                             setErrorMessage(null);
@@ -470,6 +472,7 @@ function PillPage() {
                         console.log(`[PillPage STATE] Setting state to: ${RecordingState[newTsState]} from backend update`);
                         // Pre-resize before state change
                         await resizeWindowForState(newTsState);
+                        console.log(`[PillPage] --> Actually calling setCurrentState(${RecordingState[newTsState]})`);
                         setCurrentState(newTsState);
                         // Clear relevant state based on new state
                         if (newTsState === RecordingState.ERROR) {
@@ -632,6 +635,9 @@ function PillPage() {
 
     // Removed debug logging to prevent dimension tooltips
 
+    // Debug: Log current state on render
+    console.log(`[PillPage] RENDER - currentState: ${RecordingState[currentState]} (${currentState})`);
+    
     return (
         <div 
             id="pill-container-restored" 

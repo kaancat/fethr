@@ -123,8 +123,11 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     
     // Debug: Log when currentState changes
     useEffect(() => {
-        console.log(`[RecordingPill] currentState prop changed to: ${RecordingState[currentState]}`);
+        console.log(`[RecordingPill] currentState prop changed to: ${RecordingState[currentState]} (${currentState})`);
     }, [currentState]);
+    
+    // Debug: Log on every render
+    console.log(`[RecordingPill] RENDER - currentState: ${RecordingState[currentState]}, targetVariant: ${targetVariant || 'calculating...'}, isHovered: ${isHovered}`);
     
     // Listen for draggable changes from backend
     useEffect(() => {
@@ -170,11 +173,16 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     // Handle clicks on the pill depending on the current recording state
     // Why: Centralizes the logic for starting/stopping recording via pill interaction.
     const handleContentAreaClick = (currentPillState: RecordingState) => {
-        console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]}`);
+        console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]} (${currentPillState})`);
+        console.log(`[RecordingPill] At click time - currentState prop: ${RecordingState[currentState]}, targetVariant: ${targetVariant}`);
         if (currentPillState === RecordingState.IDLE) {
+            console.log('[RecordingPill] --> Emitting fethr-start-recording');
             emit('fethr-start-recording', {}).catch(err => console.error("Error emitting fethr-start-recording:", err));
         } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
+            console.log('[RecordingPill] --> Emitting fethr-stop-recording');
             emit('fethr-stop-recording', {}).catch(err => console.error("Error emitting fethr-stop-recording:", err));
+        } else {
+            console.log(`[RecordingPill] --> No action for state: ${RecordingState[currentPillState]}`);
         }
     };
 
