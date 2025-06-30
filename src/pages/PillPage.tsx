@@ -583,7 +583,7 @@ function PillPage() {
                 });
                 unlisteners.push(unlistenStart);
 
-                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", async (event) => { 
+                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", (event) => { 
                     if (!isMounted) return; 
                     console.log("PillPage: Received fethr-stop-and-transcribe.");
                     
@@ -596,26 +596,14 @@ function PillPage() {
                         console.log("[PillPage] Stop transcribe received during edit sequence. Ending edit sequence first.");
                         endEditSequence();
                     }
-                    let userId = null;
-                    let accessToken = null;
-                    try {
-                        const { data: sessionData } = await supabase.auth.getSession();
-                        if (sessionData && sessionData.session) {
-                            userId = sessionData.session.user.id;
-                            accessToken = sessionData.session.access_token;
-                            console.log('[PillPage] Got user credentials:', { userId, hasAccessToken: !!accessToken });
-                        } else {
-                            console.log('[PillPage] No session found');
-                        }
-                    } catch (e) { 
-                        console.error('[PillPage] Exception during supabase.auth.getSession():', e); 
-                    }
+                    
+                    // IMMEDIATELY call stop without waiting for auth
                     try {
                         const stopPromise = invoke<string>('stop_backend_recording', { 
                             args: { 
                                 auto_paste: event.payload, 
-                                user_id: userId, 
-                                access_token: accessToken 
+                                user_id: userId, // Use existing userId from component state
+                                access_token: null // Will be fetched in backend if needed
                             }
                         });
                         handleTranscriptionResult(stopPromise); 

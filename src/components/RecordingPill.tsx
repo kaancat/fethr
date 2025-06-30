@@ -110,8 +110,6 @@ const featherIconPath = "/feather-logo.png";
 const editIconPath = "/Icons/edit icon.png";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
-    const [isProcessingClick, setIsProcessingClick] = useState(false);
-    const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
@@ -122,13 +120,6 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const [isHovered, setIsHovered] = useState(false);
     const [isDraggable, setIsDraggable] = useState(true); // Default to true
     const pillRef = useRef<HTMLDivElement>(null);
-    
-    // Cleanup timeout on unmount
-    useEffect(() => {
-        return () => {
-            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-        };
-    }, []);
     
     // Debug: Log when currentState changes
     useEffect(() => {
@@ -186,30 +177,12 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
         console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]} (${currentPillState})`);
         console.log(`[RecordingPill] At click time - currentState prop: ${RecordingState[currentState]}, targetVariant: ${targetVariant}`);
         
-        // Debounce rapid clicks
-        if (isProcessingClick) {
-            console.log('[RecordingPill] Ignoring click - still processing previous action');
-            return;
-        }
-        
         if (currentPillState === RecordingState.IDLE) {
             console.log('[RecordingPill] --> Emitting fethr-start-recording');
-            // Emit IMMEDIATELY for instant feedback
             emit('fethr-start-recording', {}).catch(err => console.error("Error emitting fethr-start-recording:", err));
-            
-            // Set flag AFTER emitting to prevent subsequent clicks
-            setIsProcessingClick(true);
-            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 400);
         } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
             console.log('[RecordingPill] --> Emitting fethr-stop-and-transcribe');
-            // Emit IMMEDIATELY for instant feedback
             emit('fethr-stop-and-transcribe', true).catch(err => console.error("Error emitting fethr-stop-and-transcribe:", err));
-            
-            // Set flag AFTER emitting to prevent subsequent clicks
-            setIsProcessingClick(true);
-            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
-            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 600);
         } else {
             console.log(`[RecordingPill] --> No action for state: ${RecordingState[currentPillState]}`);
         }
