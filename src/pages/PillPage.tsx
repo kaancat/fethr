@@ -132,6 +132,7 @@ function PillPage() {
         setCurrentState(RecordingState.IDLE);
         setLastTranscriptionText(null);
         setError(null); // FIXED: Clear error state too
+        setErrorMessage(null); // Clear backend error too
         setShowUpgradePrompt(false);
     }, [clearEditSequenceTimeouts]);
 
@@ -384,6 +385,11 @@ function PillPage() {
                     }
                     
                     isEditSequenceActiveRef.current = true; // Claim the sequence
+                    
+                    // Clear any error states when starting edit sequence
+                    setError(null);
+                    setErrorMessage(null);
+                    setShowUpgradePrompt(false);
                     
                     // CRITICAL FIX: Immediately signal backend reset to ensure hotkeys work during edit mode
                     console.log("[PillPage] Edit sequence starting - ensuring backend hotkey state is clean for immediate hotkey functionality.");

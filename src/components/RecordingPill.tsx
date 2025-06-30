@@ -110,6 +110,8 @@ const featherIconPath = "/feather-logo.png";
 const editIconPath = "/Icons/edit icon.png";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
+    const [isProcessingClick, setIsProcessingClick] = useState(false);
+    const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isIdle = currentState === RecordingState.IDLE;
     const isRecordingState = currentState === RecordingState.RECORDING || currentState === RecordingState.LOCKED_RECORDING;
     const isProcessingState = currentState === RecordingState.TRANSCRIBING || currentState === RecordingState.PASTING;
@@ -120,6 +122,13 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const [isHovered, setIsHovered] = useState(false);
     const [isDraggable, setIsDraggable] = useState(true); // Default to true
     const pillRef = useRef<HTMLDivElement>(null);
+    
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+        };
+    }, []);
     
     // Debug: Log when currentState changes
     useEffect(() => {
@@ -154,12 +163,12 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     }, []);
     
     let targetVariant: PillVariant = 'idle';
-    if (backendError) targetVariant = 'error';
-    else if (isEditPending) targetVariant = 'edit_pending';
+    // Check edit_pending first, as it should override error display
+    if (isEditPending) targetVariant = 'edit_pending';
+    else if (isErrorUiState || backendError) targetVariant = 'error';
     else if (isIdle && isHovered) targetVariant = 'ready';
     else if (isRecordingState) targetVariant = 'recording';
     else if (isProcessingState || isSuccessState) targetVariant = 'processing'; // CRITICAL FIX: SUCCESS shows processing spinner
-    else if (isErrorUiState) targetVariant = 'error';
     else targetVariant = 'idle';
     
     // Debug: Log on every render
@@ -176,12 +185,29 @@ const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, t
     const handleContentAreaClick = (currentPillState: RecordingState) => {
         console.log(`[RecordingPill handleContentAreaClick] Called for state: ${RecordingState[currentPillState]} (${currentPillState})`);
         console.log(`[RecordingPill] At click time - currentState prop: ${RecordingState[currentState]}, targetVariant: ${targetVariant}`);
+        
+        // Debounce rapid clicks
+        if (isProcessingClick) {
+            console.log('[RecordingPill] Ignoring click - still processing previous action');
+            return;
+        }
+        
         if (currentPillState === RecordingState.IDLE) {
             console.log('[RecordingPill] --> Emitting fethr-start-recording');
+            setIsProcessingClick(true);
             emit('fethr-start-recording', {}).catch(err => console.error("Error emitting fethr-start-recording:", err));
+            
+            // Clear processing flag after a short delay
+            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 500);
         } else if (currentPillState === RecordingState.RECORDING || currentPillState === RecordingState.LOCKED_RECORDING) {
-            console.log('[RecordingPill] --> Emitting fethr-stop-recording');
-            emit('fethr-stop-recording', {}).catch(err => console.error("Error emitting fethr-stop-recording:", err));
+            console.log('[RecordingPill] --> Emitting fethr-stop-and-transcribe');
+            setIsProcessingClick(true);
+            emit('fethr-stop-and-transcribe', true).catch(err => console.error("Error emitting fethr-stop-and-transcribe:", err));
+            
+            // Clear processing flag after a longer delay for stop action
+            if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+            clickTimeoutRef.current = setTimeout(() => setIsProcessingClick(false), 1000);
         } else {
             console.log(`[RecordingPill] --> No action for state: ${RecordingState[currentPillState]}`);
         }

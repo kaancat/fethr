@@ -51,7 +51,7 @@ pub async fn start_backend_recording(
     println!("[RUST AUDIO] start_backend_recording command received");
     println!("[RUST AUDIO] User ID: {:?}, Access Token present: {}", args.user_id, args.access_token.is_some());
 
-    // Check if user is authenticated
+    // Check if user is authenticated BEFORE changing lifecycle state
     if args.user_id.is_none() || args.access_token.is_none() {
         println!("[RUST AUDIO] No authentication provided - rejecting recording start");
         return Err("Authentication required to start recording".to_string());
@@ -59,7 +59,7 @@ pub async fn start_backend_recording(
 
     let session_active_flag = Arc::new(AtomicBool::new(true)); // Create flag for this session
 
-    // --- Lock and Check Lifecycle State FIRST ---
+    // --- Lock and Check Lifecycle State AFTER AUTH CHECK ---
     { // Scope for lifecycle lock
         let mut lifecycle_guard = RECORDING_LIFECYCLE.lock().unwrap();
         println!("[RUST AUDIO] Checking lifecycle state: {:?}", *lifecycle_guard);
