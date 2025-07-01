@@ -174,17 +174,12 @@ function PillPage() {
         console.log("PillPage: Edit clicked!");
         
         if (lastTranscriptionText) { // Use lastTranscriptionText directly from state
-            console.log("[PillPage] Emitting fethr-edit-latest-history for text:", lastTranscriptionText.substring(0,30) + "...");
-            emit('fethr-edit-latest-history', { text: lastTranscriptionText })
-                .then(() => console.log('[PillPage] Successfully emitted fethr-edit-latest-history.'))
-                .catch(err => console.error('[PillPage] Failed to emit fethr-edit-latest-history:', err));
-
-            console.log("[PillPage] Invoking show_settings_window_and_focus command...");
-            invoke('show_settings_window_and_focus')
-                .then(() => console.log('[PillPage] Successfully invoked show_settings_window_and_focus.'))
+            console.log("[PillPage] Invoking show_history_with_latest_entry command...");
+            invoke('show_history_with_latest_entry')
+                .then(() => console.log('[PillPage] Successfully invoked show_history_with_latest_entry.'))
                 .catch(err => {
-                    console.error('[PillPage] Error invoking show_settings_window_and_focus:', err);
-                    toast.error('Could not open settings window.');
+                    console.error('[PillPage] Error invoking show_history_with_latest_entry:', err);
+                    toast.error('Could not open history window.');
                 });
         } else {
             console.warn("[PillPage] Edit clicked, but no lastTranscriptionText was available.");

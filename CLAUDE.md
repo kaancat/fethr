@@ -90,3 +90,30 @@ npm run typecheck
 - Supabase MCP is configured for direct database access
 - Can query tables, check user statistics, and debug database issues
 - Service role key is securely stored in local Claude configuration
+
+## Future Feature Ideas
+
+### Context-Aware Learning System
+A lightweight, offline system that learns from user corrections to improve transcription accuracy over time.
+
+**Concept**: The system would track when users edit transcriptions and learn patterns to automatically apply similar corrections in the future, personalized to each user's vocabulary and speaking style.
+
+**Key Components**:
+- **Personal Vocabulary Learning**: Automatically add frequently-corrected words to the user's dictionary
+- **N-gram Language Models**: Use lightweight Rust crates like `tongrams` for context-based corrections
+- **Pattern Recognition**: Learn correction patterns with surrounding context (e.g., "dicking on" → "clicking on")
+- **Adaptive Dictionary**: Evolve the dictionary based on user's actual usage
+
+**Benefits**:
+- Personalized to each user's vocabulary and domain
+- Improves accuracy over time without manual configuration
+- Completely offline and privacy-preserving
+- Lightweight (<50MB memory, <50ms processing time)
+
+**Technical Approach**:
+- SQLite database for storing correction patterns
+- Confidence scoring based on frequency and recency
+- Bloom filters for efficient pattern matching
+- Safeguards against over-correction
+
+This would make Fethr progressively smarter, learning technical terms, proper nouns, and speaking patterns unique to each user.

@@ -216,9 +216,9 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                 {stats?.daily_streak || 0} {stats?.daily_streak === 1 ? 'day' : 'days'}
               </div>
               <p className="text-xs text-neutral-500 mt-1">
-                {stats?.daily_streak >= 30 ? 'Incredible! 30+ day streak! 🔥' : 
-                 stats?.daily_streak >= 7 ? 'Great job! Keep it going!' :
-                 stats?.daily_streak === 0 ? 'Start your streak today!' :
+                {(stats?.daily_streak ?? 0) >= 30 ? 'Incredible! 30+ day streak! 🔥' : 
+                 (stats?.daily_streak ?? 0) >= 7 ? 'Great job! Keep it going!' :
+                 (stats?.daily_streak ?? 0) === 0 ? 'Start your streak today!' :
                  'You are off to a great start!'}
               </p>
             </CardContent>

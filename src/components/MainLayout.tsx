@@ -65,10 +65,19 @@ function MainLayout({ children }: MainLayoutProps) {
       }
     });
 
+    // Listen for navigate to history with edit
+    const unlistenNavigateToHistory = listen('navigate-to-history-with-edit', () => {
+      console.log("[MainLayout] Received navigate-to-history-with-edit event");
+      navigate('/history');
+      // Set a flag that HistoryPage can check
+      window.localStorage.setItem('edit-latest-on-load', 'true');
+    });
+
     // Cleanup function
     return () => {
-      console.log("[MainLayout] Cleaning up navigate-to-route listener.");
+      console.log("[MainLayout] Cleaning up navigation listeners.");
       unlistenNavigate.then(f => f());
+      unlistenNavigateToHistory.then(f => f());
     };
   }, [navigate]);
 

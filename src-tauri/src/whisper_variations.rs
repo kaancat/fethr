@@ -58,8 +58,8 @@ pub fn get_correct_form(word: &str) -> Option<String> {
 pub fn get_correct_form_with_context(word: &str, prev_word: Option<&str>, next_word: Option<&str>) -> Option<String> {
     let lowercase = word.to_lowercase();
     
-    // Handle "dick" -> "click" with context
-    if lowercase == "dick" {
+    // Handle "dick" -> "click" with context (including variations like "dicking")
+    if lowercase == "dick" || lowercase == "dicking" || lowercase == "dicked" {
         // Only correct to "click" in tech/UI contexts
         let is_tech_context = 
             // Common patterns: "dick on", "dick the", "dick here", "dick this"
@@ -69,10 +69,22 @@ pub fn get_correct_form_with_context(word: &str, prev_word: Option<&str>, next_w
             // Common patterns: "please dick", "just dick", "then dick"
             matches!(prev_word.map(|w| w.to_lowercase()).as_deref(),
                 Some("please") | Some("just") | Some("then") | Some("and") | 
-                Some("to") | Some("double"));
+                Some("to") | Some("double")) ||
+            // For "dicking", also check if prev is "I'm", "you're", "he's", etc.
+            (lowercase == "dicking" && matches!(prev_word.map(|w| w.to_lowercase()).as_deref(),
+                Some("i'm") | Some("you're") | Some("he's") | Some("she's") | 
+                Some("we're") | Some("they're") | Some("am") | Some("is") | Some("are")));
         
         if is_tech_context {
-            return Some(apply_original_casing("click", word));
+            // Apply the same suffix pattern to "click"
+            let corrected = if lowercase == "dicking" {
+                "clicking"
+            } else if lowercase == "dicked" {
+                "clicked"
+            } else {
+                "click"
+            };
+            return Some(apply_original_casing(corrected, word));
         }
     }
     
@@ -151,13 +163,24 @@ mod tests {
         assert_eq!(get_correct_form_with_context("dick", None, Some("button")), Some("click".to_string()));
         assert_eq!(get_correct_form_with_context("dick", Some("and"), None), Some("click".to_string()));
         
+        // Test "dicking" -> "clicking" in appropriate contexts
+        assert_eq!(get_correct_form_with_context("dicking", Some("I'm"), Some("on")), Some("clicking".to_string()));
+        assert_eq!(get_correct_form_with_context("dicking", Some("am"), Some("the")), Some("clicking".to_string()));
+        assert_eq!(get_correct_form_with_context("Dicking", Some("you're"), Some("on")), Some("Clicking".to_string()));
+        
+        // Test "dicked" -> "clicked"
+        assert_eq!(get_correct_form_with_context("dicked", Some("just"), Some("on")), Some("clicked".to_string()));
+        assert_eq!(get_correct_form_with_context("dicked", Some("I"), Some("the")), Some("clicked".to_string()));
+        
         // Test it doesn't correct in inappropriate contexts
         assert_eq!(get_correct_form_with_context("dick", Some("a"), None), None);
         assert_eq!(get_correct_form_with_context("dick", Some("is"), Some("!")), None);
         assert_eq!(get_correct_form_with_context("dick", Some("being"), Some("to")), None);
+        assert_eq!(get_correct_form_with_context("dicking", Some("stop"), Some("around")), None);
         
         // Test that without context, it doesn't correct
         assert_eq!(get_correct_form_with_context("dick", None, None), None);
+        assert_eq!(get_correct_form_with_context("dicking", None, None), None);
     }
     
     #[test]

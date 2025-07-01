@@ -953,6 +953,7 @@ fn main() {
             update_history_entry,
             get_dashboard_stats,
             show_settings_window_and_focus,
+            show_history_with_latest_entry,
             navigate_to_page,
             navigate_to_settings_section,
             edit_latest_transcription,
@@ -1517,6 +1518,56 @@ async fn show_settings_window_and_focus(app_handle: tauri::AppHandle) -> Result<
     }
 }
 // --- END Command ---
+
+#[tauri::command]
+async fn show_history_with_latest_entry(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let window_label = "main";
+    match app_handle.get_window(window_label) {
+        Some(window) => {
+            println!("[RUST CMD] Found main window. Navigating to history with latest entry...");
+            
+            // Show window
+            if let Err(e) = window.show() {
+                let err_msg = format!("Failed to show window '{}': {}", window_label, e);
+                eprintln!("[RUST CMD ERROR] {}", err_msg);
+                return Err(err_msg);
+            }
+            
+            // Small delay to ensure window is visible
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Unminimize window
+            if let Err(e) = window.unminimize() {
+                println!("[RUST CMD WARN] Failed to unminimize window '{}': {}", window_label, e);
+            }
+            
+            // Another small delay before focusing
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Set focus
+            if let Err(e) = window.set_focus() {
+                let err_msg = format!("Failed to set focus on window '{}': {}", window_label, e);
+                eprintln!("[RUST CMD ERROR] {}", err_msg);
+                return Err(err_msg);
+            }
+            
+            // Emit event to navigate to history and open latest entry
+            if let Err(e) = app_handle.emit_all("navigate-to-history-with-edit", ()) {
+                let err_msg = format!("Failed to emit navigation event: {}", e);
+                eprintln!("[RUST CMD ERROR] {}", err_msg);
+                return Err(err_msg);
+            }
+            
+            println!("[RUST CMD] Successfully showed main window and emitted navigation event");
+            Ok(())
+        }
+        None => {
+            let err_msg = format!("Window '{}' not found", window_label);
+            eprintln!("[RUST CMD ERROR] {}", err_msg);
+            Err(err_msg)
+        }
+    }
+}
 
 #[tauri::command]
 async fn set_pill_visibility(app_handle: AppHandle, visible: bool) -> Result<(), String> {

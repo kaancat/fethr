@@ -78,26 +78,27 @@ function HistoryPage({ user, loadingAuth }: HistoryPageProps) {
         setTimeout(() => loadHistory(true), 1500); // Skip loading state
       });
       
-      // Listen for edit latest transcription event
-      const unlistenEditLatest = await listen<void>('fethr-edit-latest-history', () => {
-        console.log('[History] Received fethr-edit-latest-history event.');
-        if (historyEntries.length > 0) {
-          setEditingEntry(historyEntries[0]);
-        }
-      });
-      
       console.log("[History] History listeners setup.");
       
       // Return cleanup function
       return () => {
         console.log("[History] Cleaning up history listeners.");
         unlistenHistoryUpdate();
-        unlistenEditLatest();
       };
     }
     
     setupHistoryAndListener();
-  }, [loadHistory, historyEntries.length, user]);
+  }, [loadHistory, user]);
+
+  // Check for edit-latest flag on component mount and when history loads
+  useEffect(() => {
+    const shouldEditLatest = window.localStorage.getItem('edit-latest-on-load');
+    if (shouldEditLatest === 'true' && historyEntries.length > 0 && !historyLoading) {
+      console.log('[History] Found edit-latest-on-load flag, opening latest entry for editing');
+      setEditingEntry(historyEntries[0]);
+      window.localStorage.removeItem('edit-latest-on-load');
+    }
+  }, [historyEntries, historyLoading]);
 
   const copyHistoryItem = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
