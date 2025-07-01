@@ -86,3 +86,7 @@ npm run typecheck
 - Improving transcription accuracy
 - Enhancing user experience with visual feedback
 - Ensuring cross-platform compatibility
+## Supabase MCP Integration
+- Supabase MCP is configured for direct database access
+- Can query tables, check user statistics, and debug database issues
+- Service role key is securely stored in local Claude configuration
