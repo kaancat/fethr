@@ -125,7 +125,7 @@ pub async fn get_user_statistics(
     };
     
     // Get dictionary size using the public command
-    let dictionary_size = match crate::dictionary_manager::get_dictionary(app_handle) {
+    let dictionary_size = match crate::dictionary_manager::get_dictionary(app_handle.clone()) {
         Ok(dict) => dict.len() as i64,
         Err(_) => 0,
     };
