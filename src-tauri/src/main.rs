@@ -73,6 +73,16 @@ pub struct DashboardStats {
 }
 // --- END Dashboard Stats Struct ---
 
+#[derive(Debug, Deserialize)]
+struct SubscriptionData {
+    word_usage_this_period: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct UserStatsData {
+    daily_streak: i32,
+}
+
 // --- ADD AI Action Structs ---
 /*
 #[derive(Deserialize, Debug)] // For receiving from Vercel
@@ -952,6 +962,7 @@ fn main() {
             transcription::get_history, // History command
             update_history_entry,
             get_dashboard_stats,
+            get_dashboard_stats_with_auth,
             show_settings_window_and_focus,
             show_history_with_latest_entry,
             navigate_to_page,
@@ -1279,6 +1290,172 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
     })
 }
 // --- END Dashboard Stats Command ---
+
+// --- Dashboard Stats with Auth Command ---
+#[tauri::command]
+async fn get_dashboard_stats_with_auth(
+    app_handle: AppHandle, 
+    user_id: String, 
+    access_token: String
+) -> Result<DashboardStats, String> {
+    use chrono::{DateTime, Utc, Timelike};
+    
+    println!("[RUST CMD] get_dashboard_stats_with_auth called for user: {}", user_id);
+    
+    // Get history for local calculations
+    let history_path = get_history_path(&app_handle)?;
+    let history_json = fs::read_to_string(&history_path).unwrap_or_else(|_| "[]".to_string());
+    let history: Vec<HistoryEntry> = serde_json::from_str(&history_json)
+        .map_err(|e| format!("Failed to parse history: {}", e))?;
+    
+    // Get dictionary size
+    let dictionary = dictionary_manager::get_dictionary(app_handle)?;
+    let dictionary_size = dictionary.len();
+    
+    // Initialize variables
+    let mut total_words = 0;
+    let mut daily_streak = 0;
+    
+    // Get Supabase configuration
+    let (supabase_url, supabase_anon_key) = {
+        let settings_guard = config::SETTINGS.lock().unwrap();
+        (
+            settings_guard.supabase_url.clone(),
+            settings_guard.supabase_anon_key.clone()
+        )
+    };
+    
+    let client = reqwest::Client::new();
+    
+    // Fetch subscription data for total words
+    let subscription_response = client
+        .get(format!("{}/rest/v1/subscriptions", supabase_url))
+        .header("apikey", &supabase_anon_key)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .query(&[("user_id", &format!("eq.{}", user_id))])
+        .query(&[("select", "word_usage_this_period")])
+        .send()
+        .await;
+        
+    match subscription_response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                match resp.json::<Vec<SubscriptionData>>().await {
+                    Ok(subscriptions) => {
+                        if let Some(subscription) = subscriptions.first() {
+                            total_words = subscription.word_usage_this_period as usize;
+                            println!("[RUST CMD] Got total words from subscription: {}", total_words);
+                        } else {
+                            println!("[RUST CMD] No subscription found for user");
+                        }
+                    }
+                    Err(e) => println!("[RUST CMD] Failed to parse subscription response: {}", e),
+                }
+            } else {
+                let error_text = resp.text().await.unwrap_or_default();
+                println!("[RUST CMD] Failed to fetch subscription data: {} - {}", status, error_text);
+            }
+        }
+        Err(e) => println!("[RUST CMD] Error fetching subscription: {}", e),
+    }
+    
+    // Fetch user statistics for streak
+    let stats_response = client
+        .post(format!("{}/rest/v1/rpc/get_or_create_user_stats", supabase_url))
+        .header("apikey", &supabase_anon_key)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "p_user_id": user_id
+        }))
+        .send()
+        .await;
+        
+    match stats_response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                match resp.json::<UserStatsData>().await {
+                    Ok(stats) => {
+                        daily_streak = stats.daily_streak as usize;
+                        println!("[RUST CMD] Got daily streak from user stats: {}", daily_streak);
+                    }
+                    Err(e) => println!("[RUST CMD] Failed to parse user stats response: {}", e),
+                }
+            } else {
+                let error_text = resp.text().await.unwrap_or_default();
+                println!("[RUST CMD] Failed to fetch user stats: {} - {}", status, error_text);
+            }
+        }
+        Err(e) => println!("[RUST CMD] Error fetching user stats: {}", e),
+    }
+    
+    // If we didn't get total_words from Supabase (error case), calculate from history
+    if total_words == 0 {
+        for entry in &history {
+            total_words += entry.text.split_whitespace().count();
+        }
+        println!("[RUST CMD] Calculated total words from history as fallback: {}", total_words);
+    }
+    
+    // Calculate other statistics from history
+    let now = Utc::now();
+    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let mut today_words = 0;
+    let mut hour_counts = vec![0; 24];
+    
+    for entry in &history {
+        // Parse timestamp
+        let timestamp = DateTime::parse_from_rfc3339(&entry.timestamp)
+            .map(|dt| dt.with_timezone(&Utc))
+            .or_else(|_| entry.timestamp.parse::<DateTime<Utc>>())
+            .unwrap_or(now);
+        
+        // Today's words
+        if timestamp >= today_start {
+            today_words += entry.text.split_whitespace().count();
+        }
+        
+        // Hour distribution
+        hour_counts[timestamp.hour() as usize] += 1;
+    }
+    
+    // Find most active hour
+    let most_active_hour = hour_counts
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| *count)
+        .map(|(hour, _)| hour)
+        .unwrap_or(0);
+    
+    // Average words per session
+    let average_words_per_session = if history.is_empty() {
+        0
+    } else {
+        total_words / history.len()
+    };
+    
+    // Get recent transcriptions (last 5)
+    let recent_transcriptions = history
+        .iter()
+        .rev()
+        .take(5)
+        .cloned()
+        .collect();
+    
+    Ok(DashboardStats {
+        total_words,
+        total_transcriptions: history.len(),
+        weekly_streak: daily_streak,
+        today_words,
+        average_words_per_session,
+        dictionary_size,
+        most_active_hour,
+        recent_transcriptions,
+    })
+}
+// --- END Dashboard Stats with Auth Command ---
 
 // --- Navigation Commands for System Tray Context Menu ---
 // Global lock to prevent concurrent navigation operations
