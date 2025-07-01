@@ -788,12 +788,13 @@ fn main() {
             });
             // --- End Rdev Listener Thread ---
 
-            // --- NEW: Initial Pill Visibility based on Config ---
-            let initial_pill_enabled = {
+            // --- NEW: Initial Pill Visibility and Position based on Config ---
+            let (initial_pill_enabled, initial_pill_position) = {
                 let settings_guard = crate::config::SETTINGS.lock().unwrap();
-                settings_guard.pill_enabled
+                (settings_guard.pill_enabled, settings_guard.pill_position)
             };
             log::info!("[RUST SETUP] Initial pill_enabled state from config: {}", initial_pill_enabled);
+            log::info!("[RUST SETUP] Initial pill_position from config: {:?}", initial_pill_position);
 
             if !initial_pill_enabled {
                 if let Some(pill_window) = app.get_window("pill") {
@@ -803,6 +804,16 @@ fn main() {
                     }
                 } else {
                     log::error!("[RUST SETUP] Could not find pill window to hide on startup.");
+                }
+            } else {
+                // Pill is enabled, set its position according to saved settings
+                if let Some(pill_window) = app.get_window("pill") {
+                    log::info!("[RUST SETUP] Setting pill position to saved position: {:?}", initial_pill_position);
+                    if let Err(e) = set_pill_position_internal(&pill_window, initial_pill_position) {
+                        log::error!("[RUST SETUP] Failed to set initial pill position: {}", e);
+                    }
+                } else {
+                    log::error!("[RUST SETUP] Could not find pill window to position on startup.");
                 }
             }
             // --- END NEW ---
@@ -1628,6 +1639,45 @@ async fn temporarily_show_pill_if_hidden(app_handle: AppHandle, duration: u64) -
     Ok(())
 }
 
+// Internal synchronous function to set pill position without updating settings
+fn set_pill_position_internal(pill_window: &tauri::Window, position: PillPosition) -> Result<(), String> {
+    // Get current monitor to calculate position
+    if let Ok(monitor) = pill_window.current_monitor() {
+        if let Some(monitor) = monitor {
+            let screen_size = monitor.size();
+            let scale_factor = monitor.scale_factor();
+            
+            // Window dimensions (adjust these as needed)
+            let window_width = 280.0;
+            let window_height = 75.0;
+            let margin = 30.0;
+            
+            // Calculate position based on enum
+            let (x, y) = match position {
+                PillPosition::TopLeft => (margin, margin),
+                PillPosition::TopCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, margin),
+                PillPosition::TopRight => (screen_size.width as f64 / scale_factor - window_width - margin, margin),
+                PillPosition::BottomLeft => (margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+                PillPosition::BottomCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+                PillPosition::BottomRight => (screen_size.width as f64 / scale_factor - window_width - margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
+            };
+            
+            // Apply position
+            if let Err(e) = pill_window.set_position(Position::Logical(LogicalPosition { x, y })) {
+                return Err(format!("Failed to set pill position: {}", e));
+            }
+            
+            println!("[RUST] Pill position set to {:?} at ({}, {})", position, x, y);
+        } else {
+            return Err("Could not get monitor information".to_string());
+        }
+    } else {
+        return Err("Could not get current monitor".to_string());
+    }
+    
+    Ok(())
+}
+
 #[tauri::command]
 async fn set_pill_position(app_handle: AppHandle, position: PillPosition) -> Result<(), String> {
     // Check if position actually changed
@@ -1644,40 +1694,11 @@ async fn set_pill_position(app_handle: AppHandle, position: PillPosition) -> Res
     }
     
     if let Some(pill_window) = app_handle.get_window("pill") {
-        // Get current monitor to calculate position
-        if let Ok(monitor) = pill_window.current_monitor() {
-            if let Some(monitor) = monitor {
-                let screen_size = monitor.size();
-                let scale_factor = monitor.scale_factor();
-                
-                // Window dimensions (adjust these as needed)
-                let window_width = 280.0;
-                let window_height = 75.0;
-                let margin = 30.0;
-                
-                // Calculate position based on enum
-                let (x, y) = match position {
-                    PillPosition::TopLeft => (margin, margin),
-                    PillPosition::TopCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, margin),
-                    PillPosition::TopRight => (screen_size.width as f64 / scale_factor - window_width - margin, margin),
-                    PillPosition::BottomLeft => (margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
-                    PillPosition::BottomCenter => ((screen_size.width as f64 / scale_factor - window_width) / 2.0, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
-                    PillPosition::BottomRight => (screen_size.width as f64 / scale_factor - window_width - margin, screen_size.height as f64 / scale_factor - window_height - margin - 20.0),
-                };
-                
-                // Apply position
-                if let Err(e) = pill_window.set_position(Position::Logical(LogicalPosition { x, y })) {
-                    return Err(format!("Failed to set pill position: {}", e));
-                }
-                
-                if position_changed {
-                    println!("[RUST] Pill position set to {:?} at ({}, {})", position, x, y);
-                }
-            } else {
-                return Err("Could not get monitor information".to_string());
-            }
-        } else {
-            return Err("Could not get current monitor".to_string());
+        // Use the internal function to set the position
+        set_pill_position_internal(&pill_window, position)?;
+        
+        if position_changed {
+            println!("[RUST] Pill position updated in settings");
         }
     } else {
         return Err("Pill window not found".to_string());

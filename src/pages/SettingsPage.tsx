@@ -186,7 +186,7 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                 console.log(`Model changed to: ${value}`);
                 toast({
                     title: "Model Updated",
-                    description: `Switched to ${value.includes('tiny') ? 'Fethr Swift' : 'Fethr Glide'}`,
+                    description: `Switched to ${typeof value === 'string' && value.includes('tiny') ? 'Fethr Swift' : 'Fethr Glide'}`,
                 });
             } catch (err) {
                 console.error('Failed to save model change:', err);

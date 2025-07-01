@@ -86,11 +86,14 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
         setIsLoading(false);
       }
     }
-  }, [toast]);
+  }, [toast, user]);
 
   useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+    // Only load dashboard data when auth loading is complete and we know the user state
+    if (!loadingAuth) {
+      loadDashboardData();
+    }
+  }, [loadingAuth, user, loadDashboardData]);
 
   // Listen for transcription events to refresh data
   useEffect(() => {
