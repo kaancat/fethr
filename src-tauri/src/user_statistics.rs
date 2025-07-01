@@ -16,7 +16,7 @@ pub struct UserStatistics {
 pub struct DashboardStats {
     pub total_words: i64,
     pub total_transcriptions: i64,
-    pub weekly_streak: i32,
+    pub daily_streak: i32,
     pub today_words: i64,
     pub average_words_per_session: i64,
     pub dictionary_size: i64,
@@ -137,16 +137,52 @@ pub async fn get_user_statistics(
         0
     };
     
-    // TODO: Calculate most active hour from history
-    let most_active_hour = None;
-    
-    // TODO: Calculate today's words from history
-    let today_words = 0;
+    // Calculate today's words and most active hour from history
+    let (today_words, most_active_hour) = match crate::transcription::get_history(app_handle.clone()).await {
+        Ok(history) => {
+            use chrono::{DateTime, Utc, Datelike, Timelike};
+            
+            let now = Utc::now();
+            let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+            let mut hour_counts = vec![0; 24];
+            let mut today_word_count = 0;
+            
+            for entry in &history {
+                // Parse timestamp
+                let timestamp = DateTime::parse_from_rfc3339(&entry.timestamp)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .or_else(|_| entry.timestamp.parse::<DateTime<Utc>>())
+                    .unwrap_or(now);
+                
+                // Count words
+                let word_count = entry.text.split_whitespace().count() as i64;
+                
+                // Today's words
+                if timestamp >= today_start {
+                    today_word_count += word_count;
+                }
+                
+                // Hour distribution
+                hour_counts[timestamp.hour() as usize] += 1;
+            }
+            
+            // Find most active hour
+            let most_active = hour_counts
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, count)| *count)
+                .filter(|(_, count)| **count > 0)
+                .map(|(hour, _)| hour as i32);
+            
+            (today_word_count, most_active)
+        },
+        Err(_) => (0, None),
+    };
     
     Ok(DashboardStats {
         total_words: stats.total_words_transcribed,
         total_transcriptions: stats.total_transcriptions,
-        weekly_streak: stats.daily_streak,
+        daily_streak: stats.daily_streak,
         today_words,
         average_words_per_session,
         dictionary_size,

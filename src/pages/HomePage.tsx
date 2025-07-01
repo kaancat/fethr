@@ -13,7 +13,7 @@ import LoggedOutState from '../components/LoggedOutState';
 interface DashboardStats {
   total_words: number;
   total_transcriptions: number;
-  weekly_streak: number;
+  daily_streak: number;
   today_words: number;
   average_words_per_session: number;
   dictionary_size: number;
@@ -203,21 +203,22 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
 
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 flex-shrink-0">
-          {/* Weekly Streak Card */}
+          {/* Daily Streak Card */}
           <Card className="bg-neutral-900/50 border-neutral-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-neutral-400">
-                Weekly streak
+                Daily streak
               </CardTitle>
               <Zap className="h-4 w-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-white">
-                {stats?.weekly_streak || 0} {stats?.weekly_streak === 1 ? 'day' : 'days'}
+                {stats?.daily_streak || 0} {stats?.daily_streak === 1 ? 'day' : 'days'}
               </div>
               <p className="text-xs text-neutral-500 mt-1">
-                {stats?.weekly_streak === 7 ? 'Perfect week! 🔥' : 
-                 stats?.weekly_streak === 0 ? 'Start your streak today!' :
+                {stats?.daily_streak >= 30 ? 'Incredible! 30+ day streak! 🔥' : 
+                 stats?.daily_streak >= 7 ? 'Great job! Keep it going!' :
+                 stats?.daily_streak === 0 ? 'Start your streak today!' :
                  'You are off to a great start!'}
               </p>
             </CardContent>
