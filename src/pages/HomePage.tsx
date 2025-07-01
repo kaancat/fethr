@@ -50,19 +50,12 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
       
       // Only load stats if user is authenticated
       if (user) {
-        // Get user statistics from Supabase
+        // Get dashboard stats
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            const stats = await invoke<DashboardStats>('get_user_statistics', {
-              userId: session.user.id,
-              accessToken: session.access_token
-            });
-            setStats(stats);
-          }
+          const stats = await invoke<DashboardStats>('get_dashboard_stats');
+          setStats(stats);
         } catch (error) {
-          console.error('Failed to load user statistics:', error);
-          // Don't fall back to local stats - maintain privacy
+          console.error('Failed to load dashboard stats:', error);
           setStats(null);
         }
       } else {

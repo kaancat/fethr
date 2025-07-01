@@ -1,5 +1,0 @@
-id,user_id,price_id,status,stripe_subscription_id,cancel_at_period_end,current_period_start,current_period_end,ended_at,cancel_at,canceled_at,trial_start,trial_end,metadata,word_usage_this_period,word_limit_this_period
-0dcdab81-c083-4431-b55c-9e5fa9f447fd,f335e0a0-fdfb-4fb9-87e6-b151e966af48,price_pro_monthly_usd_7,active,sub_1RejPMBuRI2wQm3rwvn6b3CI,false,2025-06-27 18:37:09.268434+00,2025-07-27 18:37:09.268434+00,,,,,,,2000,999999999
-22bed814-2abf-43c0-b891-21651d9da564,1cc128c1-2924-433c-ad8f-e16a490cb6c3,price_fethr_free_0_usd_monthly,active,,false,2025-06-01 10:45:38.35685+00,2025-07-01 10:45:38.35685+00,,,,,,,8711,99999999
-3d385d19-0539-4e80-b6a2-69c70be4eb95,16f2f37d-65d3-432c-a7ce-4ee7a9bf675c,price_pro_monthly_usd_7,active,sub_1RekiPBuRI2wQm3rOvXILGko,false,2025-06-27 22:25:49+00,2025-07-27 22:25:49+00,,,,,,,2005,999999999
-8db7e952-c8e8-4b4b-b065-277fa39cc060,9b6baf2c-3d03-4879-9274-26f3ade4d26d,price_pro_monthly_usd_7,active,sub_1Reu4pBuRI2wQm3rc5Ocr2i8,false,2025-06-28 08:25:35+00,2025-07-28 08:25:35+00,,,,,,,12234,999999999

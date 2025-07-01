@@ -91,6 +91,9 @@ npm run typecheck
 - Can query tables, check user statistics, and debug database issues
 - Service role key is securely stored in local Claude configuration
 
+## Development Notes
+- Whenever you make big changes and you want me to test something, run npm run tauri dev to check if it compiles. 
+
 ## Future Feature Ideas
 
 ### Context-Aware Learning System
