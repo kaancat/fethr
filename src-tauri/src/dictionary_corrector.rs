@@ -93,7 +93,7 @@ impl DictionaryCorrector {
     }
     
     /// Find the previous word in the token list
-    fn find_prev_word(&self, tokens: &[(String, bool)], current_idx: usize) -> Option<&str> {
+    fn find_prev_word<'a>(&self, tokens: &'a [(String, bool)], current_idx: usize) -> Option<&'a str> {
         for i in (0..current_idx).rev() {
             if tokens[i].1 {  // is word
                 return Some(&tokens[i].0);
@@ -103,7 +103,7 @@ impl DictionaryCorrector {
     }
     
     /// Find the next word in the token list
-    fn find_next_word(&self, tokens: &[(String, bool)], current_idx: usize) -> Option<&str> {
+    fn find_next_word<'a>(&self, tokens: &'a [(String, bool)], current_idx: usize) -> Option<&'a str> {
         for i in (current_idx + 1)..tokens.len() {
             if tokens[i].1 {  // is word
                 return Some(&tokens[i].0);
