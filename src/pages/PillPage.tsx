@@ -578,7 +578,7 @@ function PillPage() {
                 });
                 unlisteners.push(unlistenStart);
 
-                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", (event) => { 
+                const unlistenStop = await listen<boolean>("fethr-stop-and-transcribe", async (event) => { 
                     if (!isMounted) return; 
                     console.log("PillPage: Received fethr-stop-and-transcribe.");
                     
@@ -594,11 +594,22 @@ function PillPage() {
                     
                     // IMMEDIATELY call stop without waiting for auth
                     try {
+                        // Get fresh auth token for transcription
+                        let authAccessToken = null;
+                        try {
+                            const { data: sessionData } = await supabase.auth.getSession();
+                            if (sessionData && sessionData.session) {
+                                authAccessToken = sessionData.session.access_token;
+                            }
+                        } catch (e) {
+                            console.error('[PillPage] Failed to get auth session for stop:', e);
+                        }
+                        
                         const stopPromise = invoke<string>('stop_backend_recording', { 
                             args: { 
                                 auto_paste: event.payload, 
                                 user_id: userId, // Use existing userId from component state
-                                access_token: null // Will be fetched in backend if needed
+                                access_token: authAccessToken // Pass the actual access token
                             }
                         });
                         handleTranscriptionResult(stopPromise); 

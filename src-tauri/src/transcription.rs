@@ -633,7 +633,11 @@ pub async fn transcribe_local_audio_impl(
         }
 
         // --- BEGIN SUPABASE WORD COUNT UPDATE ---
+        println!("[DEBUG] Auth check - user_id_opt: {:?}, access_token_opt present: {}", 
+            user_id_opt, access_token_opt.is_some());
+        
         if let (Some(user_id), Some(access_token)) = (user_id_opt, access_token_opt) {
+            println!("[DEBUG] Auth check PASSED - user_id: {}", user_id);
             if !user_id.is_empty() && !access_token.is_empty() {
                 let words_transcribed = trimmed_output.split_whitespace().count() as i32;
                 log::info!(
@@ -685,9 +689,12 @@ pub async fn transcribe_local_audio_impl(
                     log::info!("[Transcription] No words transcribed, skipping word count update.");
                 }
             } else {
+                println!("[DEBUG] Auth credentials are empty - user_id empty: {}, access_token empty: {}", 
+                    user_id.is_empty(), access_token.is_empty());
                 log::warn!("[Transcription] User ID or Access Token is empty. Skipping word count update.");
             }
         } else {
+            println!("[DEBUG] Auth check FAILED - missing credentials");
             log::warn!("[Transcription] User ID or Access Token not found in settings (or not passed). Skipping word count update.");
         }
         // --- END SUPABASE WORD COUNT UPDATE ---
