@@ -71,6 +71,16 @@ pub struct DashboardStats {
     most_active_hour: usize,
     recent_transcriptions: Vec<HistoryEntry>,
 }
+
+#[derive(Debug, Deserialize)]
+struct SubscriptionData {
+    word_usage_this_period: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct UserStatsData {
+    daily_streak: i32,
+}
 // --- END Dashboard Stats Struct ---
 
 // --- ADD AI Action Structs ---
@@ -1203,25 +1213,109 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
     
     println!("[RUST CMD] get_dashboard_stats called");
     
-    // Get history
+    // Get user authentication info
+    let (user_id_opt, access_token_opt) = {
+        let settings_guard = config::SETTINGS.lock().unwrap();
+        (settings_guard.user_id.clone(), settings_guard.access_token.clone())
+    };
+    
+    // Get history for local calculations
     let history_path = get_history_path(&app_handle)?;
     let history_json = fs::read_to_string(&history_path).unwrap_or_else(|_| "[]".to_string());
     let history: Vec<HistoryEntry> = serde_json::from_str(&history_json)
         .map_err(|e| format!("Failed to parse history: {}", e))?;
     
     // Get dictionary size
-    let dictionary = dictionary_manager::get_dictionary(app_handle)?;
+    let dictionary = dictionary_manager::get_dictionary(app_handle.clone())?;
     let dictionary_size = dictionary.len();
     
-    // Calculate statistics
+    // Initialize variables
+    let mut total_words = 0;
+    let mut daily_streak = 0;
+    
+    // If user is authenticated, fetch data from Supabase
+    if let (Some(user_id), Some(access_token)) = (user_id_opt, access_token_opt) {
+        if !user_id.is_empty() && !access_token.is_empty() {
+            println!("[RUST CMD] Fetching stats from Supabase for user: {}", user_id);
+            
+            // Get Supabase configuration
+            let (supabase_url, supabase_anon_key) = {
+                let settings_guard = config::SETTINGS.lock().unwrap();
+                (
+                    settings_guard.supabase_url.clone(),
+                    settings_guard.supabase_anon_key.clone()
+                )
+            };
+            
+            let client = reqwest::Client::new();
+            
+            // Fetch subscription data for total words
+            let subscription_response = client
+                .get(format!("{}/rest/v1/subscriptions", supabase_url))
+                .header("apikey", &supabase_anon_key)
+                .header("Authorization", format!("Bearer {}", access_token))
+                .query(&[("user_id", &format!("eq.{}", user_id))])
+                .query(&[("select", "word_usage_this_period")])
+                .send()
+                .await;
+                
+            match subscription_response {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        if let Ok(subscriptions) = resp.json::<Vec<SubscriptionData>>().await {
+                            if let Some(subscription) = subscriptions.first() {
+                                total_words = subscription.word_usage_this_period as usize;
+                                println!("[RUST CMD] Got total words from subscription: {}", total_words);
+                            }
+                        }
+                    } else {
+                        println!("[RUST CMD] Failed to fetch subscription data: {}", resp.status());
+                    }
+                }
+                Err(e) => println!("[RUST CMD] Error fetching subscription: {}", e),
+            }
+            
+            // Fetch user statistics for streak
+            let stats_response = client
+                .post(format!("{}/rest/v1/rpc/get_or_create_user_stats", supabase_url))
+                .header("apikey", &supabase_anon_key)
+                .header("Authorization", format!("Bearer {}", access_token))
+                .header("Content-Type", "application/json")
+                .json(&serde_json::json!({
+                    "p_user_id": user_id
+                }))
+                .send()
+                .await;
+                
+            match stats_response {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        if let Ok(stats) = resp.json::<UserStatsData>().await {
+                            daily_streak = stats.daily_streak as usize;
+                            println!("[RUST CMD] Got daily streak from user stats: {}", daily_streak);
+                        }
+                    } else {
+                        println!("[RUST CMD] Failed to fetch user stats: {}", resp.status());
+                    }
+                }
+                Err(e) => println!("[RUST CMD] Error fetching user stats: {}", e),
+            }
+        }
+    }
+    
+    // If we didn't get total_words from Supabase (free user or error), calculate from history
+    if total_words == 0 {
+        for entry in &history {
+            total_words += entry.text.split_whitespace().count();
+        }
+        println!("[RUST CMD] Calculated total words from history: {}", total_words);
+    }
+    
+    // Calculate other statistics from history
     let now = Utc::now();
     let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-    let week_start = now - Duration::days(7);
-    
-    let mut total_words = 0;
     let mut today_words = 0;
     let mut hour_counts = vec![0; 24];
-    let mut week_days = HashSet::new();
     
     for entry in &history {
         // Parse timestamp
@@ -1230,23 +1324,9 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
             .or_else(|_| entry.timestamp.parse::<DateTime<Utc>>())
             .unwrap_or(now);
         
-        // Count words
-        let word_count = entry.text.split_whitespace().count();
-        total_words += word_count;
-        
         // Today's words
         if timestamp >= today_start {
-            today_words += word_count;
-        }
-        
-        // Weekly streak - track unique days
-        if timestamp >= week_start {
-            let date_str = format!("{}-{}-{}", 
-                timestamp.year(), 
-                timestamp.month(), 
-                timestamp.day()
-            );
-            week_days.insert(date_str);
+            today_words += entry.text.split_whitespace().count();
         }
         
         // Hour distribution
@@ -1279,7 +1359,7 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
     Ok(DashboardStats {
         total_words,
         total_transcriptions: history.len(),
-        weekly_streak: week_days.len(),
+        weekly_streak: daily_streak,  // Using daily_streak from Supabase
         today_words,
         average_words_per_session,
         dictionary_size,
