@@ -35,7 +35,7 @@ impl DictionaryCorrector {
         Self { word_map }
     }
     
-    /// Correct text using simple exact matching
+    /// Correct text using simple exact matching with context awareness
     /// Returns the corrected text with preserved spacing and punctuation
     pub fn correct_text(&self, text: &str) -> String {
         if self.word_map.is_empty() || text.trim().is_empty() {
@@ -44,29 +44,42 @@ impl DictionaryCorrector {
         
         let start_time = Instant::now();
         
-        // Split text into words while preserving delimiters
-        let mut result = String::with_capacity(text.len());
+        // First pass: tokenize into words and delimiters
+        let mut tokens = Vec::new();
         let mut current_word = String::new();
         
         for ch in text.chars() {
-            if ch.is_alphabetic() {
+            if ch.is_alphabetic() || ch == '\'' {  // Keep apostrophes in words
                 current_word.push(ch);
             } else {
-                // End of word - check for correction
                 if !current_word.is_empty() {
-                    let corrected = self.correct_word(&current_word);
-                    result.push_str(&corrected);
+                    tokens.push((current_word.clone(), true)); // true = is word
                     current_word.clear();
                 }
-                // Add the delimiter (space, punctuation, etc.)
-                result.push(ch);
+                tokens.push((ch.to_string(), false)); // false = is delimiter
             }
         }
         
-        // Handle final word if text doesn't end with delimiter
+        // Handle final word
         if !current_word.is_empty() {
-            let corrected = self.correct_word(&current_word);
-            result.push_str(&corrected);
+            tokens.push((current_word, true));
+        }
+        
+        // Second pass: correct words with context
+        let mut result = String::with_capacity(text.len());
+        for i in 0..tokens.len() {
+            let (token, is_word) = &tokens[i];
+            
+            if *is_word {
+                // Get previous and next words for context
+                let prev_word = self.find_prev_word(&tokens, i);
+                let next_word = self.find_next_word(&tokens, i);
+                
+                let corrected = self.correct_word_with_context(token, prev_word, next_word);
+                result.push_str(&corrected);
+            } else {
+                result.push_str(token);
+            }
         }
         
         // Log performance for monitoring
@@ -77,6 +90,38 @@ impl DictionaryCorrector {
         }
         
         result
+    }
+    
+    /// Find the previous word in the token list
+    fn find_prev_word(&self, tokens: &[(String, bool)], current_idx: usize) -> Option<&str> {
+        for i in (0..current_idx).rev() {
+            if tokens[i].1 {  // is word
+                return Some(&tokens[i].0);
+            }
+        }
+        None
+    }
+    
+    /// Find the next word in the token list
+    fn find_next_word(&self, tokens: &[(String, bool)], current_idx: usize) -> Option<&str> {
+        for i in (current_idx + 1)..tokens.len() {
+            if tokens[i].1 {  // is word
+                return Some(&tokens[i].0);
+            }
+        }
+        None
+    }
+    
+    /// Correct a single word using exact matching with context awareness
+    fn correct_word_with_context(&self, word: &str, prev_word: Option<&str>, next_word: Option<&str>) -> String {
+        // First try context-aware Whisper variations
+        if let Some(corrected) = whisper_variations::get_correct_form_with_context(word, prev_word, next_word) {
+            println!("[DictionaryCorrector] Applied context-aware Whisper correction: '{}' -> '{}'", word, corrected);
+            return corrected;
+        }
+        
+        // Then fall back to regular correction
+        self.correct_word(word)
     }
     
     /// Correct a single word using exact matching only
@@ -609,6 +654,33 @@ mod tests {
         // Test that exact matches still work
         assert_eq!(correct_text_with_dictionary("cursor", &dictionary), "Cursor");
         assert_eq!(correct_text_with_dictionary("supabase", &dictionary), "Supabase");
+    }
+    
+    #[test]
+    fn test_click_dick_context_correction() {
+        let dictionary = vec!["button".to_string()];
+        
+        // Test the user's exact scenario
+        let input = "I'll just test, I'm dicking on this, dicking on that. That guy's a dick, dicking, dicking.";
+        let result = correct_text_with_dictionary(input, &dictionary);
+        
+        // Should correct "dicking on" to "clicking on"
+        assert!(result.contains("clicking on this"));
+        assert!(result.contains("clicking on that"));
+        
+        // Should NOT correct "a dick" (inappropriate context)
+        assert!(result.contains("That guy's a dick"));
+        
+        // Standalone "dicking" at end should not be corrected without context
+        assert!(result.contains("dicking, dicking."));
+        
+        // Test more specific cases
+        assert_eq!(correct_text_with_dictionary("please dick on the button", &dictionary), 
+                   "please click on the button");
+        assert_eq!(correct_text_with_dictionary("double dick here", &dictionary), 
+                   "double click here");
+        assert_eq!(correct_text_with_dictionary("he's being a dick", &dictionary), 
+                   "he's being a dick");
     }
     
     #[test]
