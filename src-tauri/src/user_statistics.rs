@@ -140,7 +140,7 @@ pub async fn get_user_statistics(
     // Calculate today's words and most active hour from history
     let (today_words, most_active_hour) = match crate::transcription::get_history(app_handle.clone()).await {
         Ok(history) => {
-            use chrono::{DateTime, Utc, Datelike, Timelike};
+            use chrono::{Utc, Timelike};
             
             let now = Utc::now();
             let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
@@ -148,11 +148,8 @@ pub async fn get_user_statistics(
             let mut today_word_count = 0;
             
             for entry in &history {
-                // Parse timestamp
-                let timestamp = DateTime::parse_from_rfc3339(&entry.timestamp)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .or_else(|_| entry.timestamp.parse::<DateTime<Utc>>())
-                    .unwrap_or(now);
+                // timestamp is already DateTime<Utc>
+                let timestamp = entry.timestamp;
                 
                 // Count words
                 let word_count = entry.text.split_whitespace().count() as i64;
