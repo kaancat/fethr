@@ -41,6 +41,8 @@ mod word_usage_tracker; // <<< ADDED: Track dictionary word usage
 mod whisper_variations; // <<< ADDED: Handle common Whisper transcription variations
 mod user_statistics; // User statistics tracking for Supabase
 mod audio_devices; // Audio device management
+mod auth_manager; // Authentication and token management
+mod stats_queue; // Statistics queue for batching updates
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
@@ -1025,8 +1027,7 @@ fn main() {
             // New command
             resize_pill_window,
             // User statistics
-            user_statistics::get_user_statistics,
-            process_stats_queue
+            user_statistics::get_user_statistics
         ])
         .run(context)
         .expect("Error while running Fethr application");
@@ -1311,6 +1312,23 @@ async fn get_dashboard_stats_with_auth(
     user_id: String, 
     access_token: String
 ) -> Result<DashboardStats, String> {
+    // Input validation
+    if user_id.trim().is_empty() {
+        log::error!("[get_dashboard_stats_with_auth] Called with empty user_id");
+        return Err("User ID is required".to_string());
+    }
+    
+    if access_token.trim().is_empty() {
+        log::error!("[get_dashboard_stats_with_auth] Called with empty access_token");
+        return Err("Authentication required".to_string());
+    }
+    
+    // Validate user_id is a valid UUID
+    if uuid::Uuid::parse_str(&user_id).is_err() {
+        log::error!("[get_dashboard_stats_with_auth] Invalid user_id format: {}. Not a valid UUID.", user_id);
+        return Err("Invalid user ID format".to_string());
+    }
+    
     println!("[RUST CMD] get_dashboard_stats_with_auth called for user: {}", user_id);
     
     // Get dictionary size locally

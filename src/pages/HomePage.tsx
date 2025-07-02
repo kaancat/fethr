@@ -4,7 +4,8 @@ import { listen } from '@tauri-apps/api/event';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, TrendingUp, Clock, Zap, Copy } from 'lucide-react';
+import { Loader2, TrendingUp, Clock, Zap, Copy, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { HistoryEntry } from '../types';
 import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
@@ -201,9 +202,10 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
   }
 
   return (
-    <div className="h-full overflow-hidden bg-[#0b0719]">
-      <div className="h-full flex flex-col p-8">
-        <div className="max-w-7xl mx-auto w-full flex flex-col h-full">
+    <TooltipProvider>
+      <div className="h-full overflow-hidden bg-[#0b0719]">
+        <div className="h-full flex flex-col p-8">
+          <div className="max-w-7xl mx-auto w-full flex flex-col h-full">
           {/* Header */}
           <div className="mb-6 flex-shrink-0">
             <div className="flex items-center justify-between">
@@ -223,9 +225,19 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
           {/* Daily Streak Card */}
           <Card className="bg-neutral-900/50 border-neutral-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-neutral-400">
-                Daily streak
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-medium text-neutral-400">
+                  Daily streak
+                </CardTitle>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3 text-neutral-500" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Consecutive days with at least one transcription. Resets if you miss a day.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Zap className="h-4 w-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
@@ -333,20 +345,40 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
               <CardContent className="flex-1 overflow-hidden p-6">
                 <ScrollArea className="h-full">
                   <div className="space-y-4">
-              <div className="flex items-center space-x-3">
-                <Clock className="h-5 w-5 text-[#ADC2FF]" />
-                <div>
-                  <p className="text-sm text-neutral-300">Most productive hour</p>
-                  <p className="text-xs text-neutral-500">
-                    {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
-                      ? `${stats.most_active_hour}:00 - ${stats.most_active_hour + 1}:00`
-                      : 'Keep using Fethr to discover your peak hours'}
-                  </p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Clock className="h-5 w-5 text-[#ADC2FF]" />
+                  <div>
+                    <p className="text-sm text-neutral-300">Most productive hour</p>
+                    <p className="text-xs text-neutral-500">
+                      {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
+                        ? `${stats.most_active_hour}:00 - ${stats.most_active_hour + 1}:00`
+                        : 'Keep using Fethr to discover your peak hours'}
+                    </p>
+                  </div>
                 </div>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3 text-neutral-500" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>The hour of day when you've made the most transcriptions historically (based on all-time data)</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               
               <div className="pt-2 border-t border-neutral-800">
-                <p className="text-sm text-neutral-300 mb-1">Average session length</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-neutral-300">Average transcription length</p>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 text-neutral-500" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>Average number of words per transcription (total words ÷ total transcriptions)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <p className="text-2xl font-semibold text-white">
                   {stats?.average_words_per_session && stats.average_words_per_session > 0 
                     ? `${stats.average_words_per_session} words`
@@ -355,7 +387,17 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
               </div>
 
                   <div className="pt-2 border-t border-neutral-800">
-                    <p className="text-sm text-neutral-300 mb-1">Total sessions</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm text-neutral-300">Total transcriptions</p>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <Info className="h-3 w-3 text-neutral-500" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>Total number of voice recordings you've made</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <p className="text-2xl font-semibold text-white">
                       {stats?.total_transcriptions && stats.total_transcriptions > 0 
                         ? stats.total_transcriptions
@@ -370,6 +412,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 

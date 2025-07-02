@@ -32,6 +32,33 @@ pub async fn sync_transcription_to_supabase(
     duration_seconds: Option<i32>,
     session_id: Option<String>,
 ) -> Result<(), String> {
+    // Input validation
+    if word_count <= 0 {
+        log::warn!("[UserStatistics] Invalid word count: {}. Skipping stats update.", word_count);
+        return Ok(()); // Don't fail the transcription for invalid stats
+    }
+    
+    // Validate UUID format for user_id
+    if uuid::Uuid::parse_str(user_id).is_err() {
+        log::error!("[UserStatistics] Invalid user_id format: {}. Skipping stats update.", user_id);
+        return Ok(()); // Don't fail the transcription for invalid user_id
+    }
+    
+    // Validate session_id if provided
+    if let Some(ref sid) = session_id {
+        if uuid::Uuid::parse_str(sid).is_err() {
+            log::error!("[UserStatistics] Invalid session_id format: {}. Skipping stats update.", sid);
+            return Ok(()); // Don't fail the transcription for invalid session_id
+        }
+    }
+    
+    // Validate duration is not negative
+    if let Some(duration) = duration_seconds {
+        if duration < 0 {
+            log::warn!("[UserStatistics] Negative duration: {}. Using 0 instead.", duration);
+        }
+    }
+    
     log::info!("[UserStatistics] sync_transcription_to_supabase called for user {} with {} words, duration: {:?}s, session: {:?}", user_id, word_count, duration_seconds, session_id);
     
     // Validate inputs
@@ -103,6 +130,8 @@ pub async fn sync_transcription_to_supabase(
         
         // Check for specific error types
         if status.as_u16() == 401 {
+            // Clear auth cache to trigger refresh on next attempt
+            crate::auth_manager::clear_session_cache();
             return Err("Authentication failed - token may be expired".to_string());
         } else if status.as_u16() == 429 {
             return Err("Rate limit exceeded - please try again later".to_string());
@@ -124,6 +153,23 @@ pub async fn get_user_statistics(
     user_id: String,
     access_token: String,
 ) -> Result<DashboardStats, String> {
+    // Input validation
+    if user_id.trim().is_empty() {
+        log::error!("[UserStatistics] get_user_statistics called with empty user_id");
+        return Err("User ID is required".to_string());
+    }
+    
+    if access_token.trim().is_empty() {
+        log::error!("[UserStatistics] get_user_statistics called with empty access_token");
+        return Err("Authentication required".to_string());
+    }
+    
+    // Validate user_id is a valid UUID
+    if uuid::Uuid::parse_str(&user_id).is_err() {
+        log::error!("[UserStatistics] Invalid user_id format: {}. Not a valid UUID.", user_id);
+        return Err("Invalid user ID format".to_string());
+    }
+    
     let client = reqwest::Client::new();
     
     // Get Supabase configuration from global settings
@@ -135,18 +181,29 @@ pub async fn get_user_statistics(
         )
     };
     
-    // Get or create current week stats
-    let stats_response = client
-        .post(format!("{}/rest/v1/rpc/get_or_create_user_stats", supabase_url))
-        .header("apikey", &supabase_anon_key)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
-        .json(&json!({
-            "p_user_id": user_id
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to get stats: {}", e))?;
+    // Get or create current week stats with timeout
+    let stats_response = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client
+            .post(format!("{}/rest/v1/rpc/get_or_create_user_stats", supabase_url))
+            .header("apikey", &supabase_anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "p_user_id": user_id
+            }))
+            .send()
+    ).await {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            log::error!("[UserStatistics] Failed to get stats: {}", e);
+            return Err(format!("Failed to get stats: {}", e));
+        }
+        Err(_) => {
+            log::error!("[UserStatistics] Stats request timed out after 10s");
+            return Err("Stats request timed out".to_string());
+        }
+    };
     
     if !stats_response.status().is_success() {
         let error_text = stats_response.text().await.unwrap_or_default();
