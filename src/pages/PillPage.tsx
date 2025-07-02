@@ -263,9 +263,11 @@ function PillPage() {
 
     // Handler for upgrade/sign-in button
     const handleUpgradeOrSignIn = useCallback(async () => {
-        // Check if this is a sign-in case
-        if (!userId) {
-            console.log("[PillPage] User not logged in, opening settings for sign in");
+        // Check current auth state with refresh
+        const session = await getValidSession();
+        
+        if (!session) {
+            console.log("[PillPage] User not logged in or session expired, opening settings for sign in");
             // Navigate to account tab first
             await invoke('navigate_to_settings_section', { section: 'account' });
             await invoke('show_settings_window_and_focus');
@@ -571,9 +573,15 @@ function PillPage() {
                     })
                         .then(() => console.log("PillPage: start_backend_recording invoked successfully."))
                         .catch(err => { 
+                            console.error('[PillPage] Start recording failed:', err);
                             setError(`Start recording failed: ${err}`);
                             setCurrentState(RecordingState.ERROR);
                             toast.error(`Start recording failed: ${err}`);
+                            
+                            // Force reset backend to idle state to recover
+                            invoke('force_reset_to_idle')
+                                .then(() => console.log('[PillPage] Backend force reset to idle'))
+                                .catch(e => console.error('[PillPage] Failed to force reset:', e));
                         });
                 });
                 unlisteners.push(unlistenStart);
@@ -596,10 +604,15 @@ function PillPage() {
                     try {
                         // Get fresh auth token for transcription
                         let authAccessToken = null;
+                        let authUserId = null;
+                        let sessionData = null;
+                        
                         try {
-                            const { data: sessionData } = await supabase.auth.getSession();
+                            const { data } = await supabase.auth.getSession();
+                            sessionData = data;
                             if (sessionData && sessionData.session) {
                                 authAccessToken = sessionData.session.access_token;
+                                authUserId = sessionData.session.user.id;
                             }
                         } catch (e) {
                             console.error('[PillPage] Failed to get auth session for stop:', e);
@@ -608,14 +621,21 @@ function PillPage() {
                         const stopPromise = invoke<string>('stop_backend_recording', { 
                             args: { 
                                 auto_paste: event.payload, 
-                                user_id: userId, // Use existing userId from component state
+                                user_id: authUserId, // Use the extracted user ID
                                 access_token: authAccessToken // Pass the actual access token
                             }
                         });
                         handleTranscriptionResult(stopPromise); 
                     } catch (invokeError: any) { 
+                        console.error('[PillPage] Failed to stop recording:', invokeError);
                         setError(`Failed to stop recording: ${invokeError.message}`);
                         setCurrentState(RecordingState.ERROR);
+                        
+                        // Force reset backend to idle state to recover
+                        invoke('force_reset_to_idle')
+                            .then(() => console.log('[PillPage] Backend force reset to idle'))
+                            .catch(e => console.error('[PillPage] Failed to force reset:', e));
+                        
                         if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
                         errorTimeoutRef.current = setTimeout(handleErrorDismiss_MEMOIZED, 4000);
                     }

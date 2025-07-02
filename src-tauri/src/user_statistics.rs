@@ -29,8 +29,28 @@ pub async fn sync_transcription_to_supabase(
     word_count: i64,
     user_id: &str,
     access_token: &str,
+    duration_seconds: Option<i32>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
-    log::info!("[UserStatistics] sync_transcription_to_supabase called for user {} with {} words", user_id, word_count);
+    log::info!("[UserStatistics] sync_transcription_to_supabase called for user {} with {} words, duration: {:?}s, session: {:?}", user_id, word_count, duration_seconds, session_id);
+    
+    // Validate inputs
+    if user_id.trim().is_empty() || access_token.trim().is_empty() {
+        return Err("User ID or access token is empty".to_string());
+    }
+    
+    // Validate word count
+    if word_count < 0 {
+        log::warn!("[UserStatistics] Invalid negative word count: {}, treating as 0", word_count);
+        return Ok(()); // Don't fail, just skip
+    }
+    
+    if word_count > 50000 {
+        log::warn!("[UserStatistics] Suspiciously high word count: {}, capping at 50000", word_count);
+    }
+    
+    // Validate duration
+    let safe_duration = duration_seconds.unwrap_or(0).max(0).min(7200); // Cap at 2 hours
     let client = reqwest::Client::new();
     
     // Get Supabase configuration from global settings
@@ -45,20 +65,34 @@ pub async fn sync_transcription_to_supabase(
     // Call the increment_transcription_stats function via RPC
     let payload = json!({
         "p_user_id": user_id,
-        "p_word_count": word_count
+        "p_word_count": word_count.min(50000), // Cap at reasonable max
+        "p_duration_seconds": safe_duration,
+        "p_session_id": session_id.map(|s| s.chars().take(100).collect::<String>()) // Limit session ID length
     });
     
     log::info!("[UserStatistics] Calling increment_transcription_stats RPC with payload: {:?}", payload);
     
-    let response = client
-        .post(format!("{}/rest/v1/rpc/increment_transcription_stats", supabase_url))
-        .header("apikey", &supabase_anon_key)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send stats request: {}", e))?;
+    // Add timeout to prevent hanging
+    let response = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client
+            .post(format!("{}/rest/v1/rpc/increment_transcription_stats", supabase_url))
+            .header("apikey", &supabase_anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+    ).await {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            log::error!("[UserStatistics] Failed to send stats request: {}", e);
+            return Err(format!("Failed to send stats request: {}", e));
+        }
+        Err(_) => {
+            log::error!("[UserStatistics] Stats request timed out after 10s");
+            return Err("Stats request timed out".to_string());
+        }
+    };
     
     let status = response.status();
     log::info!("[UserStatistics] increment_transcription_stats response status: {}", status);
@@ -66,6 +100,16 @@ pub async fn sync_transcription_to_supabase(
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
         log::error!("[UserStatistics] RPC failed with error: {}", error_text);
+        
+        // Check for specific error types
+        if status.as_u16() == 401 {
+            return Err("Authentication failed - token may be expired".to_string());
+        } else if status.as_u16() == 429 {
+            return Err("Rate limit exceeded - please try again later".to_string());
+        } else if status.is_server_error() {
+            return Err("Server error - stats will be retried later".to_string());
+        }
+        
         return Err(format!("Failed to sync stats: {}", error_text));
     }
     

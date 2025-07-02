@@ -9,6 +9,7 @@ import type { HistoryEntry } from '../types';
 import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
 import LoggedOutState from '../components/LoggedOutState';
+import { getValidSession, withAuthRetry, getErrorMessage } from '@/utils/supabaseAuth';
 
 interface DashboardStats {
   total_words: number;
@@ -50,22 +51,28 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
       
       // Only load stats if user is authenticated
       if (user) {
-        // Get dashboard stats with auth
+        // Get dashboard stats with auth - using improved auth handling
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            const stats = await invoke<DashboardStats>('get_dashboard_stats_with_auth', {
+          const stats = await withAuthRetry(async (session) => {
+            return await invoke<DashboardStats>('get_dashboard_stats_with_auth', {
               userId: session.user.id,
               accessToken: session.access_token
             });
-            setStats(stats);
-          } else {
-            // Fall back to local stats if no session
-            const stats = await invoke<DashboardStats>('get_dashboard_stats');
-            setStats(stats);
-          }
-        } catch (error) {
+          });
+          setStats(stats);
+        } catch (error: any) {
           console.error('Failed to load dashboard stats:', error);
+          
+          // Show user-friendly error message
+          const errorMsg = getErrorMessage(error);
+          if (errorMsg.includes('session has expired')) {
+            toast({
+              variant: "destructive",
+              title: "Session expired",
+              description: "Please sign in again to view your statistics"
+            });
+          }
+          
           // Try fallback to local stats
           try {
             const stats = await invoke<DashboardStats>('get_dashboard_stats');

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { listen } from '@tauri-apps/api/event';
+import { getValidSession, isAuthError } from '@/utils/supabaseAuth';
 
 interface Subscription {
     id: string;
@@ -41,19 +42,43 @@ export function useSubscription(userId: string | undefined): UseSubscriptionRetu
 
         try {
             setLoading(true);
+            
+            // Ensure we have a valid session before making the request
+            const session = await getValidSession();
+            if (!session) {
+                throw new Error('No valid session available');
+            }
+            
             const { data, error: fetchError } = await supabase
                 .from('subscriptions')
                 .select('*')
                 .eq('user_id', userId)
                 .single();
 
-            if (fetchError) throw fetchError;
+            if (fetchError) {
+                // Handle specific error cases
+                if (fetchError.code === 'PGRST116') {
+                    // No subscription found - this is okay for free users
+                    console.log('[Subscription] No subscription found for user - likely free tier');
+                    setSubscription(null);
+                    setError(null);
+                    return;
+                }
+                throw fetchError;
+            }
 
             setSubscription(data);
             setError(null);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error fetching subscription:', err);
-            setError(err as Error);
+            
+            // Don't treat auth errors as subscription errors
+            if (isAuthError(err)) {
+                console.log('[Subscription] Auth error - session may have expired');
+                setError(null); // Don't show error for auth issues
+            } else {
+                setError(err as Error);
+            }
         } finally {
             setLoading(false);
         }
@@ -109,11 +134,11 @@ export function useSubscription(userId: string | undefined): UseSubscriptionRetu
         };
     }, [userId]);
 
-    // Computed values
+    // Computed values with safe defaults
     const wordUsage = subscription?.word_usage_this_period || 0;
-    const wordLimit = subscription?.word_limit_this_period || 0;
+    const wordLimit = subscription?.word_limit_this_period || 1500; // Default free tier limit
     const isUnlimited = wordLimit > 900000000; // Consider > 900M as unlimited
-    const hasActiveSubscription = subscription?.status === 'active' || false;
+    const hasActiveSubscription = subscription?.status === 'active' || subscription?.status === 'trialing' || false;
 
     return {
         subscription,

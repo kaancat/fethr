@@ -22,11 +22,41 @@ use crate::dictionary_manager;
 // Add a static flag to prevent multiple transcription processes
 static TRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+// Session tracking
+use std::sync::Mutex as StdMutex;
+
+lazy_static::lazy_static! {
+    static ref CURRENT_SESSION: StdMutex<Option<(Uuid, chrono::DateTime<Utc>)>> = StdMutex::new(None);
+}
+
 // Define maximum number of history entries to keep
 const MAX_HISTORY_ENTRIES: usize = 200;
-// --- NEW: Tiny model prompt length threshold ---
-// const TINY_MODEL_PROMPT_MAX_CHARS: usize = 60; // <<< REMOVE OR COMMENT OUT
-// --- END NEW ---
+// Session timeout - new session if more than 5 minutes since last transcription
+const SESSION_TIMEOUT_MINUTES: i64 = 5;
+
+// Get or create a session ID
+fn get_or_create_session() -> Uuid {
+    let mut session_guard = CURRENT_SESSION.lock().unwrap();
+    
+    let now = Utc::now();
+    
+    // Check if we have a current session and if it's still valid
+    if let Some((session_id, last_activity)) = session_guard.as_ref() {
+        let minutes_elapsed = (now - *last_activity).num_minutes();
+        if minutes_elapsed < SESSION_TIMEOUT_MINUTES {
+            // Update last activity time and return existing session
+            let session_id_copy = *session_id;
+            *session_guard = Some((session_id_copy, now));
+            return session_id_copy;
+        }
+    }
+    
+    // Create new session
+    let new_session_id = Uuid::new_v4();
+    *session_guard = Some((new_session_id, now));
+    println!("[RUST DEBUG] Created new session: {}", new_session_id);
+    new_session_id
+}
 
 // History entry structure for storing transcription results
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,7 +202,8 @@ pub async fn transcribe_audio_file(
     audio_path: String,
     auto_paste: bool, // Keep flag as override parameter
     user_id_opt: Option<String>,    // NEW ARGUMENT
-    access_token_opt: Option<String> // NEW ARGUMENT
+    access_token_opt: Option<String>, // NEW ARGUMENT
+    duration_seconds: Option<i32> // NEW ARGUMENT for recording duration
 ) -> Result<String, String> {
     // Starting transcription
 
@@ -211,7 +242,8 @@ pub async fn transcribe_audio_file(
         audio_path, 
         effective_auto_paste, 
         user_id_opt,      // Pass new argument
-        access_token_opt  // Pass new argument
+        access_token_opt,  // Pass new argument
+        duration_seconds  // Pass duration
     ).await;
     println!("[RUST DEBUG] transcribe_local_audio_impl completed. Success? {}", result.is_ok());
     
@@ -224,7 +256,8 @@ pub async fn transcribe_local_audio_impl(
     wav_path_in: String,
     auto_paste: bool, // Renamed parameter to match command
     user_id_opt: Option<String>,    // NEW ARGUMENT
-    access_token_opt: Option<String> // NEW ARGUMENT
+    access_token_opt: Option<String>, // NEW ARGUMENT
+    duration_seconds: Option<i32> // NEW ARGUMENT for recording duration
 ) -> Result<String, String> {
     // Processing audio file
 
@@ -649,11 +682,20 @@ pub async fn transcribe_local_audio_impl(
                 if words_transcribed > 0 {
                     let app_handle_clone_for_supabase = app_handle.clone(); // Clone for the async block
                     
+                    // Get or create session ID
+                    let session_id = get_or_create_session();
+                    
                     // Update both word usage and user statistics
                     log::info!("[Transcription] About to call usage and stats updates...");
                     let usage_result = crate::supabase_manager::execute_increment_word_usage_rpc(user_id.clone(), access_token.clone(), words_transcribed).await;
                     log::info!("[Transcription] Usage update complete, now calling stats sync...");
-                    let stats_result = crate::user_statistics::sync_transcription_to_supabase(words_transcribed as i64, &user_id, &access_token).await;
+                    let stats_result = crate::user_statistics::sync_transcription_to_supabase(
+                        words_transcribed as i64, 
+                        &user_id, 
+                        &access_token, 
+                        duration_seconds,
+                        Some(session_id.to_string())
+                    ).await;
                     log::info!("[Transcription] Stats sync complete");
                     
                     match (usage_result, stats_result) {
@@ -677,8 +719,21 @@ pub async fn transcribe_local_audio_impl(
                             return Err(usage_err); // Return the error from execute_increment_word_usage_rpc
                         }
                         (Ok(_), Err(stats_err)) => {
-                            // Usage update succeeded but stats update failed - log but don't fail the transcription
-                            log::error!("[Transcription] Statistics update failed: {}, but continuing", stats_err);
+                            // Usage update succeeded but stats update failed - queue for retry
+                            log::error!("[Transcription] Statistics update failed: {}, queuing for retry", stats_err);
+                            
+                            // Queue the failed stats update for retry
+                            if let Err(queue_err) = crate::stats_queue::enqueue_stats_update(
+                                user_id.clone(),
+                                words_transcribed as i64,
+                                duration_seconds.unwrap_or(0),
+                                session_id.to_string(),
+                            ) {
+                                log::error!("[Transcription] Failed to queue stats update: {}", queue_err);
+                            } else {
+                                log::info!("[Transcription] Stats update queued for retry");
+                            }
+                            
                             log::info!("[Transcription] Emitting 'word_usage_updated' event to frontend.");
                             if let Err(e) = app_handle_clone_for_supabase.emit_all("word_usage_updated", ()) {
                                 log::error!("[Transcription] Failed to emit 'word_usage_updated' event: {}", e);

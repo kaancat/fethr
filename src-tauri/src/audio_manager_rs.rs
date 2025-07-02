@@ -227,6 +227,7 @@ pub async fn start_backend_recording(
     audio_state_guard.temp_wav_path = Some(temp_wav_path);
     audio_state_guard.recording_thread_handle = Some(recording_handle); // Store JoinHandle
     audio_state_guard.writer = Some(writer_mutex);
+    audio_state_guard.recording_start_time = Some(std::time::Instant::now()); // Track start time
     // No need to store the Arc<AtomicBool> here anymore
 
     println!("[RUST AUDIO] Backend recording started successfully.");
@@ -311,10 +312,18 @@ pub async fn stop_backend_recording(
     let mut _handle_opt: Option<JoinHandle<()>> = None; // Variable for handle
     let mut _temp_path_opt: Option<PathBuf> = None;
     let mut _writer_arc_opt: Option<Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>> = None; // Type for writer
+    let mut recording_duration_seconds: i32 = 0; // Track recording duration
 
     { // Lock audio state briefly to get handles/path/writer
         let mut audio_state_guard = audio_state.lock().unwrap();
          println!("[RUST AUDIO STOP] Acquired audio state lock (Signal/Join Phase).");
+
+        // Calculate recording duration
+        if let Some(start_time) = audio_state_guard.recording_start_time.take() {
+            let duration = start_time.elapsed();
+            recording_duration_seconds = duration.as_secs() as i32;
+            println!("[RUST AUDIO STOP] Recording duration: {} seconds", recording_duration_seconds);
+        }
 
         println!("[RUST AUDIO STOP] Sending stop signal via channel...");
         if let Some(sender) = audio_state_guard.stop_signal_sender.take() {
@@ -400,6 +409,7 @@ pub async fn stop_backend_recording(
                 args.auto_paste,   // From the new struct
                 args.user_id,      // New argument
                 args.access_token, // New argument
+                Some(recording_duration_seconds), // Pass the duration
             )
             .await;
 

@@ -64,7 +64,7 @@ pub struct HistoryEntry {
 pub struct DashboardStats {
     total_words: usize,
     total_transcriptions: usize,
-    weekly_streak: usize,
+    daily_streak: usize,  // Changed from weekly_streak to daily_streak
     today_words: usize,
     average_words_per_session: usize,
     dictionary_size: usize,
@@ -230,6 +230,7 @@ pub struct AudioRecordingState {
     pub recording_thread_handle: Option<JoinHandle<()>>,
     pub temp_wav_path: Option<PathBuf>,
     pub writer: Option<Arc<Mutex<Option<hound::WavWriter<BufWriter<File>>>>>>,
+    pub recording_start_time: Option<std::time::Instant>,
 }
 pub type SharedRecordingState = Arc<Mutex<AudioRecordingState>>;
 
@@ -1024,7 +1025,8 @@ fn main() {
             // New command
             resize_pill_window,
             // User statistics
-            user_statistics::get_user_statistics
+            user_statistics::get_user_statistics,
+            process_stats_queue
         ])
         .run(context)
         .expect("Error while running Fethr application");
@@ -1292,7 +1294,7 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
     Ok(DashboardStats {
         total_words,
         total_transcriptions: history.len(),
-        weekly_streak: daily_streak,
+        daily_streak,  // Changed from weekly_streak to daily_streak
         today_words,
         average_words_per_session,
         dictionary_size,
@@ -1339,20 +1341,23 @@ async fn get_dashboard_stats_with_auth(
     
     let client = reqwest::Client::new();
     
-    // Call the comprehensive stats function
-    let stats_response = client
-        .post(format!("{}/rest/v1/rpc/get_dashboard_stats_enhanced", supabase_url))
-        .header("apikey", &supabase_anon_key)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
-            "p_user_id": user_id
-        }))
-        .send()
-        .await;
+    // Call the comprehensive stats function with timeout
+    let stats_response = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client
+            .post(format!("{}/rest/v1/rpc/get_dashboard_stats_enhanced", supabase_url))
+            .header("apikey", &supabase_anon_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "p_user_id": user_id
+            }))
+            .send()
+    )
+    .await;
         
     match stats_response {
-        Ok(resp) => {
+        Ok(Ok(resp)) => {
             let status = resp.status();
             if status.is_success() {
                 match resp.json::<DatabaseStats>().await {
@@ -1363,7 +1368,7 @@ async fn get_dashboard_stats_with_auth(
                         return Ok(DashboardStats {
                             total_words: db_stats.total_words as usize,
                             total_transcriptions: db_stats.total_transcriptions as usize,
-                            weekly_streak: db_stats.daily_streak as usize,
+                            daily_streak: db_stats.daily_streak as usize,  // Changed from weekly_streak
                             today_words: db_stats.today_words as usize,
                             average_words_per_session: db_stats.average_words_per_session as usize,
                             dictionary_size,
@@ -1382,8 +1387,12 @@ async fn get_dashboard_stats_with_auth(
                 // Fall through to calculate from history
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             println!("[RUST CMD] Error fetching database stats: {}", e);
+            // Fall through to calculate from history
+        }
+        Err(_) => {
+            println!("[RUST CMD] Database stats request timed out after 10s");
             // Fall through to calculate from history
         }
     }
@@ -1397,7 +1406,7 @@ async fn get_dashboard_stats_with_auth(
     Ok(DashboardStats {
         total_words,
         total_transcriptions: history.len(),
-        weekly_streak: 1, // Default
+        daily_streak: 1, // Default  // Changed from weekly_streak
         today_words: 0, // Would need proper calculation
         average_words_per_session: if history.is_empty() { 0 } else { total_words / history.len() },
         dictionary_size,

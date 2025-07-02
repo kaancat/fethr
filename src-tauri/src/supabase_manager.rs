@@ -1,6 +1,8 @@
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::json; // Added for RPC payload
+use std::time::Duration;
+use tokio::time::sleep;
 // use log::{info, error, debug, warn}; // Replaced with println!
 
 // This is the struct that will be returned by the Tauri command
@@ -196,6 +198,49 @@ pub async fn get_user_subscription_details(
 }
 */
 
+// Helper function for retry logic with exponential backoff
+async fn execute_with_retry<F, Fut, T>(
+    mut operation: F,
+    max_retries: u32,
+    operation_name: &str,
+) -> Result<T, reqwest::Error>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, reqwest::Error>>,
+{
+    let mut retry_count = 0;
+    let mut last_error = None;
+    
+    while retry_count <= max_retries {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = Some(e);
+                
+                // Check if error is retryable
+                if let Some(err_ref) = &last_error {
+                    if let Some(status) = err_ref.status() {
+                        // Don't retry on client errors (4xx) except 429
+                        if status.is_client_error() && status.as_u16() != 429 {
+                            println!("[SupabaseManager] Non-retryable error for {}: {}", operation_name, status);
+                            return Err(last_error.unwrap());
+                        }
+                    }
+                }
+                
+                if retry_count < max_retries {
+                    let delay = Duration::from_millis(100 * 2u64.pow(retry_count));
+                    println!("[SupabaseManager] Retry {} for {} after {:?}", retry_count + 1, operation_name, delay);
+                    sleep(delay).await;
+                }
+                retry_count += 1;
+            }
+        }
+    }
+    
+    Err(last_error.unwrap())
+}
+
 // New public async function containing the core RPC logic
 pub async fn execute_increment_word_usage_rpc(
     user_id: String,
@@ -204,15 +249,30 @@ pub async fn execute_increment_word_usage_rpc(
 ) -> Result<(), String> {
     // Syncing word usage to Supabase
 
+    // Validate inputs
     if user_id.trim().is_empty() || access_token.trim().is_empty() {
         let err_msg = "[SupabaseManager RPC] ERROR: User ID or Access Token is empty for usage update.";
         println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", err_msg);
         return Err(err_msg.to_string());
     }
 
+    // Validate user_id is a valid UUID format
+    if uuid::Uuid::parse_str(&user_id).is_err() {
+        let err_msg = "[SupabaseManager RPC] ERROR: Invalid user_id format (not a valid UUID)";
+        println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", err_msg);
+        return Err(err_msg.to_string());
+    }
+
+    // Validate word count
     if words_transcribed <= 0 {
-        // No words to sync
+        println!("[SupabaseManager RPC] No words to sync (count: {})", words_transcribed);
         return Ok(());
+    }
+
+    if words_transcribed > 50000 {
+        let err_msg = format!("[SupabaseManager RPC] ERROR: Unrealistic word count: {}", words_transcribed);
+        println!("[RUST DEBUG SupabaseManager RPC ERROR] {}", err_msg);
+        return Err(err_msg);
     }
 
     // Get Supabase configuration from global settings - use block scope to ensure guard is dropped
@@ -239,12 +299,26 @@ pub async fn execute_increment_word_usage_rpc(
     );
     let limits_payload = json!({ "p_user_id": user_id });
 
-    let limits_response_result = http_client
-        .post(&limits_rpc_url)
-        .headers(headers.clone()) 
-        .json(&limits_payload)
-        .send()
-        .await;
+    // Add timeout and retry logic for network requests
+    let limits_response_result = execute_with_retry(
+        || {
+            let client = http_client.clone();
+            let url = limits_rpc_url.clone();
+            let hdrs = headers.clone();
+            let payload = limits_payload.clone();
+            async move {
+                client
+                    .post(&url)
+                    .headers(hdrs)
+                    .json(&payload)
+                    .timeout(Duration::from_secs(10))
+                    .send()
+                    .await
+            }
+        },
+        3, // max retries
+        "get_user_subscription_limits"
+    ).await;
 
     match limits_response_result {
         Ok(limits_response) => { 
@@ -317,16 +391,29 @@ pub async fn execute_increment_word_usage_rpc(
 
     // Updating word usage statistics
 
-    let increment_response = http_client
-        .post(&increment_rpc_url)
-        .headers(headers) // Headers were already set up and cloned for the first call, reuse original here.
-        .json(&increment_payload) 
-        .send()
-        .await
-        .map_err(|e| {
-            println!("[RUST DEBUG SupabaseManager RPC ERROR] Network error calling RPC 'increment_word_usage': {:?}", e);
-            format!("Network error calling RPC increment_word_usage: {}", e)
-        })?;
+    let increment_response = execute_with_retry(
+        || {
+            let client = http_client.clone();
+            let url = increment_rpc_url.clone();
+            let hdrs = headers.clone();
+            let payload = increment_payload.clone();
+            async move {
+                client
+                    .post(&url)
+                    .headers(hdrs)
+                    .json(&payload)
+                    .timeout(Duration::from_secs(10))
+                    .send()
+                    .await
+            }
+        },
+        3, // max retries
+        "increment_word_usage"
+    ).await
+    .map_err(|e| {
+        println!("[RUST DEBUG SupabaseManager RPC ERROR] Network error calling RPC 'increment_word_usage': {:?}", e);
+        format!("Network error calling RPC increment_word_usage: {}", e)
+    })?;
 
     if increment_response.status().is_success() {
         // Usage statistics updated
