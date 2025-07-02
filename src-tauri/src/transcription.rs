@@ -694,7 +694,8 @@ pub async fn transcribe_local_audio_impl(
                         &user_id, 
                         &access_token, 
                         duration_seconds,
-                        Some(session_id.to_string())
+                        Some(session_id.to_string()),
+                        None // TODO: Pass user timezone from frontend
                     ).await;
                     log::info!("[Transcription] Stats sync complete");
                     

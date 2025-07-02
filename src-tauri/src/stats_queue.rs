@@ -105,6 +105,7 @@ pub async fn process_queued_updates(access_token: &str) -> Result<usize, String>
             access_token,
             Some(update.duration_seconds),
             Some(update.session_id.clone()),
+            None // TODO: Store timezone with queued updates
         ).await {
             Ok(_) => {
                 processed += 1;

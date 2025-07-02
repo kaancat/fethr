@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
 import LoggedOutState from '../components/LoggedOutState';
 import { getValidSession, withAuthRetry, getErrorMessage } from '@/utils/supabaseAuth';
+import { getUserTimezone, formatHour } from '@/utils/timezone';
 
 interface DashboardStats {
   total_words: number;
@@ -57,7 +58,8 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
           const stats = await withAuthRetry(async (session) => {
             return await invoke<DashboardStats>('get_dashboard_stats_with_auth', {
               userId: session.user.id,
-              accessToken: session.access_token
+              accessToken: session.access_token,
+              timezone: getUserTimezone()
             });
           });
           setStats(stats);
@@ -234,7 +236,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                     <Info className="h-3 w-3 text-neutral-500 cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
-                    <p>Consecutive days with at least one transcription (UTC timezone). Resets if you miss a day. New day starts at midnight UTC.</p>
+                    <p>Consecutive days with at least one transcription. Resets if you miss a day.</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -376,13 +378,13 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                           <Info className="h-3 w-3 text-neutral-500 cursor-help" />
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
-                          <p>The hour of day when you've made the most transcriptions historically (based on all-time data in UTC timezone)</p>
+                          <p>The hour of day when you've made the most transcriptions historically</p>
                         </TooltipContent>
                       </Tooltip>
                     </div>
                     <p className="text-xs text-neutral-500">
                       {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
-                        ? `${stats.most_active_hour}:00 - ${stats.most_active_hour + 1}:00`
+                        ? `${formatHour(stats.most_active_hour)} - ${formatHour((stats.most_active_hour + 1) % 24)}`
                         : 'Keep using Fethr to discover your peak hours'}
                     </p>
                   </div>

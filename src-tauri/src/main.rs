@@ -1310,7 +1310,8 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
 async fn get_dashboard_stats_with_auth(
     app_handle: AppHandle, 
     user_id: String, 
-    access_token: String
+    access_token: String,
+    timezone: Option<String>
 ) -> Result<DashboardStats, String> {
     // Input validation
     if user_id.trim().is_empty() {
@@ -1368,7 +1369,8 @@ async fn get_dashboard_stats_with_auth(
             .header("Authorization", format!("Bearer {}", access_token))
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
-                "p_user_id": user_id
+                "p_user_id": user_id,
+                "p_user_timezone": timezone.unwrap_or_else(|| "UTC".to_string())
             }))
             .send()
     )

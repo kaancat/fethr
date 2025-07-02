@@ -31,6 +31,7 @@ pub async fn sync_transcription_to_supabase(
     access_token: &str,
     duration_seconds: Option<i32>,
     session_id: Option<String>,
+    timezone: Option<String>,
 ) -> Result<(), String> {
     // Input validation
     if word_count <= 0 {
@@ -94,7 +95,8 @@ pub async fn sync_transcription_to_supabase(
         "p_user_id": user_id,
         "p_word_count": word_count.min(50000), // Cap at reasonable max
         "p_duration_seconds": safe_duration,
-        "p_session_id": session_id.map(|s| s.chars().take(100).collect::<String>()) // Limit session ID length
+        "p_session_id": session_id.map(|s| s.chars().take(100).collect::<String>()), // Limit session ID length
+        "p_user_timezone": timezone.unwrap_or_else(|| "UTC".to_string())
     });
     
     log::info!("[UserStatistics] Calling increment_transcription_stats RPC with payload: {:?}", payload);
