@@ -229,12 +229,12 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                 <CardTitle className="text-sm font-medium text-neutral-400">
                   Daily streak
                 </CardTitle>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3 w-3 text-neutral-500" />
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-neutral-500 cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
-                    <p>Consecutive days with at least one transcription. Resets if you miss a day.</p>
+                    <p>Consecutive days with at least one transcription (UTC timezone). Resets if you miss a day. New day starts at midnight UTC.</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -256,9 +256,19 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
           {/* Total Words Card */}
           <Card className="bg-neutral-900/50 border-neutral-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-neutral-400">
-                Total words dictated
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-medium text-neutral-400">
+                  Total words dictated
+                </CardTitle>
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-neutral-500 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>All words you've transcribed using Fethr</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <TrendingUp className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
@@ -274,9 +284,19 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
           {/* Time Saved Card */}
           <Card className="bg-neutral-900/50 border-neutral-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-neutral-400">
-                Time saved
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-medium text-neutral-400">
+                  Time saved
+                </CardTitle>
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-neutral-500 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Estimated time saved by speaking (130 WPM) instead of typing (50 WPM)</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Clock className="h-4 w-4 text-[#87CEFA]" />
             </CardHeader>
             <CardContent>
@@ -349,7 +369,17 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                 <div className="flex items-center space-x-3">
                   <Clock className="h-5 w-5 text-[#ADC2FF]" />
                   <div>
-                    <p className="text-sm text-neutral-300">Most productive hour</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-neutral-300">Most productive hour</p>
+                      <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3 w-3 text-neutral-500 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>The hour of day when you've made the most transcriptions historically (based on all-time data in UTC timezone)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <p className="text-xs text-neutral-500">
                       {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
                         ? `${stats.most_active_hour}:00 - ${stats.most_active_hour + 1}:00`
@@ -357,22 +387,14 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                     </p>
                   </div>
                 </div>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3 w-3 text-neutral-500" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p>The hour of day when you've made the most transcriptions historically (based on all-time data)</p>
-                  </TooltipContent>
-                </Tooltip>
               </div>
               
               <div className="pt-2 border-t border-neutral-800">
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2 mb-1">
                   <p className="text-sm text-neutral-300">Average transcription length</p>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-3 w-3 text-neutral-500" />
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3 w-3 text-neutral-500 cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent className="max-w-xs">
                       <p>Average number of words per transcription (total words ÷ total transcriptions)</p>
@@ -387,11 +409,11 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
               </div>
 
                   <div className="pt-2 border-t border-neutral-800">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 mb-1">
                       <p className="text-sm text-neutral-300">Total transcriptions</p>
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <Info className="h-3 w-3 text-neutral-500" />
+                      <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3 w-3 text-neutral-500 cursor-help" />
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <p>Total number of voice recordings you've made</p>
