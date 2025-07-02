@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@supabase/supabase-js';
 import LoggedOutState from '../components/LoggedOutState';
 import { getValidSession, withAuthRetry, getErrorMessage } from '@/utils/supabaseAuth';
-import { getUserTimezone, formatHour } from '@/utils/timezone';
+import { getUserTimezone } from '@/utils/timezone';
 
 interface DashboardStats {
   total_words: number;
@@ -384,7 +384,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
                     </div>
                     <p className="text-xs text-neutral-500">
                       {stats?.most_active_hour !== null && stats?.most_active_hour !== undefined 
-                        ? `${formatHour(stats.most_active_hour)} - ${formatHour((stats.most_active_hour + 1) % 24)}`
+                        ? `${stats.most_active_hour}:00 - ${(stats.most_active_hour + 1) % 24}:00`
                         : 'Keep using Fethr to discover your peak hours'}
                     </p>
                   </div>
