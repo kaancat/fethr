@@ -39,9 +39,9 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
 
   // Wrap loadDashboardData in useCallback to use it as a dependency
   const loadDashboardData = useCallback(async (skipLoadingState = false) => {
-    // Debounce: Skip if we just updated less than 2 seconds ago
+    // Debounce: Skip if we just updated less than 1 second ago
     const now = Date.now();
-    if (skipLoadingState && now - lastUpdateTimeRef.current < 2000) {
+    if (skipLoadingState && now - lastUpdateTimeRef.current < 1000) {
       console.log('[HomePage] Skipping update - too soon since last update');
       return;
     }
@@ -129,7 +129,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
         unlistenWordUsage = await listen('word_usage_updated', () => {
           console.log('[HomePage] Word usage updated, refreshing data...');
           // Delay to ensure all backend processing is complete
-          setTimeout(() => loadDashboardData(true), 2500); // Skip loading state, increased delay
+          setTimeout(() => loadDashboardData(true), 1000); // Reduced delay for faster updates
         });
       } catch (error) {
         console.error('[HomePage] Failed to setup event listeners:', error);
