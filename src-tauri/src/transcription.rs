@@ -203,7 +203,8 @@ pub async fn transcribe_audio_file(
     auto_paste: bool, // Keep flag as override parameter
     user_id_opt: Option<String>,    // NEW ARGUMENT
     access_token_opt: Option<String>, // NEW ARGUMENT
-    duration_seconds: Option<i32> // NEW ARGUMENT for recording duration
+    duration_seconds: Option<i32>, // NEW ARGUMENT for recording duration
+    timezone: Option<String> // NEW ARGUMENT for user timezone
 ) -> Result<String, String> {
     // Starting transcription
 
@@ -243,7 +244,8 @@ pub async fn transcribe_audio_file(
         effective_auto_paste, 
         user_id_opt,      // Pass new argument
         access_token_opt,  // Pass new argument
-        duration_seconds  // Pass duration
+        duration_seconds,  // Pass duration
+        timezone          // Pass timezone
     ).await;
     println!("[RUST DEBUG] transcribe_local_audio_impl completed. Success? {}", result.is_ok());
     
@@ -257,9 +259,11 @@ pub async fn transcribe_local_audio_impl(
     auto_paste: bool, // Renamed parameter to match command
     user_id_opt: Option<String>,    // NEW ARGUMENT
     access_token_opt: Option<String>, // NEW ARGUMENT
-    duration_seconds: Option<i32> // NEW ARGUMENT for recording duration
+    duration_seconds: Option<i32>, // NEW ARGUMENT for recording duration
+    timezone: Option<String> // NEW ARGUMENT for user timezone
 ) -> Result<String, String> {
     // Processing audio file
+    log::info!("[Transcription] Starting transcription with timezone: {:?}", timezone);
 
     // --- Get settings from global config (model name, language only now) ---
     let (model_name_string, language_string) = {
@@ -695,7 +699,7 @@ pub async fn transcribe_local_audio_impl(
                         &access_token, 
                         duration_seconds,
                         Some(session_id.to_string()),
-                        None // TODO: Pass user timezone from frontend
+                        timezone.clone() // Pass user timezone
                     ).await;
                     log::info!("[Transcription] Stats sync complete");
                     

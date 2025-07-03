@@ -8,6 +8,7 @@ import { toast } from "react-hot-toast";
 import { supabase } from '@/lib/supabaseClient';
 import { emit } from '@tauri-apps/api/event';
 import { useSubscription } from '@/hooks/useSubscription';
+import { getUserTimezone } from '@/utils/timezone';
 
 interface StateUpdatePayload {
     state: RecordingState | string;
@@ -622,7 +623,8 @@ function PillPage() {
                             args: { 
                                 auto_paste: event.payload, 
                                 user_id: authUserId, // Use the extracted user ID
-                                access_token: authAccessToken // Pass the actual access token
+                                access_token: authAccessToken, // Pass the actual access token
+                                timezone: getUserTimezone() // Pass user timezone
                             }
                         });
                         handleTranscriptionResult(stopPromise); 

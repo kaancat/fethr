@@ -34,6 +34,7 @@ pub struct StopRecordingPayloadArgs {
     auto_paste: bool,
     user_id: Option<String>,    // Optional: User might not be logged in
     access_token: Option<String>, // Optional: User might not be logged in
+    timezone: Option<String>, // Optional: User timezone
 }
 
 #[derive(Deserialize, Debug)]
@@ -255,7 +256,8 @@ pub async fn stop_backend_recording(
     args: StopRecordingPayloadArgs,
 ) -> Result<String, String> {
     info!("[RUST AUDIO STOP] Received stop command. Payload: {:?}", args);
-    info!("[RUST AUDIO STOP] User ID: {:?}, Access Token present: {}", args.user_id, args.access_token.is_some());
+    info!("[RUST AUDIO STOP] User ID: {:?}, Access Token present: {}, Timezone: {:?}", 
+        args.user_id, args.access_token.is_some(), args.timezone);
 
     // Get auto_paste setting from config if needed
     let effective_auto_paste = {
@@ -410,6 +412,7 @@ pub async fn stop_backend_recording(
                 args.user_id,      // New argument
                 args.access_token, // New argument
                 Some(recording_duration_seconds), // Pass the duration
+                args.timezone,     // Pass timezone
             )
             .await;
 
