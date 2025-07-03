@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, TrendingUp, Clock, Zap, Copy, Info } from 'lucide-react';
+import { Loader2, TrendingUp, Clock, Zap, Copy, Info, RefreshCw } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { HistoryEntry } from '../types';
 import { supabase } from '@/lib/supabaseClient';
@@ -33,6 +33,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
   const { toast } = useToast();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [userName, setUserName] = useState<string>('');
   const lastUpdateTimeRef = useRef(0);
 
@@ -49,6 +50,8 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
       lastUpdateTimeRef.current = now;
       if (!skipLoadingState) {
         setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
       }
       
       // Only load stats if user is authenticated
@@ -105,6 +108,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
       if (!skipLoadingState) {
         setIsLoading(false);
       }
+      setIsRefreshing(false);
     }
   }, [toast, user]);
 
@@ -125,7 +129,7 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
         unlistenWordUsage = await listen('word_usage_updated', () => {
           console.log('[HomePage] Word usage updated, refreshing data...');
           // Delay to ensure all backend processing is complete
-          setTimeout(() => loadDashboardData(true), 1500); // Skip loading state
+          setTimeout(() => loadDashboardData(true), 2500); // Skip loading state, increased delay
         });
       } catch (error) {
         console.error('[HomePage] Failed to setup event listeners:', error);
@@ -137,6 +141,20 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
     return () => {
       unlistenWordUsage?.();
     };
+  }, [loadDashboardData]);
+
+  // Add keyboard shortcut for manual refresh (Ctrl+R or Cmd+R)
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault();
+        console.log('[HomePage] Manual refresh triggered');
+        loadDashboardData(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
   }, [loadDashboardData]);
 
 
@@ -212,8 +230,11 @@ function HomePage({ user, loadingAuth }: HomePageProps) {
           <div className="mb-6 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-semibold text-white mb-2">
+                <h1 className="text-3xl font-semibold text-white mb-2 flex items-center gap-3">
                   {getGreeting()}, {userName}
+                  {isRefreshing && (
+                    <RefreshCw className="h-5 w-5 text-neutral-400 animate-spin" />
+                  )}
                 </h1>
                 <p className="text-neutral-400">
                   Hold down <span className="text-neutral-300">fn</span> and speak into any textbox
