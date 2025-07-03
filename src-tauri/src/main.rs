@@ -1380,21 +1380,27 @@ async fn get_dashboard_stats_with_auth(
         Ok(Ok(resp)) => {
             let status = resp.status();
             if status.is_success() {
-                match resp.json::<DatabaseStats>().await {
-                    Ok(db_stats) => {
-                        println!("[RUST CMD] Got stats from database - total_words: {}, streak: {}", 
-                            db_stats.total_words, db_stats.daily_streak);
-                        
-                        return Ok(DashboardStats {
-                            total_words: db_stats.total_words as usize,
-                            total_transcriptions: db_stats.total_transcriptions as usize,
-                            daily_streak: db_stats.daily_streak as usize,  // Changed from weekly_streak
-                            today_words: db_stats.today_words as usize,
-                            average_words_per_session: db_stats.average_words_per_session as usize,
-                            dictionary_size,
-                            most_active_hour: db_stats.most_active_hour as usize,
-                            recent_transcriptions,
-                        });
+                // Supabase RPC functions that return TABLE are wrapped in an array
+                match resp.json::<Vec<DatabaseStats>>().await {
+                    Ok(stats_array) => {
+                        if let Some(db_stats) = stats_array.first() {
+                            println!("[RUST CMD] Got stats from database - total_words: {}, streak: {}", 
+                                db_stats.total_words, db_stats.daily_streak);
+                            
+                            return Ok(DashboardStats {
+                                total_words: db_stats.total_words as usize,
+                                total_transcriptions: db_stats.total_transcriptions as usize,
+                                daily_streak: db_stats.daily_streak as usize,  // Changed from weekly_streak
+                                today_words: db_stats.today_words as usize,
+                                average_words_per_session: db_stats.average_words_per_session as usize,
+                                dictionary_size,
+                                most_active_hour: db_stats.most_active_hour as usize,
+                                recent_transcriptions,
+                            });
+                        } else {
+                            println!("[RUST CMD] Database stats response was empty array");
+                            // Fall through to calculate from history
+                        }
                     }
                     Err(e) => {
                         println!("[RUST CMD] Failed to parse database stats response: {}", e);
