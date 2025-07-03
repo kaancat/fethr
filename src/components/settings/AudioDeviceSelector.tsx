@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { RefreshCw, Mic, Volume2 } from 'lucide-react';
+import { RefreshCw, Mic, Volume2, Check } from 'lucide-react';
 
 interface AudioDeviceInfo {
   id: string;
@@ -155,16 +155,26 @@ const AudioDeviceSelector: React.FC<AudioDeviceSelectorProps> = ({
             >
               <SelectValue placeholder={devices.length === 0 ? "No devices found" : "Select microphone"} />
             </SelectTrigger>
-            <SelectContent className="bg-[#0b0719] border-[#8A2BE2]/30 text-white">
+            <SelectContent 
+              align="start"
+              alignOffset={-1}
+              sideOffset={4}
+              className="bg-[#0b0719] border-[#8A2BE2]/30 text-white [&_.p-1]:!p-0"
+            >
               {devices.map(device => (
                 <SelectItem 
                   key={device.id} 
                   value={device.id} 
-                  className="focus:bg-[#8A2BE2]/20 text-white cursor-pointer"
+                  className="focus:bg-[#8A2BE2]/20 text-white cursor-pointer hover:bg-[#8A2BE2]/10 px-3 py-2 first:mt-1 last:mb-1"
                 >
-                  <div className="flex items-center space-x-2">
-                    {getDeviceIcon(device)}
-                    <span>{getDeviceDisplayName(device)}</span>
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center space-x-2">
+                      {getDeviceIcon(device)}
+                      <span>{getDeviceDisplayName(device)}</span>
+                    </div>
+                    {selectedDevice === device.id && (
+                      <Check className="w-4 h-4 text-[#87CEFA] ml-2" />
+                    )}
                   </div>
                 </SelectItem>
               ))}
@@ -187,17 +197,9 @@ const AudioDeviceSelector: React.FC<AudioDeviceSelectorProps> = ({
           No audio input devices found. Please check your microphone connection.
         </p>
       ) : (
-        <div className="text-xs text-neutral-500 space-y-1">
-          <p>{devices.length} device{devices.length !== 1 ? 's' : ''} available</p>
-          {selectedDevice && (
-            <div className="flex items-center space-x-1">
-              <span>Selected:</span>
-              <span className="text-white font-medium">
-                {devices.find(d => d.id === selectedDevice)?.name || 'Unknown'}
-              </span>
-            </div>
-          )}
-        </div>
+        <p className="text-xs text-neutral-500">
+          {devices.length} device{devices.length !== 1 ? 's' : ''} available
+        </p>
       )}
     </div>
   );

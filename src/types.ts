@@ -36,6 +36,13 @@ export interface AudioSettings {
   auto_gain_control: boolean;
 }
 
+export interface SoundSettings {
+  enabled: boolean;
+  volume: number;
+  start_sound?: string;
+  stop_sound?: string;
+}
+
 export interface AppSettings {
   model_name: string;
   language: string;
@@ -50,6 +57,7 @@ export interface AppSettings {
   pill_position: PillPosition;
   pill_draggable: boolean;
   audio: AudioSettings;
+  sounds: SoundSettings;
 }
 
 // History entry for transcription results

@@ -35,6 +35,14 @@ pub struct AudioSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SoundSettings {
+    pub enabled: bool,                    // Whether sounds are enabled
+    pub volume: f32,                      // Volume level (0.0 - 1.0)
+    pub start_sound: Option<String>,      // Path to start recording sound
+    pub stop_sound: Option<String>,       // Path to stop recording sound
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     #[serde(default = "default_model_name")]
     pub model_name: String,
@@ -56,6 +64,8 @@ pub struct AppSettings {
     pub pill_draggable: bool,
     #[serde(default = "default_audio_settings")]
     pub audio: AudioSettings,
+    #[serde(default = "default_sound_settings")]
+    pub sounds: SoundSettings,
 }
 
 /// Settings for fuzzy dictionary correction
@@ -119,6 +129,15 @@ fn default_audio_settings() -> AudioSettings {
     }
 }
 
+fn default_sound_settings() -> SoundSettings {
+    SoundSettings {
+        enabled: true,                   // Sounds enabled by default
+        volume: 0.5,                     // 50% volume
+        start_sound: Some("start.mp3".to_string()),
+        stop_sound: Some("stop.mp3".to_string()),
+    }
+}
+
 fn default_fuzzy_enabled() -> bool {
     true // Enable by default for better user experience 
 }
@@ -164,6 +183,7 @@ impl Default for AppSettings {
             pill_position: default_pill_position(),
             pill_draggable: default_pill_draggable(),
             audio: default_audio_settings(),
+            sounds: default_sound_settings(),
         }
     }
 }

@@ -68,7 +68,8 @@
       },
       "resources": [
         "vendor/models",
-        "config.default.toml"
+        "config.default.toml",
+        "resources/sounds"
       ],
       "shortDescription": "Voice transcription app",
       "targets": "all",

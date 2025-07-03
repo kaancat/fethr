@@ -43,12 +43,14 @@ mod user_statistics; // User statistics tracking for Supabase
 mod audio_devices; // Audio device management
 mod auth_manager; // Authentication and token management
 mod stats_queue; // Statistics queue for batching updates
+mod sound_player; // Sound effects player
+mod sound_commands; // Sound-related commands
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules
 pub use config::AppSettings; // Export AppSettings for use by other modules
 pub use config::PillPosition; // Export PillPosition enum
-pub use config::{AudioDeviceInfo, AudioSettings}; // Export audio types
+pub use config::{AudioDeviceInfo, AudioSettings, SoundSettings}; // Export audio types
 
 // Import necessary types from submodules
 use crate::transcription::TranscriptionState; // Make sure TranscriptionState is pub in transcription.rs
@@ -480,11 +482,25 @@ fn process_hotkey_event(event: HotkeyEvent, app_handle: &AppHandle) {
              let payload = StateUpdatePayload { state: FrontendRecordingState::Recording, ..Default::default() };
              emit_state_update(app_handle, payload);
              emit_start_recording(app_handle);
+             
+             // Play start sound
+             if let Ok(player_guard) = sound_player::SOUND_PLAYER.lock() {
+                 if let Some(player) = player_guard.as_ref() {
+                     player.play_start_sound(app_handle);
+                 }
+             }
          }
          PostEventAction::StopAndTranscribeAndEmitUi => {
              let payload = StateUpdatePayload { state: FrontendRecordingState::Transcribing, ..Default::default() };
              emit_state_update(app_handle, payload);
              emit_stop_transcribe(app_handle);
+             
+             // Play stop sound
+             if let Ok(player_guard) = sound_player::SOUND_PLAYER.lock() {
+                 if let Some(player) = player_guard.as_ref() {
+                     player.play_stop_sound(app_handle);
+                 }
+             }
          }
          PostEventAction::UpdateUiOnly => { // LockedRecording
              let payload = StateUpdatePayload { state: FrontendRecordingState::LockedRecording, ..Default::default() };
@@ -670,6 +686,16 @@ fn main() {
             }
             println!("[RUST SETUP] Word Usage Tracker initialized.");
             // --- End Word Usage Tracker Init ---
+            
+            // --- Initialize Sound Player ---
+            println!("[RUST SETUP] Initializing Sound Player...");
+            if let Err(e) = sound_player::initialize_sound_player() {
+                println!("[RUST SETUP] Warning: Sound player initialization failed: {}", e);
+                // Continue without sound support
+            } else {
+                println!("[RUST SETUP] Sound Player initialized successfully.");
+            }
+            // --- End Sound Player Init ---
 
             // --- Debug Window Handles (Final Correction) ---
             // Checking window handles
@@ -1026,7 +1052,9 @@ fn main() {
             // New command
             resize_pill_window,
             // User statistics
-            user_statistics::get_user_statistics
+            user_statistics::get_user_statistics,
+            // Sound commands
+            sound_commands::get_sound_info
         ])
         .run(context)
         .expect("Error while running Fethr application");

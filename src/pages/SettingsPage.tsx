@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, RefreshCw } from 'lucide-react';
+import { GradientSlider } from "@/components/ui/gradient-slider";
+import { Loader2, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import TextareaAutosize from 'react-textarea-autosize';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
@@ -92,6 +93,10 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
     
     // Audio device state
     const [selectedAudioDevice, setSelectedAudioDevice] = useState<string | null>(null);
+    
+    // Sound settings state
+    const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+    const [soundVolume, setSoundVolume] = useState<number>(0.5);
 
     // Placeholder for About content - Define outside component or fetch if needed
     const aboutContent = {
@@ -126,6 +131,12 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                 
                 // Set selected audio device from settings
                 setSelectedAudioDevice(settingsResult.audio?.selected_input_device || null);
+                
+                // Set sound settings
+                if (settingsResult.sounds) {
+                    setSoundEnabled(settingsResult.sounds.enabled);
+                    setSoundVolume(settingsResult.sounds.volume);
+                }
             } catch (err) {
                 console.error('Error loading settings:', err);
                 const errorMsg = err instanceof Error ? err.message : String(err);
@@ -258,6 +269,34 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
             audio: {
                 ...prev.audio,
                 selected_input_device: deviceId
+            }
+        } : null);
+    };
+
+    const handleSoundEnabledChange = (enabled: boolean) => {
+        console.log(`[SettingsPage] Sound enabled changed to: ${enabled}`);
+        setSoundEnabled(enabled);
+        
+        // Update the settings state
+        setSettings(prev => prev ? {
+            ...prev,
+            sounds: {
+                ...prev.sounds,
+                enabled
+            }
+        } : null);
+    };
+
+    const handleSoundVolumeChange = (volume: number) => {
+        console.log(`[SettingsPage] Sound volume changed to: ${volume}`);
+        setSoundVolume(volume);
+        
+        // Update the settings state
+        setSettings(prev => prev ? {
+            ...prev,
+            sounds: {
+                ...prev.sounds,
+                volume
             }
         } : null);
     };
@@ -849,6 +888,47 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                             selectedDevice={selectedAudioDevice}
                                             disabled={isLoading || isSaving}
                                         />
+                                        
+                                        {/* Sound Effects Settings */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="space-y-0.5">
+                                                    <Label htmlFor="sound-effects" className="text-sm font-medium">Recording Sounds</Label>
+                                                    <p className="text-xs text-neutral-500">Play sounds when starting and stopping recording</p>
+                                                </div>
+                                                <Switch
+                                                    id="sound-effects"
+                                                    checked={soundEnabled}
+                                                    onCheckedChange={handleSoundEnabledChange}
+                                                    disabled={isLoading || isSaving}
+                                                />
+                                            </div>
+                                            
+                                            {soundEnabled && (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label htmlFor="sound-volume" className="text-sm">Volume</Label>
+                                                        <span className="text-xs text-neutral-500 min-w-[40px] text-right">
+                                                            {Math.round(soundVolume * 100)}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <VolumeX className="h-4 w-4 text-[#8A2BE2]" />
+                                                        <GradientSlider
+                                                            id="sound-volume"
+                                                            value={[soundVolume]}
+                                                            onValueChange={([value]) => handleSoundVolumeChange(value)}
+                                                            max={1}
+                                                            min={0}
+                                                            step={0.05}
+                                                            className="flex-1"
+                                                            disabled={isLoading || isSaving}
+                                                        />
+                                                        <Volume2 className="h-4 w-4 text-[#DA70D6]" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
