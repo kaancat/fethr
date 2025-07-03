@@ -87,13 +87,12 @@ struct UserStatsData {
 
 #[derive(Debug, Deserialize)]
 struct DatabaseStats {
-    total_words: serde_json::Value,
-    total_transcriptions: serde_json::Value,
+    total_words: i64,
+    total_transcriptions: i64,
     daily_streak: i32,
-    today_words: serde_json::Value,
-    average_words_per_session: serde_json::Value,
+    today_words: i64,
+    average_words_per_session: i64,
     most_active_hour: i32,
-    hour_distribution: Option<Vec<serde_json::Value>>,
 }
 
 // --- ADD AI Action Structs ---
@@ -1305,27 +1304,6 @@ async fn get_dashboard_stats(app_handle: AppHandle) -> Result<DashboardStats, St
 }
 // --- END Dashboard Stats Command ---
 
-// Helper function to parse JSON numeric values from Supabase
-// Handles both direct numbers and string representations
-fn parse_json_number(value: &serde_json::Value) -> i64 {
-    match value {
-        // Try as direct number first
-        serde_json::Value::Number(n) => n.as_i64().unwrap_or(0),
-        // Try as string that contains a number
-        serde_json::Value::String(s) => s.parse::<i64>().unwrap_or(0),
-        // For objects (Supabase BigInt format), try to extract the value
-        serde_json::Value::Object(map) => {
-            // Supabase might return BigInt as {"value": "123"} or similar
-            if let Some(val) = map.get("value") {
-                parse_json_number(val)
-            } else {
-                0
-            }
-        }
-        // Default for any other type
-        _ => 0,
-    }
-}
 
 // --- Dashboard Stats with Auth Command ---
 #[tauri::command]
@@ -1410,21 +1388,20 @@ async fn get_dashboard_stats_with_auth(
                 match serde_json::from_str::<Vec<DatabaseStats>>(&response_text) {
                     Ok(stats_array) => {
                         if let Some(db_stats) = stats_array.first() {
-                            // Parse JSON values to numbers - handle both direct numbers and string representations
-                            let total_words = parse_json_number(&db_stats.total_words);
-                            let total_transcriptions = parse_json_number(&db_stats.total_transcriptions);
-                            let today_words = parse_json_number(&db_stats.today_words);
-                            let average_words_per_session = parse_json_number(&db_stats.average_words_per_session);
-                            
-                            println!("[RUST CMD] Got stats from database - total_words: {}, streak: {}", 
-                                total_words, db_stats.daily_streak);
+                            println!("[RUST CMD] Got stats from database:");
+                            println!("  - total_words: {}", db_stats.total_words);
+                            println!("  - total_transcriptions: {}", db_stats.total_transcriptions);
+                            println!("  - daily_streak: {}", db_stats.daily_streak);
+                            println!("  - today_words: {}", db_stats.today_words);
+                            println!("  - average_words_per_session: {}", db_stats.average_words_per_session);
+                            println!("  - most_active_hour: {}", db_stats.most_active_hour);
                             
                             return Ok(DashboardStats {
-                                total_words: total_words as usize,
-                                total_transcriptions: total_transcriptions as usize,
+                                total_words: db_stats.total_words as usize,
+                                total_transcriptions: db_stats.total_transcriptions as usize,
                                 daily_streak: db_stats.daily_streak as usize,
-                                today_words: today_words as usize,
-                                average_words_per_session: average_words_per_session as usize,
+                                today_words: db_stats.today_words as usize,
+                                average_words_per_session: db_stats.average_words_per_session as usize,
                                 dictionary_size,
                                 most_active_hour: db_stats.most_active_hour as usize,
                                 recent_transcriptions,
