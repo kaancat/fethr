@@ -45,6 +45,7 @@ mod auth_manager; // Authentication and token management
 mod stats_queue; // Statistics queue for batching updates
 mod sound_player; // Sound effects player
 mod sound_commands; // Sound-related commands
+mod smart_formatter; // Smart text formatting and structure detection
 
 // Export modules for cross-file references
 pub use config::SETTINGS; // Export SETTINGS for use by other modules

@@ -825,6 +825,23 @@ function SettingsPage({ user, loadingAuth }: SettingsPageProps) {
                                         />
                                     ) : <p className="text-gray-400">...</p>}
                                 </div>
+
+                                {/* Smart Formatting Toggle */}
+                                <div className="flex items-center justify-between space-x-2 pt-2">
+                                    <Label htmlFor="smart-formatting-switch" className="text-gray-300 flex flex-col">
+                                        <span>Smart Formatting</span>
+                                        <span className="text-xs text-gray-400">Automatically add paragraphs and improve text structure.</span>
+                                    </Label>
+                                    {settings ? (
+                                        <Switch
+                                            id="smart-formatting-switch"
+                                            checked={settings.smart_formatting?.enabled ?? true}
+                                            onCheckedChange={(checked: boolean) => handleSettingChange('smart_formatting', { ...settings.smart_formatting, enabled: checked })}
+                                            disabled={isLoading || isSaving}
+                                            className="data-[state=checked]:bg-[#8A2BE2]/80 data-[state=unchecked]:bg-gray-600"
+                                        />
+                                    ) : <p className="text-gray-400">...</p>}
+                                </div>
                                 
                                 {/* Appearance Settings */}
                                 <div className="pt-6 mt-6 border-t border-neutral-800">

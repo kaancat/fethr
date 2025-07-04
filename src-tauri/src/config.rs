@@ -42,6 +42,17 @@ pub struct SoundSettings {
     pub stop_sound: Option<String>,       // Path to stop recording sound
 }
 
+/// Settings for smart text formatting
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SmartFormattingSettings {
+    #[serde(default = "default_smart_formatting_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_paragraph_detection")]
+    pub paragraph_detection: bool,
+    #[serde(default = "default_list_detection")]
+    pub list_detection: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     #[serde(default = "default_model_name")]
@@ -66,6 +77,8 @@ pub struct AppSettings {
     pub audio: AudioSettings,
     #[serde(default = "default_sound_settings")]
     pub sounds: SoundSettings,
+    #[serde(default = "default_smart_formatting")]
+    pub smart_formatting: SmartFormattingSettings,
 }
 
 /// Settings for fuzzy dictionary correction
@@ -158,6 +171,22 @@ fn default_fuzzy_correction_log() -> bool {
     false // Logging disabled by default
 }
 
+fn default_smart_formatting() -> SmartFormattingSettings {
+    SmartFormattingSettings::default()
+}
+
+fn default_smart_formatting_enabled() -> bool {
+    true // Enabled by default
+}
+
+fn default_paragraph_detection() -> bool {
+    true // Enabled by default
+}
+
+fn default_list_detection() -> bool {
+    false // Start conservative - disabled by default
+}
+
 impl Default for FuzzyCorrectionSettings {
     fn default() -> Self {
         Self {
@@ -166,6 +195,16 @@ impl Default for FuzzyCorrectionSettings {
             max_corrections_per_text: default_fuzzy_max_corrections(),
             preserve_original_case: default_fuzzy_preserve_case(),
             correction_log_enabled: default_fuzzy_correction_log(),
+        }
+    }
+}
+
+impl Default for SmartFormattingSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_smart_formatting_enabled(),
+            paragraph_detection: default_paragraph_detection(),
+            list_detection: default_list_detection(),
         }
     }
 }
@@ -184,6 +223,7 @@ impl Default for AppSettings {
             pill_draggable: default_pill_draggable(),
             audio: default_audio_settings(),
             sounds: default_sound_settings(),
+            smart_formatting: default_smart_formatting(),
         }
     }
 }

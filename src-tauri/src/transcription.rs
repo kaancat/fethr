@@ -16,6 +16,7 @@ use chrono::{DateTime, Utc}; // For timestamp in history entries
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
 use crate::dictionary_manager;
+use crate::smart_formatter::{SmartFormatter, FormattedText};
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 
@@ -579,8 +580,31 @@ pub async fn transcribe_local_audio_impl(
     // Process the result
     if exit_status.success() {
         // Process the output
-        let trimmed_output = whisper_output_trim(&stdout_text, &app_handle);
-        println!("[RUST DEBUG] Transcription successful. Result: {}", trimmed_output);
+        let mut trimmed_output = whisper_output_trim(&stdout_text, &app_handle);
+        println!("[RUST DEBUG] Transcription successful. Raw result: {}", trimmed_output);
+        
+        // Apply smart formatting if enabled
+        let smart_formatting_enabled = {
+            let settings_guard = SETTINGS.lock().unwrap();
+            settings_guard.smart_formatting.enabled
+        };
+        
+        if smart_formatting_enabled {
+            let formatter = SmartFormatter::new();
+            let formatted = formatter.format(&trimmed_output);
+            
+            // Log formatting changes for debugging
+            if !formatted.formatting_applied.is_empty() {
+                println!("[RUST DEBUG] Smart formatting applied {} changes", formatted.formatting_applied.len());
+                for change in &formatted.formatting_applied {
+                    println!("[RUST DEBUG] - {} at position {} (confidence: {})", 
+                        change.change_type, change.position, change.confidence);
+                }
+            }
+            
+            trimmed_output = formatted.text;
+            println!("[RUST DEBUG] After smart formatting: {}", trimmed_output);
+        }
         
         // Track dictionary word usage for smart prompt rotation
         if !dictionary_words.is_empty() {

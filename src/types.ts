@@ -43,6 +43,12 @@ export interface SoundSettings {
   stop_sound?: string;
 }
 
+export interface SmartFormattingSettings {
+  enabled: boolean;
+  paragraph_detection: boolean;
+  list_detection: boolean;
+}
+
 export interface AppSettings {
   model_name: string;
   language: string;
@@ -58,6 +64,7 @@ export interface AppSettings {
   pill_draggable: boolean;
   audio: AudioSettings;
   sounds: SoundSettings;
+  smart_formatting: SmartFormattingSettings;
 }
 
 // History entry for transcription results

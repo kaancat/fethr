@@ -46,6 +46,8 @@ directories = "5.0"      # For finding standard config/data directories
 toml = "0.8"             # For parsing TOML config files
 once_cell = "1.19"       # For ensuring config is loaded only once safely
 rodio = { version = "0.17", default-features = false, features = ["mp3"] } # For sound playback
+regex = "1.10"           # For pattern matching in smart formatter
+tongrams = "0.3"         # For n-gram language models
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
