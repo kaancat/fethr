@@ -16,7 +16,7 @@ use chrono::{DateTime, Utc}; // For timestamp in history entries
 use serde_json;
 use crate::get_history_path; // <-- IMPORT the helper from main.rs
 use crate::dictionary_manager;
-use crate::smart_formatter::{SmartFormatter, FormattedText};
+use crate::smart_formatter::{SmartFormatter};
 
 // REMOVED: use crate::{write_to_clipboard_internal, paste_text_to_cursor};
 

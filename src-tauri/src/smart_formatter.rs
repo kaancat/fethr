@@ -1,54 +1,17 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use once_cell::sync::Lazy;
-use tongrams::EliasFanoTrieCountLm;
-use std::sync::Arc;
-use std::path::Path;
-use log::{info, warn, error};
+use log::{info};
 
 /// Main smart formatter that handles text formatting enhancements
 pub struct SmartFormatter {
     enabled: bool,
-    paragraph_detection: bool,
-    list_detection: bool,
-    confidence_threshold: f64,
-    ngram_model: Option<Arc<EliasFanoTrieCountLm>>, // Optional n-gram model
+    filler_removal: bool,
+    remove_phrases: bool, // Remove multi-word fillers like "you know"
+    remove_sentence_starters: bool, // Remove "So," "Well," at sentence start
+    preserve_meaning: bool, // Be conservative to avoid changing meaning
 }
 
-/// Confidence levels for formatting decisions
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FormatConfidence {
-    High,
-    Medium, 
-    Low,
-}
-
-/// Types of content detected
-#[derive(Debug, Clone, PartialEq)]
-pub enum ContentType {
-    Conversation,
-    Monologue,
-    List,
-    Notes,
-    Unknown,
-}
-
-/// Formatting decision with confidence
-#[derive(Debug, Clone)]
-pub struct FormatDecision {
-    pub format_type: FormatType,
-    pub confidence: FormatConfidence,
-    pub reason: String,
-}
-
-/// Types of formatting to apply
-#[derive(Debug, Clone, PartialEq)]
-pub enum FormatType {
-    ParagraphBreak,
-    NumberedList,
-    BulletList,
-    None,
-}
 
 /// Result of formatting with tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,73 +31,72 @@ pub struct FormatChange {
     pub can_undo: bool,
 }
 
-// Lazy static regex patterns for efficiency
-static SENTENCE_END_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"([.!?])\s+([A-Z])").unwrap()
+// Filler word patterns for removal
+static FILLER_WORD_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    // Match common filler words with word boundaries
+    // (?i) makes it case-insensitive
+    Regex::new(r"(?i)\b(um+|uh+|ah+|er+|erm+|hmm+)\b").unwrap()
 });
 
-static TRANSITION_WORD_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\.\s+(So|Now|Next|First|Second|Finally|However|Therefore|Additionally)\s+").unwrap()
+// Simplified filler phrase patterns - separate patterns for clarity
+static FILLER_YOU_KNOW: Lazy<Regex> = Lazy::new(|| {
+    // Match "you know" only when followed by comma
+    Regex::new(r"(?i)\byou\s+know\s*,").unwrap()
 });
 
-static LIST_MARKER_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(First|Firstly|Second|Secondly|Third|Thirdly|Next|Then|Also|Additionally),?\s+").unwrap()
+static FILLER_I_MEAN: Lazy<Regex> = Lazy::new(|| {
+    // Match "I mean" at start or with comma
+    Regex::new(r"(?i)(?:^|[.!?]\s+)I\s+mean\s*,|,\s*I\s+mean\s*,").unwrap()
+});
+
+static FILLER_SORT_KIND: Lazy<Regex> = Lazy::new(|| {
+    // Match "sort of" and "kind of" with comma
+    Regex::new(r"(?i)\b(?:sort|kind)\s+of\s*,").unwrap()
+});
+
+static FILLER_LIKE: Lazy<Regex> = Lazy::new(|| {
+    // Match "like" as a filler (with comma or in specific contexts)
+    Regex::new(r"(?i)(?:\blike\s*,|,\s*like\s*,|\bshould\s+like\s+(?:get|go|do|try|start))").unwrap()
+});
+
+// Additional patterns for common cases without commas
+static FILLER_YOU_KNOW_NO_COMMA: Lazy<Regex> = Lazy::new(|| {
+    // Match "you know" without comma only at end of sentence or before certain transitions
+    Regex::new(r"(?i)\byou\s+know\s+(?:the|it|that|this|they|we)\b").unwrap()
+});
+
+// Protected phrases that should never be broken
+static PROTECTED_PHRASES: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:you\s+know\s+what\s+I\s+mean|you\s+know\s+what|you\s+know\s+how|you\s+know\s+why|you\s+know\s+when|you\s+know\s+where|what\s+I\s+mean\s+(?:by|when|is)|I\s+mean\s+it|I\s+mean\s+that)").unwrap()
+});
+
+static SENTENCE_START_FILLER: Lazy<Regex> = Lazy::new(|| {
+    // Match fillers at sentence start (after period or at beginning)
+    Regex::new(r"(?i)(^|\. )(So|Well|Actually|Basically|Literally|Like|Just|Okay|Alright|Right),?\s+").unwrap()
 });
 
 impl SmartFormatter {
     pub fn new() -> Self {
-        let mut formatter = Self {
-            enabled: true,
-            paragraph_detection: true,
-            list_detection: false, // Start conservative
-            confidence_threshold: 0.8,
-            ngram_model: None,
-        };
-        
-        // Try to load n-gram model if available
-        formatter.try_load_ngram_model();
-        formatter
-    }
-
-    /// Create formatter with n-gram model for enhanced detection
-    pub fn with_ngram_model(model: Arc<EliasFanoTrieCountLm>) -> Self {
         Self {
             enabled: true,
-            paragraph_detection: true,
-            list_detection: false,
-            confidence_threshold: 0.8,
-            ngram_model: Some(model),
+            filler_removal: true,
+            remove_phrases: true,
+            remove_sentence_starters: true,
+            preserve_meaning: true,
+        }
+    }
+
+    /// Create formatter with custom settings
+    pub fn with_settings(filler_removal: bool, remove_phrases: bool, remove_starters: bool) -> Self {
+        Self {
+            enabled: true,
+            filler_removal,
+            remove_phrases,
+            remove_sentence_starters: remove_starters,
+            preserve_meaning: true,
         }
     }
     
-    /// Try to load the n-gram model from resources
-    fn try_load_ngram_model(&mut self) {
-        // Try multiple possible locations for the model
-        let possible_paths = vec![
-            Path::new("resources/ngram_model.bin"),
-            Path::new("../resources/ngram_model.bin"),
-            Path::new("src-tauri/resources/ngram_model.bin"),
-            // In production, the model might be in the app's resource directory
-            Path::new("./ngram_model.bin"),
-        ];
-        
-        for path in possible_paths {
-            if path.exists() {
-                match EliasFanoTrieCountLm::deserialize_from(path) {
-                    Ok(model) => {
-                        info!("Successfully loaded n-gram model from {:?}", path);
-                        self.ngram_model = Some(Arc::new(model));
-                        return;
-                    }
-                    Err(e) => {
-                        warn!("Failed to load n-gram model from {:?}: {}", path, e);
-                    }
-                }
-            }
-        }
-        
-        info!("No n-gram model found, using rule-based formatting only");
-    }
 
     /// Main formatting entry point
     pub fn format(&self, text: &str) -> FormattedText {
@@ -154,51 +116,15 @@ impl SmartFormatter {
             lists_detected: 0,
         };
 
-        // Find quoted regions to protect
-        let quoted_regions = self.find_quoted_regions(&result.text);
-
-        // Apply formatting based on enabled features
-        if self.paragraph_detection {
-            result = self.apply_paragraph_breaks(result, &quoted_regions);
-        }
-
-        if self.list_detection {
-            result = self.apply_list_formatting(result, &quoted_regions);
+        // Apply filler removal if enabled
+        if self.filler_removal {
+            result = self.remove_filler_words(result);
         }
 
         result
     }
 
-    /// Detect content type for appropriate formatting
-    fn detect_content_type(&self, text: &str) -> ContentType {
-        let sentences: Vec<&str> = text.split(". ").collect();
-        
-        if sentences.is_empty() {
-            return ContentType::Unknown;
-        }
-
-        let avg_length = sentences.iter()
-            .map(|s| s.len())
-            .sum::<usize>() / sentences.len().max(1);
-        
-        let question_count = text.matches('?').count();
-        let list_markers = LIST_MARKER_PATTERN.find_iter(text).count();
-
-        // Detection logic with safety checks
-        if list_markers >= 2 && sentences.len() >= 3 {
-            ContentType::List
-        } else if question_count > 2 && sentences.len() > 5 {
-            ContentType::Conversation
-        } else if avg_length > 50 && sentences.len() > 3 {
-            ContentType::Monologue
-        } else if avg_length < 20 {
-            ContentType::Notes
-        } else {
-            ContentType::Unknown
-        }
-    }
-
-    /// Find regions within quotes to avoid formatting
+    /// Find regions within quotes to avoid formatting (unused but kept for future)
     fn find_quoted_regions(&self, text: &str) -> Vec<(usize, usize)> {
         let mut regions = Vec::new();
         let mut in_quote = false;
@@ -223,220 +149,252 @@ impl SmartFormatter {
     fn is_in_quotes(&self, position: usize, quoted_regions: &[(usize, usize)]) -> bool {
         quoted_regions.iter().any(|(start, end)| position >= *start && position <= *end)
     }
+    
+    /// Find regions that contain protected phrases
+    fn find_protected_regions(&self, text: &str) -> Vec<(usize, usize)> {
+        let mut regions = Vec::new();
+        
+        for mat in PROTECTED_PHRASES.find_iter(text) {
+            regions.push((mat.start(), mat.end()));
+        }
+        
+        regions
+    }
 
-    /// Apply paragraph breaks with conservative detection
-    fn apply_paragraph_breaks(&self, mut result: FormattedText, quoted_regions: &[(usize, usize)]) -> FormattedText {
-        let mut new_text = String::new();
-        let mut last_end = 0;
-        let mut changes = result.formatting_applied;
-
-        // Find potential paragraph break positions
-        for mat in TRANSITION_WORD_PATTERN.find_iter(&result.text) {
-            let pos = mat.start();
-            
-            // Skip if in quotes
-            if self.is_in_quotes(pos, quoted_regions) {
-                continue;
+    /// Remove filler words from text with context awareness
+    fn remove_filler_words(&self, mut result: FormattedText) -> FormattedText {
+        println!("[SMART FORMATTER] Starting filler removal on text ({} chars)", result.text.len());
+        println!("[SMART FORMATTER] Input text: '{}'", result.text);
+        info!("[SMART FORMATTER] Starting filler removal on text ({} chars)", result.text.len());
+        info!("[SMART FORMATTER] Input text: '{}'", result.text);
+        
+        let mut text = result.text.clone();
+        let mut removals = 0;
+        
+        // Remove basic filler words (um, uh, ah, etc.)
+        if self.filler_removal {
+            let matches_count = FILLER_WORD_PATTERN.find_iter(&text).count();
+            if matches_count > 0 {
+                info!("[SMART FORMATTER] Removing {} basic fillers", matches_count);
+                text = FILLER_WORD_PATTERN.replace_all(&text, "").to_string();
+                removals += matches_count;
             }
-
-            // Check confidence signals
-            let confidence = self.calculate_paragraph_confidence(&result.text, pos);
+        }
+        
+        // Remove filler phrases with proper protection checking
+        if self.remove_phrases {
+            // Build a list of all removals to process
+            let mut all_removals = Vec::new();
             
-            if confidence == FormatConfidence::High {
-                // Add text up to this point
-                new_text.push_str(&result.text[last_end..pos + 1]); // Include the period
-                new_text.push_str("\n\n");
+            // Check protected regions BEFORE collecting removals
+            let protected_regions = self.find_protected_regions(&text);
+            println!("[SMART FORMATTER] Found {} protected regions", protected_regions.len());
+            info!("[SMART FORMATTER] Found {} protected regions", protected_regions.len());
+            for (start, end) in &protected_regions {
+                println!("[SMART FORMATTER] Protected region: '{}'", &text[*start..*end]);
+                info!("[SMART FORMATTER] Protected region: '{}'", &text[*start..*end]);
+            }
+            
+            // Collect "you know," matches
+            for mat in FILLER_YOU_KNOW.find_iter(&text) {
+                let start = mat.start();
+                let end = mat.end();
+                let matched_text = mat.as_str();
                 
-                // Track the change
-                changes.push(FormatChange {
-                    change_type: "paragraph_break".to_string(),
-                    position: pos,
-                    confidence: "high".to_string(),
-                    can_undo: true,
-                });
+                // Check if any part of this match overlaps with protected regions
+                let is_protected = protected_regions.iter().any(|(p_start, p_end)| 
+                    // Check if match overlaps with protected region
+                    !(end <= *p_start || start >= *p_end)
+                );
                 
-                result.paragraphs_added += 1;
-                last_end = pos + 2; // Skip the space after period
+                if !is_protected {
+                    println!("[SMART FORMATTER] Will remove 'you know,' at position {} ('{}')", start, matched_text);
+                    info!("[SMART FORMATTER] Will remove 'you know,' at position {} ('{}')", start, matched_text);
+                    all_removals.push((start, end, "you know"));
+                } else {
+                    println!("[SMART FORMATTER] Keeping protected 'you know' at position {}", start);
+                    info!("[SMART FORMATTER] Keeping protected 'you know' at position {}", start);
+                }
             }
-        }
-
-        // Add remaining text
-        new_text.push_str(&result.text[last_end..]);
-
-        FormattedText {
-            text: new_text,
-            formatting_applied: changes,
-            paragraphs_added: result.paragraphs_added,
-            lists_detected: result.lists_detected,
-        }
-    }
-
-    /// Calculate confidence for paragraph break
-    fn calculate_paragraph_confidence(&self, text: &str, position: usize) -> FormatConfidence {
-        // Get context around position
-        let before_start = position.saturating_sub(100);
-        let before = &text[before_start..position];
-        let after_end = (position + 100).min(text.len());
-        let after = &text[position..after_end];
-
-        let mut confidence_score = 0.0;
-
-        // Check for transition word (already confirmed by regex)
-        confidence_score += 0.3;
-
-        // Check if previous sentence is complete and substantial
-        if let Some(last_sentence) = before.split(". ").last() {
-            if last_sentence.split_whitespace().count() > 10 {
-                confidence_score += 0.3;
+            
+            // Collect "I mean," matches with sentence boundary detection
+            for mat in FILLER_I_MEAN.find_iter(&text) {
+                let start = mat.start();
+                let end = mat.end();
+                let is_protected = protected_regions.iter().any(|(p_start, p_end)| 
+                    !(end <= *p_start || start >= *p_end)
+                );
+                
+                if !is_protected {
+                    // Check if the next character after removal would be uppercase
+                    let needs_period = if end < text.len() {
+                        // Skip any spaces after the match
+                        let remaining = &text[end..];
+                        let next_non_space = remaining.trim_start();
+                        !next_non_space.is_empty() && next_non_space.chars().next().unwrap().is_uppercase()
+                    } else {
+                        false
+                    };
+                    
+                    println!("[SMART FORMATTER] Will remove 'I mean,' at position {}, needs_period: {}", start, needs_period);
+                    info!("[SMART FORMATTER] Will remove 'I mean,' at position {}, needs_period: {}", start, needs_period);
+                    all_removals.push((start, end, if needs_period { "I mean+period" } else { "I mean" }));
+                }
             }
-        }
-
-        // Check if it's at a natural boundary (not mid-thought)
-        if !after.starts_with("and ") && !after.starts_with("but ") {
-            confidence_score += 0.2;
-        }
-
-        // Topic shift detection (simple version)
-        let before_words: Vec<&str> = before.split_whitespace().collect();
-        let after_words: Vec<&str> = after.split_whitespace().take(10).collect();
-        
-        // Different subject/verb patterns suggest topic change
-        if before_words.len() > 5 && after_words.len() > 5 {
-            confidence_score += 0.2;
-        }
-
-        // N-gram enhanced scoring if model is available
-        if let Some(ref model) = self.ngram_model {
-            let ngram_score = self.calculate_ngram_boundary_score(model, before, after);
-            // Give more weight to n-gram model when available (50/50 split)
-            confidence_score = confidence_score * 0.5 + ngram_score * 0.5;
             
-            // Log for debugging
-            if ngram_score > 0.7 {
-                info!("N-gram model suggests paragraph boundary (score: {:.2})", ngram_score);
+            // Collect other filler matches
+            for mat in FILLER_SORT_KIND.find_iter(&text) {
+                all_removals.push((mat.start(), mat.end(), "sort/kind of"));
             }
-        }
-
-        match confidence_score {
-            s if s >= self.confidence_threshold => FormatConfidence::High,
-            s if s >= 0.6 => FormatConfidence::Medium,
-            _ => FormatConfidence::Low,
-        }
-    }
-
-    /// Use n-gram model to calculate boundary likelihood
-    fn calculate_ngram_boundary_score(&self, model: &EliasFanoTrieCountLm, before: &str, after: &str) -> f64 {
-        // For character-level n-grams, we need to work with characters not words
-        let before_chars: Vec<char> = before.chars().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect();
-        let after_chars: Vec<char> = after.chars().take(10).collect();
-        
-        if before_chars.len() < 3 || after_chars.len() < 3 {
-            return 0.5; // Neutral score for short contexts
-        }
-        
-        // Create a lookuper for the model
-        let mut lookuper = model.lookuper();
-        
-        // Calculate perplexity across the boundary
-        let mut boundary_scores = Vec::new();
-        
-        // Test with paragraph boundary marker
-        let with_paragraph_boundary = format!("{}<P>{}", 
-            before_chars.iter().collect::<String>(),
-            after_chars.iter().collect::<String>()
-        );
-        
-        // Test without boundary (continuous text)
-        let without_boundary = format!("{} {}", 
-            before_chars.iter().collect::<String>(),
-            after_chars.iter().collect::<String>()
-        );
-        
-        // Calculate scores for trigrams around the potential boundary
-        for i in 0..=with_paragraph_boundary.len().saturating_sub(3) {
-            let trigram_with = &with_paragraph_boundary[i..i+3];
-            let trigram_without = if i < without_boundary.len() - 3 {
-                &without_boundary[i..i+3]
-            } else {
-                continue;
-            };
             
-            // Get counts for both versions
-            let count_with = lookuper.with_str(trigram_with).unwrap_or(0) as f64;
-            let count_without = lookuper.with_str(trigram_without).unwrap_or(0) as f64;
+            for mat in FILLER_LIKE.find_iter(&text) {
+                let matched = mat.as_str();
+                if matched.contains("should") && matched.contains("like") {
+                    // For "should like get" patterns, mark for special handling
+                    all_removals.push((mat.start(), mat.end(), "like-context"));
+                } else {
+                    all_removals.push((mat.start(), mat.end(), "like"));
+                }
+            }
             
-            // If boundary marker trigrams are more common, it suggests a boundary
-            if count_with > count_without {
-                boundary_scores.push(1.0);
-            } else if count_without > count_with * 2.0 {
-                boundary_scores.push(0.0); // Strong continuity signal
-            } else {
-                boundary_scores.push(0.5); // Neutral
+            // Remove "you know" without comma in specific contexts
+            for mat in FILLER_YOU_KNOW_NO_COMMA.find_iter(&text) {
+                let start = mat.start();
+                let end = mat.end();
+                
+                // Check if protected
+                let is_protected = protected_regions.iter().any(|(p_start, p_end)| 
+                    !(end <= *p_start || start >= *p_end)
+                );
+                
+                if !is_protected {
+                    all_removals.push((start, end, "you-know-context"));
+                }
+            }
+            
+            // Sort removals by position (reverse order for safe removal)
+            all_removals.sort_by(|a, b| b.0.cmp(&a.0));
+            
+            // Apply all removals with punctuation fixes
+            for (start, end, filler_type) in all_removals {
+                println!("[SMART FORMATTER] Removing '{}' at {}-{}", filler_type, start, end);
+                info!("[SMART FORMATTER] Removing '{}' at {}-{}", filler_type, start, end);
+                
+                // Special handling for different filler types
+                match filler_type {
+                    t if t.ends_with("+period") => {
+                        text.replace_range(start..end, ". ");
+                    },
+                    "like-context" => {
+                        // For "should like get", remove just " like"
+                        let original = &result.text[start..end];
+                        let replacement = original.replace(" like", "");
+                        text.replace_range(start..end, &replacement);
+                    },
+                    "you-know-context" => {
+                        // For "you know the", remove "you know "
+                        let original = &result.text[start..end];
+                        let replacement = original.replace("you know ", "").replace("You know ", "");
+                        text.replace_range(start..end, &replacement);
+                    },
+                    _ => {
+                        text.replace_range(start..end, "");
+                    }
+                }
+                removals += 1;
             }
         }
         
-        // Average the scores
-        if boundary_scores.is_empty() {
-            0.5
-        } else {
-            boundary_scores.iter().sum::<f64>() / boundary_scores.len() as f64
+        // Remove sentence starters (So, Well, etc.)
+        if self.remove_sentence_starters {
+            let matches_count = SENTENCE_START_FILLER.find_iter(&text).count();
+            if matches_count > 0 {
+                info!("[SMART FORMATTER] Removing {} sentence starters", matches_count);
+                text = SENTENCE_START_FILLER.replace_all(&text, "$1").to_string();
+                removals += matches_count;
+            }
         }
-    }
-
-    /// Apply list formatting with safety checks
-    fn apply_list_formatting(&self, mut result: FormattedText, quoted_regions: &[(usize, usize)]) -> FormattedText {
-        // Only apply if we detect list content type
-        let content_type = self.detect_content_type(&result.text);
-        if content_type != ContentType::List {
-            return result;
-        }
-
-        // Find list markers
-        let markers: Vec<_> = LIST_MARKER_PATTERN.find_iter(&result.text)
-            .filter(|m| !self.is_in_quotes(m.start(), quoted_regions))
-            .collect();
-
-        // Need at least 2 markers to be confident
-        if markers.len() < 2 {
-            return result;
-        }
-
-        // Apply numbered list formatting
-        let mut new_text = String::new();
-        let mut last_end = 0;
-        let mut list_number = 1;
-
-        result.lists_detected = 1; // We detected a list
-
-        for (i, mat) in markers.iter().enumerate() {
-            // Add text before marker
-            new_text.push_str(&result.text[last_end..mat.start()]);
-            
-            // Add list number
-            new_text.push_str(&format!("{}. ", list_number));
-            list_number += 1;
-            
-            // Track change
+        
+        // Clean up multiple spaces and fix punctuation
+        text = self.clean_after_removal(text);
+        
+        // Track changes
+        if removals > 0 {
             result.formatting_applied.push(FormatChange {
-                change_type: "list_item".to_string(),
-                position: mat.start(),
-                confidence: "high".to_string(),
-                can_undo: true,
+                change_type: "filler_removal".to_string(),
+                position: 0,
+                confidence: format!("{} removed", removals),
+                can_undo: false,
             });
-            
-            last_end = mat.end();
+            info!("[SMART FORMATTER] Removed {} filler words/phrases total", removals);
         }
-
-        // Add remaining text
-        new_text.push_str(&result.text[last_end..]);
-
+        
+        println!("[SMART FORMATTER] Final text: '{}'" , text);
+        info!("[SMART FORMATTER] Final text: '{}'" , text);
+        
         FormattedText {
-            text: new_text,
+            text,
             formatting_applied: result.formatting_applied,
-            paragraphs_added: result.paragraphs_added,
-            lists_detected: result.lists_detected,
+            paragraphs_added: 0,
+            lists_detected: 0,
         }
     }
+
+    /// Clean up text after removing fillers
+    fn clean_after_removal(&self, mut text: String) -> String {
+        // Fix multiple commas
+        while text.contains(",,") {
+            text = text.replace(",,", ",");
+        }
+        
+        // Fix comma after period
+        text = text.replace(".,", ".");
+        text = text.replace("!,", "!");
+        text = text.replace("?,", "?");
+        
+        // Fix multiple spaces
+        while text.contains("  ") {
+            text = text.replace("  ", " ");
+        }
+        
+        // Fix space before punctuation
+        text = text.replace(" ,", ",");
+        text = text.replace(" .", ".");
+        text = text.replace(" !", "!");
+        text = text.replace(" ?", "?");
+        text = text.replace(" ;", ";");
+        text = text.replace(" :", ":");
+        
+        // Fix missing space after punctuation
+        let punctuation = [',', '.', '!', '?', ';', ':'];
+        let mut chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        while i < chars.len() - 1 {
+            if punctuation.contains(&chars[i]) && chars[i + 1].is_alphabetic() {
+                chars.insert(i + 1, ' ');
+                i += 1;
+            }
+            i += 1;
+        }
+        text = chars.into_iter().collect();
+        
+        // Capitalize first letter after period if needed
+        let mut chars: Vec<char> = text.chars().collect();
+        let mut capitalize_next = true;
+        
+        for i in 0..chars.len() {
+            if capitalize_next && chars[i].is_alphabetic() {
+                chars[i] = chars[i].to_uppercase().next().unwrap_or(chars[i]);
+                capitalize_next = false;
+            } else if chars[i] == '.' && i + 1 < chars.len() && chars[i + 1] == ' ' {
+                capitalize_next = true;
+            }
+        }
+        
+        chars.into_iter().collect::<String>().trim().to_string()
+    }
+
+
 }
 
 #[cfg(test)]
@@ -444,72 +402,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_paragraph_detection() {
+    fn test_basic_filler_removal() {
         let formatter = SmartFormatter::new();
         
-        let input = "This is the first topic. Now let's move on to something else.";
+        let input = "Um, this is the first topic. Uh, let's move on to something else.";
         let result = formatter.format(input);
         
-        assert!(result.text.contains("\n\n"));
-        assert_eq!(result.formatting_applied.len(), 1);
+        assert!(!result.text.contains("Um"));
+        assert!(!result.text.contains("Uh"));
+        assert_eq!(result.text, "This is the first topic. Let's move on to something else.");
     }
 
     #[test]
-    fn test_quoted_text_protection() {
+    fn test_sentence_starter_removal() {
         let formatter = SmartFormatter::new();
         
-        let input = "She said \"Now let's go\" and we left.";
+        let input = "So, she said \"Let's go\" and we left. Well, it was time to leave anyway.";
         let result = formatter.format(input);
         
-        // Should not add paragraph break inside quotes
-        assert!(!result.text.contains("\n\n"));
+        // Should remove sentence starters
+        assert!(!result.text.starts_with("So,"));
+        assert_eq!(result.text, "She said \"Let's go\" and we left. It was time to leave anyway.");
     }
 
     #[test]
-    fn test_list_detection_safety() {
-        let mut formatter = SmartFormatter::new();
-        formatter.list_detection = true;
+    fn test_filler_phrase_removal() {
+        let formatter = SmartFormatter::new();
         
-        // Should not detect as list with only one marker
-        let input = "First of all, I'd like to say hello.";
+        // Test "you know" and "I mean" removal
+        let input = "The project is, you know, really important. I mean, we need to finish it soon.";
         let result = formatter.format(input);
-        assert_eq!(result.text, input);
-        
-        // Should detect with multiple markers
-        let input2 = "First, we need to check. Second, we should verify. Third, we can proceed.";
-        let result2 = formatter.format(input2);
-        assert!(result2.text.contains("1. "));
+        assert!(!result.text.contains("you know"));
+        assert!(!result.text.contains("I mean"));
+        assert_eq!(result.text, "The project is really important. We need to finish it soon.");
     }
 
     #[test]
-    fn test_no_false_positive_paragraphs() {
+    fn test_mixed_filler_removal() {
         let formatter = SmartFormatter::new();
         
-        // Technical content with abbreviations
-        let text = "The U.S. economy is growing. So is the E.U. market.";
+        // Multiple fillers in one sentence
+        let text = "Well, um, I think we should, uh, reconsider.";
         let result = formatter.format(text);
-        assert!(result.text.contains("\n\n")); // "So" after period should trigger
+        assert_eq!(result.text, "I think we should reconsider.");
         
-        // URLs and paths should not trigger breaks
-        let text2 = "Visit example.com/page. Now check the results.";
+        // Sentence starters at different positions
+        let text2 = "Actually, this is important. So, pay attention.";
         let result2 = formatter.format(text2);
-        assert!(result2.text.contains("\n\n")); // "Now" should still trigger
+        assert_eq!(result2.text, "This is important. Pay attention.");
         
-        // Numbers and decimals
-        let text3 = "The temperature is 98.6 degrees. However it may vary.";
+        // Already clean example
+        let text3 = "Let me explain the problem.";
         let result3 = formatter.format(text3);
-        assert!(result3.text.contains("\n\n")); // "However" should trigger
+        assert_eq!(result3.text, "Let me explain the problem.");
     }
 
     #[test]
-    fn test_question_boundary_detection() {
+    fn test_case_insensitive_removal() {
         let formatter = SmartFormatter::new();
         
-        let text = "What do you think about this? Now let me explain why.";
+        let text = "UM, what do you think? well, let me explain. You Know, it's important.";
         let result = formatter.format(text);
         
-        // "Now" after question should trigger paragraph break
-        assert!(result.formatting_applied.len() > 0);
+        // Should remove fillers regardless of case
+        assert!(!result.text.contains("UM"));
+        assert!(!result.text.contains("well"));
+        assert!(!result.text.contains("You Know"));
     }
 
     #[test]
@@ -522,14 +480,14 @@ mod tests {
     }
 
     #[test]
-    fn test_preserve_existing_formatting() {
+    fn test_preserve_spacing() {
         let formatter = SmartFormatter::new();
         
-        // Already has paragraph breaks - should not modify
-        let text = "First paragraph.\n\nSecond paragraph.";
+        // Should clean up spaces after removal
+        let text = "The  um,  feature is  uh  ready.";
         let result = formatter.format(text);
-        assert_eq!(result.text, text);
-        assert_eq!(result.formatting_applied.len(), 0);
+        assert_eq!(result.text, "The feature is ready.");
+        assert!(!result.text.contains("  ")); // No double spaces
     }
 
     #[test]
@@ -537,174 +495,205 @@ mod tests {
         let mut formatter = SmartFormatter::new();
         formatter.enabled = false;
         
-        let text = "This should not be formatted. Now with multiple sentences.";
+        let text = "Um, this should not be formatted. Well, with multiple sentences.";
         let result = formatter.format(text);
         assert_eq!(result.text, text);
         assert_eq!(result.formatting_applied.len(), 0);
     }
 
     #[test]
-    fn test_dialogue_handling() {
+    fn test_preserve_meaning_words() {
         let formatter = SmartFormatter::new();
         
-        // Should not break short conversational exchanges
-        let text = "He said hello. She said hi back. They both smiled.";
+        // Should not remove "like" when it's a verb
+        let text = "I like this feature. It feels like magic.";
         let result = formatter.format(text);
-        // No transition words, so no breaks
-        assert_eq!(result.formatting_applied.len(), 0);
+        assert!(result.text.contains("I like this feature"));
+        assert!(result.text.contains("It feels like magic"));
         
-        // But should break with transition words
-        let text2 = "He said hello. So she decided to respond differently.";
+        // But should remove "like" as a filler at sentence start
+        let text2 = "Like, I was saying earlier.";
         let result2 = formatter.format(text2);
-        assert!(result2.formatting_applied.len() > 0);
+        assert_eq!(result2.text, "I was saying earlier.");
+    }
+    
+    #[test]
+    fn test_protected_phrases() {
+        let formatter = SmartFormatter::new();
+        
+        // Test case from user feedback - should preserve "you know what I mean"
+        let text = "You know what I mean when I say it's intuitive.";
+        let result = formatter.format(text);
+        assert_eq!(result.text, "You know what I mean when I say it's intuitive.");
+        
+        // Should still remove standalone fillers
+        let text2 = "The thing is, you know, really complex.";
+        let result2 = formatter.format(text2);
+        assert_eq!(result2.text, "The thing is really complex.");
+        
+        // Protected: "you know what"
+        let text3 = "Do you know what time it is?";
+        let result3 = formatter.format(text3);
+        assert_eq!(result3.text, "Do you know what time it is?");
+        
+        // Protected: "what I mean"
+        let text4 = "This is what I mean by intuitive design.";
+        let result4 = formatter.format(text4);
+        assert_eq!(result4.text, "This is what I mean by intuitive design.");
+        
+        // Should remove "I mean" at start
+        let text5 = "I mean, we should probably start now.";
+        let result5 = formatter.format(text5);
+        assert_eq!(result5.text, "We should probably start now.");
     }
 
     #[test]
-    fn test_confidence_threshold_filtering() {
-        let mut formatter = SmartFormatter::new();
-        formatter.confidence_threshold = 0.95; // Very high threshold
+    fn test_punctuation_cleanup() {
+        let formatter = SmartFormatter::new();
         
-        // Even with transition word, low confidence should prevent formatting
-        let text = "End of sentence. Next word here.";
+        // Test punctuation spacing after filler removal
+        let text = "The feature is um , really important .";
         let result = formatter.format(text);
-        // "Next" is a transition word but may not meet high confidence
-        // depending on context scoring
-        assert!(result.formatting_applied.is_empty() || 
-                result.formatting_applied.iter().all(|c| c.confidence == "high"));
+        assert_eq!(result.text, "The feature is, really important.");
+        
+        // Multiple punctuation issues
+        let text2 = "Well , this is important ; you know , very important .";
+        let result2 = formatter.format(text2);
+        assert_eq!(result2.text, "This is important; very important.");
     }
 
     #[test]
     fn test_real_world_transcription_scenarios() {
-        let mut formatter = SmartFormatter::new();
-        formatter.list_detection = true;
+        let formatter = SmartFormatter::new();
         
-        // Typical transcription with filler words removed by Whisper
-        let text = "so today i want to talk about the new features. \
-                   First we have improved search. \
-                   Second we added error handling. \
-                   Finally the performance is better. \
-                   So what do you think";
+        // Typical transcription with various fillers
+        let text = "So, today I want to talk about, um, the new features. \
+                   Well, first we have improved search. \
+                   Uh, second we added error handling. \
+                   Actually, the performance is better. \
+                   So, what do you think?";
         
         let result = formatter.format(text);
         
-        // Should detect list items
-        assert!(result.formatting_applied.iter().any(|c| c.change_type == "list_item"));
-        // Should add paragraph break after intro
-        assert!(result.formatting_applied.iter().any(|c| c.change_type == "paragraph_break"));
+        // Should remove all fillers
+        assert!(!result.text.contains("So,") || !result.text.starts_with("So,"));
+        assert!(!result.text.contains("um"));
+        assert!(!result.text.contains("Well,"));
+        assert!(!result.text.contains("Uh,"));
+        assert!(!result.text.contains("Actually,"));
     }
 
     #[test]
-    fn test_no_formatting_in_code_or_technical_content() {
+    fn test_edge_case_filler_variations() {
         let formatter = SmartFormatter::new();
         
-        // Technical content that looks like it might have transitions
-        let text = "Run git init. Next run git add. Finally git commit.";
+        // Test various filler variations
+        let text = "Ummm, let me think. Uhhh, maybe we should proceed. Errr, I'm not sure.";
         let result = formatter.format(text);
         
-        // Should still format as these are clear transitions
-        assert!(result.formatting_applied.len() > 0);
+        // Should remove all variations
+        assert!(!result.text.contains("Ummm"));
+        assert!(!result.text.contains("Uhhh"));
+        assert!(!result.text.contains("Errr"));
         
-        // But quoted commands should be protected
-        let text2 = "Type \"Next item please\" in the terminal.";
+        // Test repeated fillers with context-aware removal
+        let text2 = "It's, you know, really important.";
         let result2 = formatter.format(text2);
-        assert_eq!(result2.text, text2); // No changes in quoted text
+        assert_eq!(result2.text, "It's, really important."); // Note: comma preserved
     }
-
+    
     #[test]
-    fn test_content_type_detection() {
+    fn test_complex_edge_cases() {
         let formatter = SmartFormatter::new();
         
-        // List content
-        let list_text = "Here are the items. First item one. Second item two. Third item three.";
-        assert_eq!(formatter.detect_content_type(list_text), ContentType::List);
+        // Multiple protected phrases in one sentence
+        let text = "You know what I mean, and I mean it when I say this is important.";
+        let result = formatter.format(text);
+        assert_eq!(result.text, "You know what I mean, and I mean it when I say this is important.");
         
-        // Conversation with questions
-        let conv_text = "How are you? I'm fine thanks. What about you? Pretty good. Where are you going? To the store.";
-        assert_eq!(formatter.detect_content_type(conv_text), ContentType::Conversation);
+        // Filler at start but protected phrase later
+        let text2 = "Well, you know what the problem is.";
+        let result2 = formatter.format(text2);
+        assert_eq!(result2.text, "You know what the problem is.");
         
-        // Short notes
-        let notes_text = "Buy milk. Call Bob. Fix bug.";
-        assert_eq!(formatter.detect_content_type(notes_text), ContentType::Notes);
+        // Edge case: "sort of" and "kind of" with context
+        let text3 = "It's sort of, complicated, kind of, like a puzzle.";
+        let result3 = formatter.format(text3);
+        assert_eq!(result3.text, "It's complicated, like a puzzle.");
     }
+
 
     #[test]
     fn test_formatting_tracking_and_undo_capability() {
         let formatter = SmartFormatter::new();
         
-        let text = "First paragraph here. Now the second paragraph begins.";
+        let text = "Um, first paragraph here. Well, the second paragraph begins.";
         let result = formatter.format(text);
         
         // Check that changes are tracked
         assert!(!result.formatting_applied.is_empty());
         
-        // All changes should be undoable
-        assert!(result.formatting_applied.iter().all(|c| c.can_undo));
+        // Filler removal changes should not be undoable
+        assert!(result.formatting_applied.iter().all(|c| !c.can_undo));
         
-        // Position should be recorded correctly
+        // Should have correct change type
         let first_change = &result.formatting_applied[0];
-        assert!(first_change.position > 0);
-        assert!(first_change.position < text.len());
+        assert_eq!(first_change.change_type, "filler_removal");
     }
 
     #[test]
-    fn test_multiple_transition_words() {
+    fn test_filler_word_removal() {
         let formatter = SmartFormatter::new();
         
-        let text = "Introduction here. So let's begin. Next we'll cover basics. \
-                   Finally we'll do advanced topics. Therefore practice is important.";
-        
+        let text = "Um, I think we should, uh, move forward with the project.";
         let result = formatter.format(text);
         
-        // Should have multiple paragraph breaks
-        let break_count = result.formatting_applied.iter()
-            .filter(|c| c.change_type == "paragraph_break")
-            .count();
+        // Should remove fillers
+        assert!(!result.text.contains("Um"));
+        assert!(!result.text.contains("uh"));
+        assert_eq!(result.text, "I think we should move forward with the project.");
         
-        assert!(break_count >= 3); // At least 3 transitions should be detected
+        // Should track changes
+        assert!(!result.formatting_applied.is_empty());
+        assert_eq!(result.formatting_applied[0].change_type, "filler_removal");
     }
 
     #[test] 
-    fn test_abbreviation_handling() {
+    fn test_filler_phrase_removal() {
         let formatter = SmartFormatter::new();
         
-        // Common abbreviations shouldn't break formatting
-        let text = "Dr. Smith arrived. However he was late.";
+        let text = "The feature is, you know, really important.";
         let result = formatter.format(text);
         
-        // Should only break at "However", not after "Dr."
-        assert_eq!(result.formatting_applied.len(), 1);
-        assert!(result.text.contains(".\n\nHowever"));
+        // Should remove "you know"
+        assert!(!result.text.contains("you know"));
+        assert_eq!(result.text, "The feature is really important.");
     }
 
     #[test]
-    fn test_ngram_model_loading() {
-        // Test that formatter can be created with or without model
+    fn test_capitalization_after_removal() {
         let formatter = SmartFormatter::new();
         
-        // Should work even without n-gram model
-        let text = "Test sentence. Now another one.";
+        // Test capitalization is maintained
+        let text = "well, the project started in January. so, we need to finish by March.";
         let result = formatter.format(text);
         
-        // Basic functionality should still work
-        assert!(result.formatting_applied.len() >= 0);
+        // Should capitalize after removing sentence starters
+        assert_eq!(result.text, "The project started in January. We need to finish by March.");
     }
 
     #[test]
-    fn test_character_level_boundary_detection() {
-        let formatter = SmartFormatter::new();
+    fn test_selective_filler_settings() {
+        // Test with only basic fillers enabled
+        let formatter = SmartFormatter::with_settings(true, false, false);
         
-        // Test with various character-level patterns
-        let text = "This ends with punctuation. So this should break.";
+        let text = "Um, I think this is good. Well, you know, it works.";
         let result = formatter.format(text);
         
-        assert!(result.text.contains("\n\n"));
-        
-        // Test without clear transition word
-        let text2 = "Simple sentence here. Another simple sentence.";
-        let result2 = formatter.format(text2);
-        
-        // Without transition words and without n-gram model, no break
-        assert_eq!(result2.formatting_applied.len(), 0);
+        // Should only remove "Um", not "Well" or "you know"
+        assert!(!result.text.contains("Um"));
+        assert!(result.text.contains("Well"));
+        assert!(result.text.contains("you know"));
     }
 
     #[test]
@@ -713,12 +702,12 @@ mod tests {
         
         let formatter = SmartFormatter::new();
         
-        // Generate large text
+        // Generate large text with fillers
         let mut large_text = String::new();
         for i in 0..100 {
-            large_text.push_str(&format!("This is sentence number {}. ", i));
+            large_text.push_str(&format!("Um, this is sentence number {}. ", i));
             if i % 10 == 0 {
-                large_text.push_str("Now let's move to the next topic. ");
+                large_text.push_str("Well, let's move to the next topic. ");
             }
         }
         
@@ -729,7 +718,8 @@ mod tests {
         // Should complete in reasonable time (< 100ms for ~100 sentences)
         assert!(duration.as_millis() < 100);
         
-        // Should find some paragraph breaks
-        assert!(result.paragraphs_added > 0);
+        // Should have removed fillers
+        assert!(!result.text.contains("Um"));
+        assert!(result.formatting_applied.len() > 0);
     }
 }
