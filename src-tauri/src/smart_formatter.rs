@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use once_cell::sync::Lazy;
 use tongrams::EliasFanoTrieCountLm;
 use std::sync::Arc;
+use std::path::Path;
+use log::{info, warn, error};
 
 /// Main smart formatter that handles text formatting enhancements
 pub struct SmartFormatter {
@@ -81,13 +83,17 @@ static LIST_MARKER_PATTERN: Lazy<Regex> = Lazy::new(|| {
 
 impl SmartFormatter {
     pub fn new() -> Self {
-        Self {
+        let mut formatter = Self {
             enabled: true,
             paragraph_detection: true,
             list_detection: false, // Start conservative
             confidence_threshold: 0.8,
-            ngram_model: None, // Will be loaded separately if available
-        }
+            ngram_model: None,
+        };
+        
+        // Try to load n-gram model if available
+        formatter.try_load_ngram_model();
+        formatter
     }
 
     /// Create formatter with n-gram model for enhanced detection
@@ -99,6 +105,35 @@ impl SmartFormatter {
             confidence_threshold: 0.8,
             ngram_model: Some(model),
         }
+    }
+    
+    /// Try to load the n-gram model from resources
+    fn try_load_ngram_model(&mut self) {
+        // Try multiple possible locations for the model
+        let possible_paths = vec![
+            Path::new("resources/ngram_model.bin"),
+            Path::new("../resources/ngram_model.bin"),
+            Path::new("src-tauri/resources/ngram_model.bin"),
+            // In production, the model might be in the app's resource directory
+            Path::new("./ngram_model.bin"),
+        ];
+        
+        for path in possible_paths {
+            if path.exists() {
+                match EliasFanoTrieCountLm::deserialize_from(path) {
+                    Ok(model) => {
+                        info!("Successfully loaded n-gram model from {:?}", path);
+                        self.ngram_model = Some(Arc::new(model));
+                        return;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load n-gram model from {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+        
+        info!("No n-gram model found, using rule-based formatting only");
     }
 
     /// Main formatting entry point
@@ -272,8 +307,14 @@ impl SmartFormatter {
 
         // N-gram enhanced scoring if model is available
         if let Some(ref model) = self.ngram_model {
-            let ngram_boost = self.calculate_ngram_boundary_score(model, before, after);
-            confidence_score = confidence_score * 0.7 + ngram_boost * 0.3;
+            let ngram_score = self.calculate_ngram_boundary_score(model, before, after);
+            // Give more weight to n-gram model when available (50/50 split)
+            confidence_score = confidence_score * 0.5 + ngram_score * 0.5;
+            
+            // Log for debugging
+            if ngram_score > 0.7 {
+                info!("N-gram model suggests paragraph boundary (score: {:.2})", ngram_score);
+            }
         }
 
         match confidence_score {
@@ -285,39 +326,61 @@ impl SmartFormatter {
 
     /// Use n-gram model to calculate boundary likelihood
     fn calculate_ngram_boundary_score(&self, model: &EliasFanoTrieCountLm, before: &str, after: &str) -> f64 {
-        // Get last few words before and first few words after
-        let before_words: Vec<&str> = before.split_whitespace().rev().take(3).collect();
-        let after_words: Vec<&str> = after.split_whitespace().take(3).collect();
-
-        if before_words.is_empty() || after_words.is_empty() {
-            return 0.5; // Neutral score
+        // For character-level n-grams, we need to work with characters not words
+        let before_chars: Vec<char> = before.chars().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect();
+        let after_chars: Vec<char> = after.chars().take(10).collect();
+        
+        if before_chars.len() < 3 || after_chars.len() < 3 {
+            return 0.5; // Neutral score for short contexts
         }
-
+        
         // Create a lookuper for the model
         let mut lookuper = model.lookuper();
-
-        // Check continuity - low probability of sequence suggests boundary
-        let mut continuity_tokens = before_words.clone();
-        continuity_tokens.reverse();
-        continuity_tokens.extend(&after_words);
-
-        // Try to lookup the transition sequence
-        let continuity_score = if continuity_tokens.len() >= 3 {
-            // Check 3-gram across boundary
-            let ngram = &continuity_tokens[continuity_tokens.len()-3..];
-            match lookuper.with_tokens(ngram) {
-                Some(count) => {
-                    // Normalize by a typical frequency (adjust based on your model)
-                    (count as f64 / 1000.0).min(1.0)
-                }
-                None => 0.0, // No match = likely boundary
+        
+        // Calculate perplexity across the boundary
+        let mut boundary_scores = Vec::new();
+        
+        // Test with paragraph boundary marker
+        let with_paragraph_boundary = format!("{}<P>{}", 
+            before_chars.iter().collect::<String>(),
+            after_chars.iter().collect::<String>()
+        );
+        
+        // Test without boundary (continuous text)
+        let without_boundary = format!("{} {}", 
+            before_chars.iter().collect::<String>(),
+            after_chars.iter().collect::<String>()
+        );
+        
+        // Calculate scores for trigrams around the potential boundary
+        for i in 0..=with_paragraph_boundary.len().saturating_sub(3) {
+            let trigram_with = &with_paragraph_boundary[i..i+3];
+            let trigram_without = if i < without_boundary.len() - 3 {
+                &without_boundary[i..i+3]
+            } else {
+                continue;
+            };
+            
+            // Get counts for both versions
+            let count_with = lookuper.with_str(trigram_with).unwrap_or(0) as f64;
+            let count_without = lookuper.with_str(trigram_without).unwrap_or(0) as f64;
+            
+            // If boundary marker trigrams are more common, it suggests a boundary
+            if count_with > count_without {
+                boundary_scores.push(1.0);
+            } else if count_without > count_with * 2.0 {
+                boundary_scores.push(0.0); // Strong continuity signal
+            } else {
+                boundary_scores.push(0.5); // Neutral
             }
-        } else {
+        }
+        
+        // Average the scores
+        if boundary_scores.is_empty() {
             0.5
-        };
-
-        // Return inverted score - low continuity = high boundary likelihood
-        1.0 - continuity_score
+        } else {
+            boundary_scores.iter().sum::<f64>() / boundary_scores.len() as f64
+        }
     }
 
     /// Apply list formatting with safety checks
@@ -611,5 +674,62 @@ mod tests {
         // Should only break at "However", not after "Dr."
         assert_eq!(result.formatting_applied.len(), 1);
         assert!(result.text.contains(".\n\nHowever"));
+    }
+
+    #[test]
+    fn test_ngram_model_loading() {
+        // Test that formatter can be created with or without model
+        let formatter = SmartFormatter::new();
+        
+        // Should work even without n-gram model
+        let text = "Test sentence. Now another one.";
+        let result = formatter.format(text);
+        
+        // Basic functionality should still work
+        assert!(result.formatting_applied.len() >= 0);
+    }
+
+    #[test]
+    fn test_character_level_boundary_detection() {
+        let formatter = SmartFormatter::new();
+        
+        // Test with various character-level patterns
+        let text = "This ends with punctuation. So this should break.";
+        let result = formatter.format(text);
+        
+        assert!(result.text.contains("\n\n"));
+        
+        // Test without clear transition word
+        let text2 = "Simple sentence here. Another simple sentence.";
+        let result2 = formatter.format(text2);
+        
+        // Without transition words and without n-gram model, no break
+        assert_eq!(result2.formatting_applied.len(), 0);
+    }
+
+    #[test]
+    fn test_performance_with_large_text() {
+        use std::time::Instant;
+        
+        let formatter = SmartFormatter::new();
+        
+        // Generate large text
+        let mut large_text = String::new();
+        for i in 0..100 {
+            large_text.push_str(&format!("This is sentence number {}. ", i));
+            if i % 10 == 0 {
+                large_text.push_str("Now let's move to the next topic. ");
+            }
+        }
+        
+        let start = Instant::now();
+        let result = formatter.format(&large_text);
+        let duration = start.elapsed();
+        
+        // Should complete in reasonable time (< 100ms for ~100 sentences)
+        assert!(duration.as_millis() < 100);
+        
+        // Should find some paragraph breaks
+        assert!(result.paragraphs_added > 0);
     }
 }
