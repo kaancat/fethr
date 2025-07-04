@@ -198,6 +198,7 @@ impl AudioDeviceManager {
     }
 
     /// Get default device info
+    #[allow(dead_code)]
     pub fn get_default_device(&self) -> Option<AudioDeviceInfo> {
         if let Some(default_device) = self.host.default_input_device() {
             if let Ok(name) = default_device.name() {

@@ -1,5 +1,25 @@
 # Cleanup Manifest - January 2025
 
+## Phase 2: Dead Code Cleanup
+
+### Code Modifications
+- Added `#[allow(dead_code)]` attributes to preserve potentially useful but currently unused code:
+  - `main.rs`: SubscriptionData and UserStatsData structs
+  - `auth_manager.rs`: Module-level allow for session caching code
+  - `stats_queue.rs`: Module-level allow for retry queue functionality
+  - `dictionary_corrector.rs`: stats() method and DictionaryStats struct
+  - `word_usage_tracker.rs`: save_to_file() method
+  - `audio_devices.rs`: get_default_device() method
+
+### Analysis Results
+- **Supabase Structure**: Found 12 migration files and 2 edge functions (create-checkout, stripe-webhook)
+- **Build Artifacts**: 8.1GB in `src-tauri/target/` (use `cargo clean` to remove)
+- **Stats Queue**: Module is actively used for failed stats retry, kept with allow attributes
+
+---
+
+# Cleanup Manifest - Phase 1
+
 ## Files Deleted
 
 ### Python Artifacts

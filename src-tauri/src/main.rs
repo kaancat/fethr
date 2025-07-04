@@ -79,11 +79,13 @@ pub struct DashboardStats {
 // --- END Dashboard Stats Struct ---
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct SubscriptionData {
     word_usage_this_period: i64,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct UserStatsData {
     daily_streak: i32,
 }

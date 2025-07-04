@@ -187,6 +187,7 @@ impl UsageTracker {
     }
     
     /// Save usage data to persistent storage
+    #[allow(dead_code)]
     pub fn save_to_file(path: &std::path::Path) -> Result<(), String> {
         let tracker = WORD_USAGE.lock().unwrap();
         

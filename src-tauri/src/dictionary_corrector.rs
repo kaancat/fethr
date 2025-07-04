@@ -320,6 +320,7 @@ impl DictionaryCorrector {
     }
     
     /// Get statistics about the dictionary
+    #[allow(dead_code)]
     pub fn stats(&self) -> DictionaryStats {
         DictionaryStats {
             word_count: self.word_map.len(),
@@ -334,6 +335,7 @@ impl DictionaryCorrector {
 
 /// Statistics about the dictionary corrector
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct DictionaryStats {
     pub word_count: usize,
     pub average_word_length: f32,
