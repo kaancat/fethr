@@ -9,6 +9,7 @@ pub struct SmartFormatter {
     filler_removal: bool,
     remove_phrases: bool, // Remove multi-word fillers like "you know"
     remove_sentence_starters: bool, // Remove "So," "Well," at sentence start
+    #[allow(dead_code)]
     preserve_meaning: bool, // Be conservative to avoid changing meaning
 }
 
@@ -87,6 +88,7 @@ impl SmartFormatter {
     }
 
     /// Create formatter with custom settings
+    #[allow(dead_code)]
     pub fn with_settings(filler_removal: bool, remove_phrases: bool, remove_starters: bool) -> Self {
         Self {
             enabled: true,
@@ -125,6 +127,7 @@ impl SmartFormatter {
     }
 
     /// Find regions within quotes to avoid formatting (unused but kept for future)
+    #[allow(dead_code)]
     fn find_quoted_regions(&self, text: &str) -> Vec<(usize, usize)> {
         let mut regions = Vec::new();
         let mut in_quote = false;
@@ -146,6 +149,7 @@ impl SmartFormatter {
     }
 
     /// Check if position is within a quoted region
+    #[allow(dead_code)]
     fn is_in_quotes(&self, position: usize, quoted_regions: &[(usize, usize)]) -> bool {
         quoted_regions.iter().any(|(start, end)| position >= *start && position <= *end)
     }

@@ -106,8 +106,8 @@ const contentAnimationVariants = {
     exit: { opacity: 0, scale: 0.9, transition: { duration: 0.1, ease: "circIn" } }
 };
 
-const featherIconPath = "/feather-logo.png";
-const editIconPath = "/Icons/edit icon.png";
+const featherIconPath = "/assets/logos/fethr-icon.png";
+const editIconPath = "/assets/logos/fethr-icon.svg";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
     const isIdle = currentState === RecordingState.IDLE;
