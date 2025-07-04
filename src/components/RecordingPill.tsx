@@ -107,7 +107,7 @@ const contentAnimationVariants = {
 };
 
 const featherIconPath = "/assets/logos/fethr-icon.png";
-const editIconPath = "/assets/logos/fethr-icon.svg";
+const editIconPath = "/Icons/edit icon.png";
 
 const RecordingPill: React.FC<RecordingPillProps> = ({ currentState, duration, transcription, error, backendError, showUpgradePrompt, isResizing, onEditClick, onErrorDismiss, onUpgradeClick }) => {
     const isIdle = currentState === RecordingState.IDLE;

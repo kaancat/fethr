@@ -198,7 +198,7 @@ function HistoryPage({ user, loadingAuth }: HistoryPageProps) {
                             }}
                             title="Edit Transcription"
                           >
-                            <img src="/assets/logos/fethr-icon.svg" alt="Edit" className="w-5 h-5" />
+                            <img src="/Icons/edit icon.png" alt="Edit" className="w-5 h-5" />
                           </Button>
                           <Button
                             variant="ghost"
